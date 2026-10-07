@@ -1,6 +1,7 @@
 /** Claves estables: no borrar datos del usuario en actualizaciones */
 const POSTS_KEY = "rfs-ops-posts";
 const REPORTS_KEY = "rfs-ops-reports";
+const EMPLOYEES_KEY = "rfs-ops-employees";
 const ADMIN_SESSION_KEY = "rfs-admin-unlocked";
 const ADMIN_PASSWORD = "mitesoro01";
 const MAX_GUARDS = 20;
@@ -28,6 +29,8 @@ const TYPE_LABEL = {
 
 let posts = [];
 let reports = [];
+let employees = [];
+let selectedEmployeeId = null;
 let map;
 let markersLayer;
 let selectedId = null;
@@ -83,7 +86,261 @@ function normalizeGuard(g = {}) {
     companyEntryDate: g.companyEntryDate || g.entryDate || "",
     weapons: g.weapons || "",
     serial: g.serial || g.license || "",
+    role: g.role || "",
   };
+}
+
+function employeeKey(name) {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeEmployee(e = {}) {
+  const name = (e.name || "").trim();
+  return {
+    id: e.id || `emp-${employeeKey(name).replace(/\s+/g, "-").slice(0, 40) || Date.now()}`,
+    key: e.key || employeeKey(name),
+    name,
+    phone: e.phone || "",
+    cedula: e.cedula || "",
+    companyEntryDate: e.companyEntryDate || "",
+    weapons: e.weapons || "",
+    serial: e.serial || "",
+    note: e.note || "",
+    roles: Array.isArray(e.roles) ? e.roles.filter(Boolean) : [],
+    sites: Array.isArray(e.sites) ? e.sites.filter(Boolean) : [],
+    updatedAt: e.updatedAt || new Date().toISOString(),
+  };
+}
+
+function preferFill(current, incoming) {
+  const cur = (current || "").trim();
+  const next = (incoming || "").trim();
+  if (!cur && next) return next;
+  return cur;
+}
+
+function mergeEmployeeRecord(base, incoming) {
+  const out = normalizeEmployee({
+    ...base,
+    name: base.name || incoming.name,
+    phone: preferFill(base.phone, incoming.phone),
+    cedula: preferFill(base.cedula, incoming.cedula),
+    companyEntryDate: preferFill(base.companyEntryDate, incoming.companyEntryDate),
+    weapons: preferFill(base.weapons, incoming.weapons),
+    serial: preferFill(base.serial, incoming.serial),
+    note: preferFill(base.note, incoming.note),
+    roles: [...new Set([...(base.roles || []), ...(incoming.roles || [])].filter(Boolean))],
+    sites: [...new Set([...(base.sites || []), ...(incoming.sites || [])].filter(Boolean))],
+    updatedAt: new Date().toISOString(),
+  });
+  out.key = employeeKey(out.name);
+  return out;
+}
+
+/** Recopila empleados desde todos los servicios sin borrar datos ya llenos */
+function rebuildEmployeesFromPosts(existingEmployees = employees) {
+  const map = new Map();
+  (existingEmployees || []).map(normalizeEmployee).forEach((e) => {
+    if (!e.name || e.name.toLowerCase() === "por asignar") return;
+    map.set(employeeKey(e.name), e);
+  });
+
+  posts.forEach((post) => {
+    (post.guards || []).forEach((g) => {
+      const name = (g.name || "").trim();
+      if (!name || name.toLowerCase() === "por asignar") return;
+      const key = employeeKey(name);
+      const incoming = normalizeEmployee({
+        name,
+        phone: g.phone,
+        cedula: g.cedula,
+        companyEntryDate: g.companyEntryDate,
+        weapons: g.weapons,
+        serial: g.serial,
+        roles: g.role ? [g.role] : [],
+        sites: post.site ? [post.site] : [],
+      });
+      if (map.has(key)) {
+        map.set(key, mergeEmployeeRecord(map.get(key), incoming));
+      } else {
+        map.set(key, incoming);
+      }
+    });
+  });
+
+  employees = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return employees;
+}
+
+function employeeSearchNeedle() {
+  const el = document.getElementById("employeeSearch");
+  return String(el && el.value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function employeeMatchesSearch(emp, needle) {
+  if (!needle) return true;
+  const blob = [emp.name, emp.phone, emp.cedula, emp.weapons, emp.serial, ...(emp.sites || []), ...(emp.roles || [])]
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return blob.includes(needle);
+}
+
+function employeeCompleteness(emp) {
+  const fields = [emp.phone, emp.cedula, emp.companyEntryDate, emp.weapons, emp.serial];
+  const filled = fields.filter((v) => String(v || "").trim()).length;
+  return { filled, total: fields.length };
+}
+
+function renderEmployees() {
+  const list = document.getElementById("employeesList");
+  const summary = document.getElementById("employeesSummary");
+  if (!list || !summary) return;
+
+  rebuildEmployeesFromPosts(employees);
+  const needle = employeeSearchNeedle();
+  const filtered = employees.filter((e) => employeeMatchesSearch(e, needle));
+  const complete = employees.filter((e) => employeeCompleteness(e).filled === employeeCompleteness(e).total).length;
+
+  summary.textContent = employees.length
+    ? `${employees.length} empleados · ${complete} con ficha completa · datos vacíos se llenan al editar servicios`
+    : "Sin empleados todavía. Aparecen al agregar vigilantes en los servicios.";
+
+  if (!filtered.length) {
+    list.innerHTML = employees.length
+      ? `<p class="empty">Ningún empleado coincide con la búsqueda.</p>`
+      : `<p class="empty">Todavía no hay personal. Guarda vigilantes en Admin y aparecerán aquí.</p>`;
+    return;
+  }
+
+  list.innerHTML = filtered
+    .map((e) => {
+      const { filled, total } = employeeCompleteness(e);
+      const sitesFixed = (e.sites || []).slice(0, 2).join(" · ") || "Sin servicio asignado";
+      const meta = [
+        e.phone ? `Tel: ${e.phone}` : "Tel: —",
+        e.cedula ? `Cédula: ${e.cedula}` : "Cédula: —",
+        `${filled}/${total} datos`,
+      ].join(" · ");
+      return `
+      <button class="employee-card" type="button" data-id="${escapeHtml(e.id)}">
+        <div class="row">
+          <div>
+            <h3>${escapeHtml(e.name)}</h3>
+            <p>${escapeHtml(sitesFixed)}</p>
+            <p style="margin-top:6px">${escapeHtml(meta)}</p>
+          </div>
+          <span class="status-pill ${filled === total ? "ok" : "warn"}">${filled}/${total}</span>
+        </div>
+      </button>`;
+    })
+    .join("");
+
+  list.querySelectorAll(".employee-card").forEach((btn) => {
+    btn.addEventListener("click", () => openEmployeeDetail(btn.dataset.id));
+  });
+}
+
+function getEmployee(id) {
+  return employees.find((e) => e.id === id);
+}
+
+function openEmployeeDetail(id) {
+  const emp = getEmployee(id);
+  if (!emp) {
+    toast("Empleado no encontrado.");
+    return;
+  }
+  selectedEmployeeId = emp.id;
+  document.getElementById("employeeDetailTitle").textContent = emp.name || "Empleado";
+  document.getElementById("eName").value = emp.name || "";
+  document.getElementById("ePhone").value = emp.phone || "";
+  document.getElementById("eCedula").value = emp.cedula || "";
+  document.getElementById("eEntry").value = emp.companyEntryDate || "";
+  document.getElementById("eWeapons").value = emp.weapons || "";
+  document.getElementById("eSerial").value = emp.serial || "";
+  document.getElementById("eNote").value = emp.note || "";
+  const sites = (emp.sites || []).join(", ") || "—";
+  const roles = (emp.roles || []).join(", ");
+  document.getElementById("eSites").textContent = roles
+    ? `Servicios: ${sites} · Roles: ${roles}`
+    : `Servicios: ${sites}`;
+  switchView("employeeDetailView");
+}
+
+/** Rellena campos vacíos de vigilantes en servicios con la ficha del empleado */
+function pushEmployeeIntoPosts(emp) {
+  const key = employeeKey(emp.name);
+  let touched = false;
+  posts.forEach((post) => {
+    (post.guards || []).forEach((g) => {
+      if (employeeKey(g.name) !== key) return;
+      const before = JSON.stringify(g);
+      g.phone = preferFill(g.phone, emp.phone);
+      g.cedula = preferFill(g.cedula, emp.cedula);
+      g.companyEntryDate = preferFill(g.companyEntryDate, emp.companyEntryDate);
+      g.weapons = preferFill(g.weapons, emp.weapons);
+      g.serial = preferFill(g.serial, emp.serial);
+      if (JSON.stringify(g) !== before) touched = true;
+    });
+  });
+  return touched;
+}
+
+function saveEmployeeDetail() {
+  if (!selectedEmployeeId) {
+    toast("No hay empleado seleccionado.");
+    return;
+  }
+  const idx = employees.findIndex((e) => e.id === selectedEmployeeId);
+  if (idx < 0) {
+    toast("Empleado no encontrado.");
+    return;
+  }
+  const name = document.getElementById("eName").value.trim();
+  if (!name) {
+    toast("El nombre es obligatorio.");
+    return;
+  }
+  const current = employees[idx];
+  const updated = normalizeEmployee({
+    ...current,
+    name,
+    phone: document.getElementById("ePhone").value.trim(),
+    cedula: document.getElementById("eCedula").value.trim(),
+    companyEntryDate: document.getElementById("eEntry").value,
+    weapons: document.getElementById("eWeapons").value.trim(),
+    serial: document.getElementById("eSerial").value.trim(),
+    note: document.getElementById("eNote").value.trim(),
+    updatedAt: new Date().toISOString(),
+  });
+  employees[idx] = updated;
+  selectedEmployeeId = updated.id;
+  const postsTouched = pushEmployeeIntoPosts(updated);
+  if (postsTouched) {
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+  }
+  rebuildEmployeesFromPosts(employees);
+  saveEmployees();
+  if (postsTouched) {
+    renderMarkers();
+    renderShifts();
+    renderFinance();
+    renderAdminList();
+  }
+  renderEmployees();
+  openEmployeeDetail(selectedEmployeeId);
+  toast("Empleado guardado. Los datos vacíos seguirán llenándose desde los servicios.");
 }
 
 function normalizePost(p = {}) {
@@ -159,11 +416,18 @@ function setCloudStatus(text) {
 
 function savePosts() {
   localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+  rebuildEmployeesFromPosts();
+  localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
   queueCloudSave();
 }
 
 function saveReports() {
   localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+  queueCloudSave();
+}
+
+function saveEmployees() {
+  localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
   queueCloudSave();
 }
 
@@ -180,7 +444,7 @@ async function pushToCloud() {
   cloudSaving = true;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -201,22 +465,26 @@ async function syncFromCloud() {
     const remote = await window.RFSCloudApi.loadCloud();
     const localPosts = posts;
     const localReports = reports;
+    const localEmployees = employees;
 
     if (remote.empty || (!remote.posts.length && !remote.reports.length)) {
-      // Primera vez: subir lo local / importado a la nube (sin borrar)
-      await window.RFSCloudApi.saveCloud(localPosts, localReports);
+      rebuildEmployeesFromPosts(localEmployees);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees);
+      localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
     }
 
-    // La nube manda para multi-dispositivo; se conserva también en local
     posts = remote.posts.map(normalizePost);
     reports = Array.isArray(remote.reports) ? remote.reports : [];
+    employees = Array.isArray(remote.employees) ? remote.employees.map(normalizeEmployee) : [];
+    rebuildEmployeesFromPosts(employees);
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     cloudReady = true;
-    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios`);
+    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados`);
     return { added: 0, usedCloud: true };
   } catch (err) {
     console.error(err);
@@ -776,6 +1044,7 @@ function switchView(viewId) {
     renderReports();
   }
   if (viewId === "financeView") renderFinance();
+  if (viewId === "employeesView") renderEmployees();
   if (viewId === "adminView") updateAdminGate();
 }
 
@@ -1121,10 +1390,11 @@ function saveReport() {
 function exportBackup() {
   const payload = {
     app: "Reaction Force Security Ops",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     posts,
     reports,
+    employees,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1184,13 +1454,25 @@ function restoreBackupMerge() {
           if (r && r.id && !reportIds.has(r.id)) reports.push(r);
         });
       }
+      if (Array.isArray(data.employees)) {
+        const byKey = new Map(employees.map((e) => [employeeKey(e.name), normalizeEmployee(e)]));
+        data.employees.map(normalizeEmployee).forEach((incoming) => {
+          if (!incoming.name) return;
+          const key = employeeKey(incoming.name);
+          if (byKey.has(key)) byKey.set(key, mergeEmployeeRecord(byKey.get(key), incoming));
+          else byKey.set(key, incoming);
+        });
+        employees = [...byKey.values()];
+      }
       savePosts();
       saveReports();
+      saveEmployees();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
       renderReports();
       renderFinance();
+      renderEmployees();
       renderAdminList();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
@@ -1209,13 +1491,17 @@ function restoreBackupReplace() {
     .then((data) => {
       posts = data.posts.map(normalizePost);
       reports = Array.isArray(data.reports) ? data.reports : [];
+      employees = Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [];
+      rebuildEmployeesFromPosts(employees);
       savePosts();
       saveReports();
+      saveEmployees();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
       renderReports();
       renderFinance();
+      renderEmployees();
       renderAdminList();
       toast("Respaldo restaurado (reemplazo completo).");
     })
@@ -1308,6 +1594,10 @@ function bindUi() {
     updateSelectedStatus("ok", "Check-in confirmado");
     toast("Check-in registrado.");
   });
+
+  document.getElementById("employeeSearch").addEventListener("input", () => renderEmployees());
+  document.getElementById("btnBackEmployees").addEventListener("click", () => switchView("employeesView"));
+  document.getElementById("btnSaveEmployee").addEventListener("click", saveEmployeeDetail);
 }
 
 async function mergeImportedPosts() {
@@ -1345,19 +1635,26 @@ document.addEventListener("DOMContentLoaded", async () => {
   // IMPORTANTE: nunca borrar datos del usuario
   posts = loadPreservingUserData(POSTS_KEY, LEGACY_POST_KEYS).map(normalizePost);
   reports = loadPreservingUserData(REPORTS_KEY, LEGACY_REPORT_KEYS);
+  employees = loadJson(EMPLOYEES_KEY, []).map(normalizeEmployee);
+  rebuildEmployeesFromPosts(employees);
 
   // 1) Intentar nube primero
   const cloud = await syncFromCloud();
 
   // 2) Si la nube estaba vacía o falló, completar con importación Word (solo agregar faltantes)
   const added = await mergeImportedPosts();
+  rebuildEmployeesFromPosts(employees);
   if (added > 0) {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     await pushToCloud();
     toast(`Se importaron ${added} servicios y se subieron a la nube.`);
   } else {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+    // Sube el listado consolidado a la nube (sin borrar servicios)
+    if (cloud.usedCloud && employees.length) await pushToCloud();
   }
 
   bindUi();
@@ -1370,6 +1667,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   fillReportPostSelect();
   renderReports();
   renderFinance();
+  renderEmployees();
 
   if (cloud.usedCloud && !added) {
     toast("Datos sincronizados desde la nube.");
