@@ -100,6 +100,11 @@
         <h1>Empleados</h1>
         <p id="employeesSummary">Listado único de todo el personal.</p>
       </div>
+      <div class="emp-tabs" role="tablist">
+        <button class="emp-tab active" type="button" data-emp-filter="active">Activos</button>
+        <button class="emp-tab" type="button" data-emp-filter="inactive">Eliminados / Inactivos</button>
+      </div>
+      <button id="btnAddEmployee" class="btn primary" type="button">Agregar empleado nuevo</button>
       <label class="search-label">
         Buscar empleado
         <input id="employeeSearch" type="search" placeholder="Nombre, cédula o teléfono" />
@@ -115,6 +120,10 @@
       </div>
       <div class="form-card">
         <label>Nombre completo<input id="eName" type="text" /></label>
+        <label class="check-row">
+          <input id="eMonorriel" type="checkbox" />
+          <span>Es del Monorriel</span>
+        </label>
         <div class="coords-row">
           <label>Teléfono<input id="ePhone" type="tel" /></label>
           <label>Cédula<input id="eCedula" type="text" /></label>
@@ -157,7 +166,37 @@
         </div>
 
         <p class="muted" id="eSites"></p>
+        <p id="eInactiveInfo" class="muted" hidden></p>
         <button id="btnSaveEmployee" class="btn primary" type="button">Guardar empleado</button>
+        <div id="empDeactivateBox" class="attach-block">
+          <h3 class="attach-title">Eliminar / pasar a inactivo</h3>
+          <p class="muted tight">No se borra: queda en Eliminados / Inactivos con la causa.</p>
+          <label>Causa de eliminación<textarea id="eInactiveReason" rows="2" placeholder="Ej. renuncia, despido, cambio de proyecto…"></textarea></label>
+          <button id="btnDeactivateEmployee" class="btn danger" type="button">Eliminar empleado</button>
+        </div>
+        <button id="btnReactivateEmployee" class="btn secondary" type="button" hidden>Reactivar empleado</button>
+      </div>
+    </section>
+
+    <section id="employeeNewView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackEmployeesFromNew" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1>Agregar empleado</h1>
+        <p class="muted">Alta manual. Luego puedes completar teléfono y documentos.</p>
+      </div>
+      <div class="form-card">
+        <label>Nombre completo<input id="nName" type="text" placeholder="Nombre y apellido" /></label>
+        <label class="check-row">
+          <input id="nMonorriel" type="checkbox" />
+          <span>Es del Monorriel</span>
+        </label>
+        <div class="coords-row">
+          <label>Teléfono<input id="nPhone" type="tel" /></label>
+          <label>Cédula<input id="nCedula" type="text" /></label>
+        </div>
+        <label>Fecha de entrada a la empresa<input id="nEntry" type="date" /></label>
+        <label>Notas<textarea id="nNote" rows="2" placeholder="Opcional"></textarea></label>
+        <button id="btnCreateEmployee" class="btn primary" type="button">Crear empleado</button>
       </div>
     </section>
 

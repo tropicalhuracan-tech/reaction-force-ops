@@ -31,6 +31,8 @@ let posts = [];
 let reports = [];
 let employees = [];
 let selectedEmployeeId = null;
+let employeeListFilter = "active"; // active | inactive
+let creatingEmployee = false;
 let pendingEmpPhoto = null; // data URL or "" to clear
 let pendingEmpDoc = null; // { dataUrl, name, mime } or null; use { dataUrl:"" } to clear
 const EMP_DOC_MAX_BYTES = 400 * 1024;
@@ -104,6 +106,7 @@ function employeeKey(name) {
 
 function normalizeEmployee(e = {}) {
   const name = (e.name || "").trim();
+  const status = e.status === "inactive" ? "inactive" : "active";
   return {
     id: e.id || `emp-${employeeKey(name).replace(/\s+/g, "-").slice(0, 40) || Date.now()}`,
     key: e.key || employeeKey(name),
@@ -120,8 +123,31 @@ function normalizeEmployee(e = {}) {
     documentMime: e.documentMime || "",
     roles: Array.isArray(e.roles) ? e.roles.filter(Boolean) : [],
     sites: Array.isArray(e.sites) ? e.sites.filter(Boolean) : [],
+    status,
+    inactiveReason: e.inactiveReason || "",
+    inactiveAt: e.inactiveAt || "",
     updatedAt: e.updatedAt || new Date().toISOString(),
   };
+}
+
+function isEmployeeActive(emp) {
+  return !emp || emp.status !== "inactive";
+}
+
+function applyMonorrielFlag(emp, isMono) {
+  const out = normalizeEmployee(emp);
+  let name = monoBaseName(out.name) || out.name;
+  if (isMono) {
+    name = monoDisplayName(name);
+    out.sites = [...new Set([...(out.sites || []), "Monorriel"])];
+    out.roles = [...new Set([...(out.roles || []), "Monorriel"])];
+  } else {
+    out.sites = (out.sites || []).filter((s) => !/monorriel/i.test(s));
+    out.roles = (out.roles || []).filter((r) => !/monorriel/i.test(r));
+  }
+  out.name = name;
+  out.key = employeeKey(out.name);
+  return out;
 }
 
 function preferFill(current, incoming) {
@@ -147,6 +173,9 @@ function mergeEmployeeRecord(base, incoming) {
     documentMime: preferFill(base.documentMime, incoming.documentMime),
     roles: [...new Set([...(base.roles || []), ...(incoming.roles || [])].filter(Boolean))],
     sites: [...new Set([...(base.sites || []), ...(incoming.sites || [])].filter(Boolean))],
+    status: base.status === "inactive" ? "inactive" : incoming.status === "inactive" ? "inactive" : "active",
+    inactiveReason: preferFill(base.inactiveReason, incoming.inactiveReason),
+    inactiveAt: preferFill(base.inactiveAt, incoming.inactiveAt),
     updatedAt: new Date().toISOString(),
   });
   out.key = employeeKey(out.name);
@@ -220,17 +249,38 @@ function renderEmployees() {
 
   rebuildEmployeesFromPosts(employees);
   const needle = employeeSearchNeedle();
-  const filtered = employees.filter((e) => employeeMatchesSearch(e, needle));
-  const complete = employees.filter((e) => employeeCompleteness(e).filled === employeeCompleteness(e).total).length;
+  const activeCount = employees.filter(isEmployeeActive).length;
+  const inactiveCount = employees.filter((e) => !isEmployeeActive(e)).length;
 
-  summary.textContent = employees.length
-    ? `${employees.length} empleados · ${complete} con ficha completa · datos vacíos se llenan al editar servicios`
-    : "Sin empleados todavía. Aparecen al agregar vigilantes en los servicios.";
+  document.querySelectorAll(".emp-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.empFilter === employeeListFilter);
+  });
+
+  const pool = employees.filter((e) =>
+    employeeListFilter === "inactive" ? !isEmployeeActive(e) : isEmployeeActive(e)
+  );
+  const filtered = pool.filter((e) => employeeMatchesSearch(e, needle));
+  const complete = pool.filter((e) => isEmployeeActive(e) && employeeCompleteness(e).filled === employeeCompleteness(e).total).length;
+
+  if (employeeListFilter === "inactive") {
+    summary.textContent = inactiveCount
+      ? `${inactiveCount} empleados inactivos / eliminados`
+      : "No hay empleados eliminados.";
+  } else {
+    summary.textContent = activeCount
+      ? `${activeCount} activos · ${inactiveCount} inactivos · datos vacíos se llenan al editar servicios`
+      : "Sin empleados activos. Usa “Agregar empleado nuevo”.";
+  }
+
+  const addBtn = document.getElementById("btnAddEmployee");
+  if (addBtn) addBtn.hidden = employeeListFilter === "inactive";
 
   if (!filtered.length) {
-    list.innerHTML = employees.length
+    list.innerHTML = pool.length
       ? `<p class="empty">Ningún empleado coincide con la búsqueda.</p>`
-      : `<p class="empty">Todavía no hay personal. Guarda vigilantes en Admin y aparecerán aquí.</p>`;
+      : employeeListFilter === "inactive"
+        ? `<p class="empty">Todavía no hay empleados eliminados.</p>`
+        : `<p class="empty">Todavía no hay personal activo. Agrega uno o guárdalo desde un servicio / Monorriel.</p>`;
     return;
   }
 
@@ -238,16 +288,20 @@ function renderEmployees() {
     .map((e) => {
       const { filled, total } = employeeCompleteness(e);
       const sitesFixed = (e.sites || []).slice(0, 2).join(" · ") || "Sin servicio asignado";
-      const meta = [
-        e.phone ? `Tel: ${e.phone}` : "Tel: —",
-        e.cedula ? `Cédula: ${e.cedula}` : "Cédula: —",
-        e.documentData ? "Doc ✓" : "Sin doc",
-        `${filled}/${total} datos`,
-      ].join(" · ");
+      const meta = isEmployeeActive(e)
+        ? [
+            e.phone ? `Tel: ${e.phone}` : "Tel: —",
+            e.cedula ? `Cédula: ${e.cedula}` : "Cédula: —",
+            e.documentData ? "Doc ✓" : "Sin doc",
+            `${filled}/${total} datos`,
+          ].join(" · ")
+        : `Causa: ${e.inactiveReason || "—"} · ${e.inactiveAt ? e.inactiveAt.slice(0, 10) : ""}`;
       const initial = escapeHtml((e.name || "?").trim().charAt(0).toUpperCase() || "?");
       const avatar = e.photo
         ? `<img class="avatar" src="${e.photo}" alt="" />`
         : `<span class="avatar placeholder">${initial}</span>`;
+      const pill = !isEmployeeActive(e) ? "alert" : filled === total ? "ok" : "warn";
+      const pillText = !isEmployeeActive(e) ? "Inactivo" : `${filled}/${total}`;
       return `
       <button class="employee-card" type="button" data-id="${escapeHtml(e.id)}">
         <div class="row">
@@ -257,7 +311,7 @@ function renderEmployees() {
             <p>${escapeHtml(sitesFixed)}</p>
             <p style="margin-top:6px">${escapeHtml(meta)}</p>
           </div>
-          <span class="status-pill ${filled === total ? "ok" : "warn"}">${filled}/${total}</span>
+          <span class="status-pill ${pill}">${pillText}</span>
         </div>
       </button>`;
     })
@@ -266,6 +320,147 @@ function renderEmployees() {
   list.querySelectorAll(".employee-card").forEach((btn) => {
     btn.addEventListener("click", () => openEmployeeDetail(btn.dataset.id));
   });
+}
+
+function openNewEmployeeForm() {
+  creatingEmployee = true;
+  document.getElementById("nName").value = "";
+  document.getElementById("nMonorriel").checked = false;
+  document.getElementById("nPhone").value = "";
+  document.getElementById("nCedula").value = "";
+  document.getElementById("nEntry").value = "";
+  document.getElementById("nNote").value = "";
+  switchView("employeeNewView");
+}
+
+function createEmployeeManual() {
+  let name = document.getElementById("nName").value.trim();
+  if (!name) {
+    toast("Escribe el nombre del empleado.");
+    return;
+  }
+  const isMono = document.getElementById("nMonorriel").checked;
+  if (isMono) name = monoDisplayName(name);
+  const key = employeeKey(name);
+  const keyBase = employeeKey(monoBaseName(name));
+  const exists = employees.find(
+    (e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase
+  );
+  if (exists) {
+    if (!isEmployeeActive(exists)) {
+      toast("Ese nombre está en inactivos. Ábrelo y reactívalo si aplica.");
+      employeeListFilter = "inactive";
+      openEmployeeDetail(exists.id);
+      return;
+    }
+    toast("Ese empleado ya existe. Se abrió su ficha.");
+    openEmployeeDetail(exists.id);
+    return;
+  }
+  const emp = normalizeEmployee({
+    name,
+    phone: document.getElementById("nPhone").value.trim(),
+    cedula: document.getElementById("nCedula").value.trim(),
+    companyEntryDate: document.getElementById("nEntry").value,
+    note: document.getElementById("nNote").value.trim(),
+    sites: isMono ? ["Monorriel"] : [],
+    roles: isMono ? ["Monorriel"] : [],
+    status: "active",
+  });
+  employees.unshift(emp);
+  employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  saveEmployees();
+  creatingEmployee = false;
+  employeeListFilter = "active";
+  renderEmployees();
+  openEmployeeDetail(emp.id);
+  toast("Empleado creado. Completa el resto de datos cuando quieras.");
+}
+
+function deactivateSelectedEmployee() {
+  if (!selectedEmployeeId) return;
+  const idx = employees.findIndex((e) => e.id === selectedEmployeeId);
+  if (idx < 0) return;
+  const reason = document.getElementById("eInactiveReason").value.trim();
+  if (!reason) {
+    toast("Escribe la causa de la eliminación.");
+    return;
+  }
+  const ok = window.confirm("El empleado pasará a Inactivos / Eliminados. ¿Continuar?");
+  if (!ok) return;
+  const current = employees[idx];
+  employees[idx] = normalizeEmployee({
+    ...current,
+    status: "inactive",
+    inactiveReason: reason,
+    inactiveAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  saveEmployees();
+  employeeListFilter = "inactive";
+  renderEmployees();
+  openEmployeeDetail(selectedEmployeeId);
+  toast("Empleado pasado a inactivos.");
+}
+
+function reactivateSelectedEmployee() {
+  if (!selectedEmployeeId) return;
+  const idx = employees.findIndex((e) => e.id === selectedEmployeeId);
+  if (idx < 0) return;
+  const current = employees[idx];
+  employees[idx] = normalizeEmployee({
+    ...current,
+    status: "active",
+    inactiveReason: "",
+    inactiveAt: "",
+    updatedAt: new Date().toISOString(),
+  });
+  saveEmployees();
+  employeeListFilter = "active";
+  renderEmployees();
+  openEmployeeDetail(selectedEmployeeId);
+  toast("Empleado reactivado.");
+}
+
+/** Crea o reutiliza empleado Monorriel al escribir un nombre nuevo en el reporte */
+function ensureEmployeeFromMonoName(rawName) {
+  const base = String(rawName || "").trim();
+  if (!base || base.toLowerCase() === "vacante") return null;
+  const display = monoDisplayName(base);
+  const key = employeeKey(display);
+  const keyBase = employeeKey(monoBaseName(display));
+  let existing = employees.find(
+    (e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase
+  );
+  if (existing) {
+    const idx = employees.findIndex((e) => e.id === existing.id);
+    let merged = applyMonorrielFlag(existing, true);
+    if (!isEmployeeActive(merged)) {
+      // Si estaba inactivo y lo usan otra vez en Monorriel, reactivar
+      merged = normalizeEmployee({
+        ...merged,
+        status: "active",
+        inactiveReason: "",
+        inactiveAt: "",
+        updatedAt: new Date().toISOString(),
+      });
+      toast(`${merged.name} estaba inactivo y se reactivó al usarlo en Monorriel.`);
+    }
+    employees[idx] = merged;
+    saveEmployees();
+    return employees[idx];
+  }
+  const emp = normalizeEmployee({
+    name: display,
+    sites: ["Monorriel"],
+    roles: ["Monorriel"],
+    status: "active",
+  });
+  employees.push(emp);
+  employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  saveEmployees();
+  toast(`Se agregó a empleados: ${emp.name}`);
+  return emp;
 }
 
 function getEmployee(id) {
@@ -472,10 +667,12 @@ function openEmployeeDetail(id) {
     return;
   }
   selectedEmployeeId = emp.id;
+  creatingEmployee = false;
   pendingEmpPhoto = null;
   pendingEmpDoc = null;
   document.getElementById("employeeDetailTitle").textContent = emp.name || "Empleado";
-  document.getElementById("eName").value = emp.name || "";
+  document.getElementById("eName").value = monoBaseName(emp.name) || emp.name || "";
+  document.getElementById("eMonorriel").checked = isMonorrielEmployee(emp);
   document.getElementById("ePhone").value = emp.phone || "";
   document.getElementById("eCedula").value = emp.cedula || "";
   document.getElementById("eEntry").value = emp.companyEntryDate || "";
@@ -484,11 +681,26 @@ function openEmployeeDetail(id) {
   document.getElementById("eNote").value = emp.note || "";
   document.getElementById("ePhotoFile").value = "";
   document.getElementById("eDocFile").value = "";
+  document.getElementById("eInactiveReason").value = "";
   const sites = (emp.sites || []).join(", ") || "—";
   const roles = (emp.roles || []).join(", ");
   document.getElementById("eSites").textContent = roles
     ? `Servicios: ${sites} · Roles: ${roles}`
     : `Servicios: ${sites}`;
+  const inactiveInfo = document.getElementById("eInactiveInfo");
+  const deactBox = document.getElementById("empDeactivateBox");
+  const btnReact = document.getElementById("btnReactivateEmployee");
+  const active = isEmployeeActive(emp);
+  if (!active) {
+    inactiveInfo.hidden = false;
+    inactiveInfo.textContent = `Inactivo desde ${(emp.inactiveAt || "").slice(0, 10) || "—"} · Causa: ${emp.inactiveReason || "—"}`;
+    deactBox.hidden = true;
+    btnReact.hidden = false;
+  } else {
+    inactiveInfo.hidden = true;
+    deactBox.hidden = false;
+    btnReact.hidden = true;
+  }
   renderEmpPhotoPreview();
   renderEmpDocPreview();
   switchView("employeeDetailView");
@@ -531,7 +743,8 @@ function saveEmployeeDetail() {
   const current = employees[idx];
   const photo = currentEmpPhoto();
   const doc = currentEmpDoc();
-  const updated = normalizeEmployee({
+  const isMono = document.getElementById("eMonorriel").checked;
+  let updated = normalizeEmployee({
     ...current,
     name,
     phone: document.getElementById("ePhone").value.trim(),
@@ -544,8 +757,12 @@ function saveEmployeeDetail() {
     documentData: doc.dataUrl || "",
     documentName: doc.dataUrl ? doc.name || "" : "",
     documentMime: doc.dataUrl ? doc.mime || "" : "",
+    status: current.status || "active",
+    inactiveReason: current.inactiveReason || "",
+    inactiveAt: current.inactiveAt || "",
     updatedAt: new Date().toISOString(),
   });
+  updated = applyMonorrielFlag(updated, isMono);
   employees[idx] = updated;
   selectedEmployeeId = updated.id;
   pendingEmpPhoto = null;
@@ -1539,7 +1756,7 @@ function renderLoanEmployeePicker() {
     .trim()
     .toLowerCase();
   const filtered = employees
-    .filter((e) => e.name)
+    .filter((e) => e.name && isEmployeeActive(e))
     .filter((e) => {
       if (!needle) return true;
       const blob = [e.name, e.phone, e.cedula].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -1957,8 +2174,11 @@ function isMonorrielEmployee(emp) {
   return false;
 }
 
-function getMonorrielEmployees() {
-  return employees.filter(isMonorrielEmployee).sort((a, b) => a.name.localeCompare(b.name, "es"));
+function getMonorrielEmployees(includeInactive = false) {
+  return employees
+    .filter(isMonorrielEmployee)
+    .filter((e) => includeInactive || isEmployeeActive(e))
+    .sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
 /** Importa personal AM/PM a la lista general sin borrar datos ya llenos */
@@ -2047,7 +2267,7 @@ function monoPostLabel(post) {
 function emptyMonoDraft() {
   const draft = {};
   monoPosts().forEach((p) => {
-    draft[p.id] = "";
+    draft[p.id] = { employeeId: "", customName: "" };
   });
   return draft;
 }
@@ -2055,35 +2275,76 @@ function emptyMonoDraft() {
 function draftFromReport(report) {
   const draft = emptyMonoDraft();
   (report.assignments || []).forEach((a) => {
-    draft[a.postId] = a.employeeId || "";
+    draft[a.postId] = {
+      employeeId: a.employeeId || "",
+      customName: a.employeeId ? "" : monoBaseName(a.employeeName || ""),
+    };
   });
   return draft;
+}
+
+function monoDraftHasPerson(slot) {
+  return !!(slot && (slot.employeeId || (slot.customName || "").trim()));
 }
 
 function renderMonoPostsEditor() {
   const box = document.getElementById("monoPostsEditor");
   if (!box) return;
-  const staff = getMonorrielEmployees();
-  const options = [`<option value="">— Vacante —</option>`]
+  const staff = getMonorrielEmployees(false);
+  const options = [`<option value="">— Vacante / elegir lista —</option>`]
     .concat(staff.map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.name)}</option>`))
     .join("");
 
   box.innerHTML = monoPosts()
     .map((p) => {
-      const selected = monoDraftAssignments[p.id] || "";
+      const slot = monoDraftAssignments[p.id] || { employeeId: "", customName: "" };
       return `<div class="mono-post-row">
         <div class="mono-post-label">${escapeHtml(monoPostLabel(p))}</div>
         <select data-mono-post="${escapeHtml(p.id)}">${options}</select>
+        <input class="mono-name-input" data-mono-name="${escapeHtml(p.id)}" type="text" placeholder="O escribe un nombre nuevo" value="${escapeHtml(slot.customName || "")}" />
+        <p class="mono-hint">Si escribes un nombre nuevo, se agrega solo a Empleados (Monorriel).</p>
       </div>`;
     })
     .join("");
 
   box.querySelectorAll("select[data-mono-post]").forEach((sel) => {
     const postId = sel.dataset.monoPost;
-    sel.value = monoDraftAssignments[postId] || "";
+    const slot = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
+    sel.value = slot.employeeId || "";
     sel.addEventListener("change", () => {
-      monoDraftAssignments[postId] = sel.value;
+      const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
+      monoDraftAssignments[postId] = { employeeId: sel.value, customName: sel.value ? "" : current.customName };
+      const nameInput = box.querySelector(`input[data-mono-name="${postId}"]`);
+      if (sel.value && nameInput) nameInput.value = "";
       updateMonoCoverageHint();
+    });
+  });
+
+  box.querySelectorAll("input[data-mono-name]").forEach((inp) => {
+    const postId = inp.dataset.monoName;
+    const commit = () => {
+      const typed = inp.value.trim();
+      if (!typed) {
+        const current = monoDraftAssignments[postId] || { employeeId: "", customName: "" };
+        monoDraftAssignments[postId] = { employeeId: current.employeeId || "", customName: "" };
+        updateMonoCoverageHint();
+        return;
+      }
+      const emp = ensureEmployeeFromMonoName(typed);
+      if (!emp) return;
+      monoDraftAssignments[postId] = { employeeId: emp.id, customName: "" };
+      inp.value = "";
+      // refrescar opciones para que aparezca el nuevo
+      renderMonoPostsEditor();
+      const sel = document.querySelector(`#monoPostsEditor select[data-mono-post="${postId}"]`);
+      if (sel) sel.value = emp.id;
+    };
+    inp.addEventListener("change", commit);
+    inp.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        commit();
+      }
     });
   });
   updateMonoCoverageHint();
@@ -2093,7 +2354,7 @@ function updateMonoCoverageHint() {
   const hint = document.getElementById("monoCoverageHint");
   if (!hint) return;
   const total = monoPosts().length;
-  const covered = Object.values(monoDraftAssignments).filter(Boolean).length;
+  const covered = Object.values(monoDraftAssignments).filter(monoDraftHasPerson).length;
   hint.textContent = `Cubiertos: ${covered} · Vacantes: ${total - covered} · Plazas: ${total}`;
 }
 
@@ -2152,8 +2413,11 @@ function clearMonoDraftPosts() {
 function collectMonoAssignmentsFromDraft() {
   const staffById = new Map(employees.map((e) => [e.id, e]));
   return monoPosts().map((p) => {
-    const employeeId = monoDraftAssignments[p.id] || "";
-    const emp = staffById.get(employeeId);
+    const slot = monoDraftAssignments[p.id] || { employeeId: "", customName: "" };
+    let emp = slot.employeeId ? staffById.get(slot.employeeId) : null;
+    if (!emp && (slot.customName || "").trim()) {
+      emp = ensureEmployeeFromMonoName(slot.customName);
+    }
     return {
       postId: p.id,
       employeeId: emp ? emp.id : "",
@@ -2426,7 +2690,7 @@ function deleteMonoReport() {
 function renderMonoStaffList() {
   const list = document.getElementById("monoStaffList");
   if (!list) return;
-  const staff = getMonorrielEmployees();
+  const staff = getMonorrielEmployees(true);
   if (!staff.length) {
     list.innerHTML = `<p class="empty">No hay personal Monorriel importado todavía.</p>`;
     return;
@@ -2499,6 +2763,7 @@ function switchView(viewId) {
   }
   if (viewId === "financeView") renderFinance();
   if (viewId === "employeesView") renderEmployees();
+  if (viewId === "employeeNewView") {}
   if (viewId === "loansView") renderLoans();
   if (viewId === "loanNewView") {
     renderLoanEmployeePicker();
@@ -3090,7 +3355,18 @@ function bindUi() {
 
   document.getElementById("employeeSearch").addEventListener("input", () => renderEmployees());
   document.getElementById("btnBackEmployees").addEventListener("click", () => switchView("employeesView"));
+  document.getElementById("btnBackEmployeesFromNew").addEventListener("click", () => switchView("employeesView"));
+  document.getElementById("btnAddEmployee").addEventListener("click", openNewEmployeeForm);
+  document.getElementById("btnCreateEmployee").addEventListener("click", createEmployeeManual);
   document.getElementById("btnSaveEmployee").addEventListener("click", saveEmployeeDetail);
+  document.getElementById("btnDeactivateEmployee").addEventListener("click", deactivateSelectedEmployee);
+  document.getElementById("btnReactivateEmployee").addEventListener("click", reactivateSelectedEmployee);
+  document.querySelectorAll(".emp-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      employeeListFilter = tab.dataset.empFilter === "inactive" ? "inactive" : "active";
+      renderEmployees();
+    });
+  });
   document.getElementById("ePhotoFile").addEventListener("change", onEmpPhotoSelected);
   document.getElementById("eDocFile").addEventListener("change", onEmpDocSelected);
   document.getElementById("btnClearEmpPhoto").addEventListener("click", clearEmpPhotoPending);

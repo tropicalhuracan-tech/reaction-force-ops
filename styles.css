@@ -1013,3 +1013,56 @@ textarea { resize: vertical; }
   padding: 4px 6px;
   text-align: left;
 }
+
+
+.emp-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.emp-tab {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  border-radius: 12px;
+  padding: 10px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.emp-tab.active {
+  color: #fff;
+  border-color: rgba(212, 20, 20, 0.55);
+  background: rgba(212, 20, 20, 0.18);
+}
+
+#btnAddEmployee {
+  margin-bottom: 10px;
+}
+
+.check-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.check-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.mono-post-row .mono-name-input {
+  margin-top: 6px;
+  width: 100%;
+}
+
+.mono-post-row .mono-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
