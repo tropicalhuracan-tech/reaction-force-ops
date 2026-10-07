@@ -377,8 +377,9 @@ textarea { resize: vertical; }
 
 .home-view {
   display: none;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  overflow: auto;
 }
 
 .home-view.active {
@@ -386,47 +387,100 @@ textarea { resize: vertical; }
 }
 
 .welcome-card {
-  width: min(100%, 420px);
-  margin: 12px auto 24px;
+  width: min(100%, 440px);
+  margin: 8px auto 16px;
   text-align: center;
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(212, 20, 20, 0.22), transparent 55%),
     var(--panel);
   border: 1px solid var(--line);
-  border-radius: 24px;
-  padding: 28px 18px 22px;
+  border-radius: 22px;
+  padding: 18px 14px 14px;
   box-shadow: var(--shadow);
 }
 
 .welcome-logo {
-  width: 148px;
-  height: 148px;
+  width: min(42vw, 168px);
+  height: min(42vw, 168px);
   border-radius: 50%;
   object-fit: cover;
   border: 3px solid var(--red);
   background: #000;
-  margin-bottom: 14px;
+  margin: 0 auto 10px;
+  display: block;
 }
 
 .welcome-card h1 {
-  margin: 0 0 6px;
-  font-size: 24px;
+  margin: 0 0 4px;
+  font-size: clamp(18px, 5vw, 22px);
   letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+
+.welcome-card > .muted {
+  margin: 0 0 8px;
+  font-size: 12px;
 }
 
 .welcome-sub {
-  margin: 0 0 16px;
+  margin: 0 0 10px;
   color: #fca5a5;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .welcome-actions {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.welcome-actions .welcome-action {
+  width: 100%;
+  margin-top: 0;
+  padding: 10px 4px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.15;
+  min-height: 42px;
+}
+
+.cloud-status-home {
+  margin: 10px 0 0;
+  font-size: 11px;
+}
+
+.install-hint-home {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.welcome-install {
   margin-top: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 380px) {
+  .welcome-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .welcome-actions .welcome-action {
+    font-size: 12px;
+    min-height: 40px;
+  }
+}
+
+@media (min-width: 520px) {
+  .welcome-logo {
+    width: 180px;
+    height: 180px;
+  }
 }
 
 .rfs-marker {

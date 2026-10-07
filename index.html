@@ -34,20 +34,20 @@
         <p class="welcome-sub">Operaciones · Control de servicios</p>
         <p class="muted">Bienvenido. Elige por dónde empezar:</p>
         <div class="welcome-actions">
-          <button class="btn primary" type="button" data-go="mapView">Ver mapa</button>
-          <button class="btn secondary" type="button" data-go="shiftsView">Ver turnos</button>
-          <button class="btn secondary" type="button" data-go="employeesView">Empleados</button>
-          <button class="btn secondary" type="button" data-go="loansView">Préstamos</button>
-          <button class="btn secondary" type="button" data-go="monorrielView">Monorriel</button>
-          <button class="btn secondary" type="button" data-go="reportsView">Reportes</button>
-          <button class="btn secondary" type="button" data-go="financeView">Finanzas</button>
-          <button class="btn ghost" type="button" data-go="adminView">Administración</button>
+          <button class="btn primary welcome-action" type="button" data-go="mapView">Mapa</button>
+          <button class="btn secondary welcome-action" type="button" data-go="shiftsView">Turnos</button>
+          <button class="btn secondary welcome-action" type="button" data-go="employeesView">Empleados</button>
+          <button class="btn secondary welcome-action" type="button" data-go="loansView">Préstamos</button>
+          <button class="btn secondary welcome-action" type="button" data-go="monorrielView">Monorriel</button>
+          <button class="btn secondary welcome-action" type="button" data-go="reportsView">Reportes</button>
+          <button class="btn secondary welcome-action" type="button" data-go="financeView">Finanzas</button>
+          <button class="btn ghost welcome-action" type="button" data-go="adminView">Admin</button>
         </div>
-        <p id="installHint" class="muted" style="margin-top:16px">
-          Para instalarla en la PC: en Chrome abre el menú ⋮ → <strong>Instalar Reaction Force…</strong> o el icono ⊕ en la barra de dirección.
+        <p id="cloudStatus" class="muted cloud-status-home">Nube: conectando…</p>
+        <p id="installHint" class="muted install-hint-home">
+          Para instalar: Chrome → menú ⋮ → <strong>Instalar app</strong>
         </p>
-        <button id="btnInstallApp" class="btn primary" type="button" hidden>Instalar en esta PC</button>
-        <p id="cloudStatus" class="muted" style="margin-top:12px">Nube: conectando…</p>
+        <button id="btnInstallApp" class="btn primary welcome-install" type="button" hidden>Instalar en esta PC</button>
       </div>
     </section>
 
