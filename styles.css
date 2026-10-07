@@ -375,55 +375,68 @@ textarea { resize: vertical; }
   font-weight: 700;
 }
 
-.home-view {
-  display: none;
-  align-items: flex-start;
-  justify-content: center;
-  overflow: auto;
+/* Inicio: logo completo + accesos horizontales (forzado) */
+#homeView.home-view {
+  display: none !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  overflow: auto !important;
+  padding-top: 10px !important;
 }
 
-.home-view.active {
-  display: flex;
+#homeView.home-view.active {
+  display: block !important;
 }
 
-.welcome-card {
-  width: min(100%, 440px);
-  margin: 8px auto 16px;
+#homeView .welcome-card {
+  width: min(100%, 520px);
+  margin: 0 auto 12px;
   text-align: center;
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(212, 20, 20, 0.22), transparent 55%),
     var(--panel);
   border: 1px solid var(--line);
   border-radius: 22px;
-  padding: 18px 14px 14px;
+  padding: 14px 12px 12px;
   box-shadow: var(--shadow);
 }
 
-.welcome-logo {
-  width: min(42vw, 168px);
-  height: min(42vw, 168px);
-  border-radius: 50%;
-  object-fit: cover;
+#homeView .welcome-logo-wrap {
+  width: min(70vw, 220px);
+  max-width: 220px;
+  margin: 0 auto 10px;
+  aspect-ratio: 1 / 1;
+  border-radius: 28px;
   border: 3px solid var(--red);
   background: #000;
-  margin: 0 auto 10px;
-  display: block;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.welcome-card h1 {
-  margin: 0 0 4px;
-  font-size: clamp(18px, 5vw, 22px);
+#homeView .welcome-logo {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  object-fit: contain !important;
+  object-position: center !important;
+  background: #000;
+  display: block;
+  margin: 0 !important;
+}
+
+#homeView .welcome-card h1 {
+  margin: 0 0 2px;
+  font-size: clamp(16px, 4.6vw, 20px);
   letter-spacing: 0.02em;
   line-height: 1.15;
 }
 
-.welcome-card > .muted {
-  margin: 0 0 8px;
-  font-size: 12px;
-}
-
-.welcome-sub {
-  margin: 0 0 10px;
+#homeView .welcome-sub {
+  margin: 0 0 12px;
   color: #fca5a5;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -431,55 +444,73 @@ textarea { resize: vertical; }
   font-weight: 700;
 }
 
-.welcome-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 4px;
+#homeView .welcome-actions,
+#welcomeActions {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-auto-flow: row !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  width: 100% !important;
 }
 
-.welcome-actions .welcome-action {
-  width: 100%;
-  margin-top: 0;
-  padding: 10px 4px;
+#homeView .welcome-action {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 11px 4px !important;
   border-radius: 12px;
-  font-size: 11px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px !important;
   font-weight: 700;
-  line-height: 1.15;
-  min-height: 42px;
+  line-height: 1.1;
+  min-height: 44px;
+  text-align: center;
+  cursor: pointer;
 }
 
-.cloud-status-home {
+#homeView .welcome-action.primary {
+  background: linear-gradient(180deg, var(--red), var(--red-deep));
+  border-color: transparent;
+  color: #fff;
+}
+
+#homeView .welcome-action.ghost {
+  background: transparent;
+}
+
+#homeView .cloud-status-home {
   margin: 10px 0 0;
   font-size: 11px;
 }
 
-.install-hint-home {
+#homeView .install-hint-home {
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.35;
 }
 
-.welcome-install {
+#homeView .welcome-install {
   margin-top: 8px;
   padding: 10px 12px;
   font-size: 13px;
 }
 
-@media (max-width: 380px) {
-  .welcome-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 420px) {
+  #homeView .welcome-actions,
+  #welcomeActions {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
-  .welcome-actions .welcome-action {
-    font-size: 12px;
-    min-height: 40px;
+  #homeView .welcome-logo-wrap {
+    width: min(58vw, 190px);
   }
-}
-
-@media (min-width: 520px) {
-  .welcome-logo {
-    width: 180px;
-    height: 180px;
+  #homeView .welcome-action {
+    font-size: 13px !important;
   }
 }
 

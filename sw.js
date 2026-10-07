@@ -1,14 +1,20 @@
-const CACHE = "rfs-ops-v18";
+const CACHE = "rfs-ops-v19";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
+  "styles.css?v=19",
   "app.js",
+  "app.js?v=19",
   "cloud.js",
+  "cloud.js?v=19",
   "cloud-config.js",
+  "cloud-config.js?v=19",
   "monorriel-data.js",
+  "monorriel-data.js?v=19",
   "manifest.json",
   "logo.jpg",
+  "logo.jpg?v=19",
   "import-posts.json",
   "icons/icon-192.png",
   "icons/icon-256.png",
@@ -33,15 +39,32 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req)
+  const url = new URL(req.url);
+  const path = url.pathname.split("/").pop() || "";
+  const isShell =
+    path === "" ||
+    path === "index.html" ||
+    path.startsWith("styles.css") ||
+    path.startsWith("app.js") ||
+    path.startsWith("cloud") ||
+    path.startsWith("monorriel") ||
+    path.startsWith("sw.js");
+
+  // HTML/CSS/JS: red primero para que el inicio se actualice
+  if (isShell) {
+    event.respondWith(
+      fetch(req)
         .then((res) => {
-          // No cachear import-posts ni APIs; sí assets estáticos
+          const copy = res.clone();
+          caches.open(CACHE).then((cache) => cache.put(req, copy)).catch(() => {});
           return res;
         })
-        .catch(() => cached);
-      return cached || network;
-    })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(req).then((cached) => cached || fetch(req).catch(() => cached))
   );
 });

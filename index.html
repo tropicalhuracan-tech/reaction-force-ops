@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=19" />
 </head>
 <body>
   <div id="app">
@@ -29,19 +29,20 @@
 
     <section id="homeView" class="view active scroll-view home-view">
       <div class="welcome-card">
-        <img src="logo.jpg" alt="Reaction Force Security" class="welcome-logo" />
+        <div class="welcome-logo-wrap">
+          <img src="logo.jpg?v=19" alt="Reaction Force Security" class="welcome-logo" />
+        </div>
         <h1>Reaction Force Security</h1>
-        <p class="welcome-sub">Operaciones · Control de servicios</p>
-        <p class="muted">Bienvenido. Elige por dónde empezar:</p>
-        <div class="welcome-actions">
-          <button class="btn primary welcome-action" type="button" data-go="mapView">Mapa</button>
-          <button class="btn secondary welcome-action" type="button" data-go="shiftsView">Turnos</button>
-          <button class="btn secondary welcome-action" type="button" data-go="employeesView">Empleados</button>
-          <button class="btn secondary welcome-action" type="button" data-go="loansView">Préstamos</button>
-          <button class="btn secondary welcome-action" type="button" data-go="monorrielView">Monorriel</button>
-          <button class="btn secondary welcome-action" type="button" data-go="reportsView">Reportes</button>
-          <button class="btn secondary welcome-action" type="button" data-go="financeView">Finanzas</button>
-          <button class="btn ghost welcome-action" type="button" data-go="adminView">Admin</button>
+        <p class="welcome-sub">Operaciones</p>
+        <div class="welcome-actions" id="welcomeActions">
+          <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
+          <button class="welcome-action" type="button" data-go="shiftsView">Turnos</button>
+          <button class="welcome-action" type="button" data-go="employeesView">Empleados</button>
+          <button class="welcome-action" type="button" data-go="loansView">Préstamos</button>
+          <button class="welcome-action" type="button" data-go="monorrielView">Monorriel</button>
+          <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
+          <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
+          <button class="welcome-action ghost" type="button" data-go="adminView">Admin</button>
         </div>
         <p id="cloudStatus" class="muted cloud-status-home">Nube: conectando…</p>
         <p id="installHint" class="muted install-hint-home">
@@ -560,9 +561,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js"></script>
-  <script src="monorriel-data.js"></script>
-  <script src="cloud.js"></script>
-  <script src="app.js"></script>
+  <script src="cloud-config.js?v=19"></script>
+  <script src="monorriel-data.js?v=19"></script>
+  <script src="cloud.js?v=19"></script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>
