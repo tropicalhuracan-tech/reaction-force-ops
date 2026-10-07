@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0b0b0c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Operaciones móviles de Reaction Force Security" />
+  <title>RFS Operaciones</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <img src="logo.jpg" alt="Reaction Force Security" class="brand-logo" />
+        <div class="brand-text">
+          <strong>Reaction Force</strong>
+          <span>Operaciones</span>
+        </div>
+      </div>
+      <button id="btnLocateMe" class="icon-btn" type="button" aria-label="Mi ubicación">◎</button>
+    </header>
+
+    <section id="homeView" class="view active scroll-view home-view">
+      <div class="welcome-card">
+        <img src="logo.jpg" alt="Reaction Force Security" class="welcome-logo" />
+        <h1>Reaction Force Security</h1>
+        <p class="welcome-sub">Operaciones · Control de servicios</p>
+        <p class="muted">Bienvenido. Elige por dónde empezar:</p>
+        <div class="welcome-actions">
+          <button class="btn primary" type="button" data-go="mapView">Ver mapa</button>
+          <button class="btn secondary" type="button" data-go="shiftsView">Ver turnos</button>
+          <button class="btn secondary" type="button" data-go="reportsView">Reportes</button>
+          <button class="btn secondary" type="button" data-go="financeView">Finanzas</button>
+          <button class="btn ghost" type="button" data-go="adminView">Administración</button>
+        </div>
+        <p id="installHint" class="muted" style="margin-top:16px">
+          Para instalarla en la PC: en Chrome abre el menú ⋮ → <strong>Instalar Reaction Force…</strong> o el icono ⊕ en la barra de dirección.
+        </p>
+        <button id="btnInstallApp" class="btn primary" type="button" hidden>Instalar en esta PC</button>
+      </div>
+    </section>
+
+    <main id="mapView" class="view">
+      <div id="map" aria-label="Mapa de puestos"></div>
+      <div class="map-legend">
+        <span><i class="dot ok"></i> En puesto</span>
+        <span><i class="dot warn"></i> Pendiente</span>
+        <span><i class="dot alert"></i> Incidente</span>
+      </div>
+    </main>
+
+    <section id="shiftsView" class="view scroll-view">
+      <div class="section-head">
+        <h1>Turnos de hoy</h1>
+        <p id="shiftsSummary">Cargando…</p>
+      </div>
+      <div id="shiftsList" class="card-list"></div>
+    </section>
+
+    <section id="reportsView" class="view scroll-view">
+      <div class="section-head">
+        <h1>Reportes</h1>
+        <p>Bitácora con foto del turno o incidente.</p>
+      </div>
+      <div class="form-card">
+        <h2>Nuevo reporte</h2>
+        <label>Puesto<select id="reportPost"></select></label>
+        <label>Tipo
+          <select id="reportType">
+            <option value="novedad">Novedad del turno</option>
+            <option value="checkin">Check-in con foto</option>
+            <option value="incidente">Incidente</option>
+          </select>
+        </label>
+        <label>Descripción<textarea id="reportText" rows="3" placeholder="Qué pasó, hora, detalles…"></textarea></label>
+        <label class="photo-label">Foto<input id="reportPhoto" type="file" accept="image/*" capture="environment" /></label>
+        <div id="photoPreviewWrap" class="photo-preview" hidden>
+          <img id="photoPreview" alt="Vista previa" />
+          <button id="btnClearPhoto" class="btn ghost" type="button">Quitar foto</button>
+        </div>
+        <button id="btnSaveReport" class="btn primary" type="button">Guardar reporte</button>
+      </div>
+      <div class="section-head tight"><h2>Historial de reportes</h2></div>
+      <div id="reportsList" class="card-list"></div>
+    </section>
+
+    <section id="financeView" class="view scroll-view">
+      <div class="section-head">
+        <h1>Finanzas</h1>
+        <p>Resumen de servicios, vigilantes y cobros mensuales.</p>
+      </div>
+      <div class="finance-total form-card">
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="muted">Servicios</span>
+            <strong id="financeServicesCount">0</strong>
+          </div>
+          <div class="stat-box">
+            <span class="muted">Vigilantes</span>
+            <strong id="financeGuardsCount">0</strong>
+          </div>
+        </div>
+        <p class="muted" style="margin-top:14px">Total cobrando por todos los servicios (mes)</p>
+        <div id="financeTotalMonth" class="money-big">RD$ 0</div>
+        <p class="muted" style="margin-top:10px" id="financeHoursSummary">0 horas · RD$ 0 / hora promedio</p>
+      </div>
+      <div id="financeList" class="card-list"></div>
+    </section>
+
+    <section id="adminView" class="view scroll-view">
+      <div id="adminLock" class="form-card admin-lock">
+        <h1>Acceso administrador</h1>
+        <p>Escribe la clave para crear, editar o eliminar puestos.</p>
+        <label>
+          Clave
+          <input id="adminPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
+        </label>
+        <button id="btnAdminLogin" class="btn primary" type="button">Entrar</button>
+        <p id="adminLockError" class="error-text" hidden>Clave incorrecta.</p>
+      </div>
+
+      <div id="adminContent" hidden>
+        <div class="section-head">
+          <div class="row" style="align-items:center">
+            <div>
+              <h1>Administración</h1>
+              <p>Crear, editar o eliminar puestos y datos del servicio.</p>
+            </div>
+            <button id="btnAdminLogout" class="btn ghost" type="button" style="width:auto;margin:0;padding:10px 12px">Salir</button>
+          </div>
+        </div>
+
+        <div class="form-card" id="adminFormCard">
+          <h2 id="adminFormTitle">Nuevo puesto</h2>
+
+          <div class="fieldset-title">Sitio y servicio</div>
+          <label>Nombre del sitio<input id="fSite" type="text" placeholder="Ej. Residencial Las Palmas" /></label>
+          <label>Supervisor<input id="fSupervisor" type="text" placeholder="Nombre del supervisor" /></label>
+          <label>Tipo de servicio
+            <select id="fServiceType">
+              <option value="12">12 horas</option>
+              <option value="24">24 horas</option>
+            </select>
+          </label>
+          <div class="coords-row">
+            <label>Fecha de inicio del servicio<input id="fStartDate" type="date" /></label>
+            <label>Horario / turno<input id="fShift" type="text" placeholder="Ej. 06:00–18:00" /></label>
+          </div>
+          <label>Estado
+            <select id="fStatus">
+              <option value="ok">En puesto</option>
+              <option value="warn">Pendiente de check-in</option>
+              <option value="alert">Incidente</option>
+            </select>
+          </label>
+          <label>Notas<textarea id="fNote" rows="2" placeholder="Instrucciones del cliente…"></textarea></label>
+
+          <div class="fieldset-title">Vigilantes del puesto</div>
+          <p class="muted" style="margin-top:0">Puedes agregar varios (hasta 20). Cada uno con sus datos.</p>
+          <div id="guardsEditor"></div>
+          <button id="btnAddGuard" class="btn secondary" type="button">+ Agregar otro vigilante</button>
+
+          <div class="fieldset-title">Finanzas del servicio</div>
+          <div class="coords-row">
+            <label>Cantidad de horas<input id="fHours" type="number" min="0" step="0.5" placeholder="Ej. 720" /></label>
+            <label>Precio por hora (RD$)<input id="fHourlyRate" type="number" min="0" step="0.01" placeholder="Ej. 150" /></label>
+          </div>
+          <label>
+            Valor a cobrar por mes (RD$)
+            <input id="fPriceMonth" type="text" readonly placeholder="Se calcula solo: horas × precio/hora" />
+          </label>
+          <p class="muted" id="financeCalcHint">Mes = horas × precio por hora</p>
+
+          <div class="fieldset-title">Ubicación (Google Maps)</div>
+          <p class="muted" style="margin-top:0">Puedes guardar el puesto sin ubicación y completarla después.</p>
+          <label>
+            Pegar enlace de Google Maps
+            <input id="fMapsUrl" type="url" placeholder="https://maps.google.com/... o maps.app.goo.gl/..." />
+          </label>
+          <button id="btnParseMaps" class="btn secondary" type="button">Cargar ubicación desde el enlace</button>
+          <p id="mapsParseHint" class="muted">También puedes usar GPS si estás en el sitio.</p>
+          <div class="coords-row">
+            <label>Latitud<input id="fLat" type="text" inputmode="decimal" readonly /></label>
+            <label>Longitud<input id="fLng" type="text" inputmode="decimal" readonly /></label>
+          </div>
+          <button id="btnUseGps" class="btn secondary" type="button">Usar mi ubicación GPS</button>
+
+          <div class="fieldset-title">Nota de historial (opcional)</div>
+          <label>
+            Cambio a registrar al guardar
+            <textarea id="fHistoryNote" rows="2" placeholder="Ej. Se agregó vigilante Juan Pérez al turno nocturno"></textarea>
+          </label>
+
+          <button id="btnSaveAdmin" class="btn primary" type="button">Guardar puesto</button>
+          <button id="btnCancelEdit" class="btn ghost" type="button" hidden>Cancelar edición</button>
+        </div>
+
+        <div class="form-card" style="margin-top:12px">
+          <h2>Respaldo de información</h2>
+          <p class="muted">Guarda una copia para no perder datos. Recomendado después de cada día de trabajo.</p>
+          <button id="btnExportBackup" class="btn secondary" type="button">Descargar respaldo</button>
+          <label class="photo-label" style="margin-top:10px">
+            Restaurar respaldo
+            <input id="backupFile" type="file" accept="application/json,.json" />
+          </label>
+          <p class="muted">La restauración agrega/actualiza servicios; no borra los que ya existan salvo que elijas reemplazar.</p>
+          <button id="btnImportBackupMerge" class="btn secondary" type="button">Restaurar sin borrar (recomendado)</button>
+          <button id="btnImportBackupReplace" class="btn danger" type="button">Restaurar reemplazando todo</button>
+        </div>
+
+        <div class="section-head tight"><h2>Puestos registrados</h2></div>
+        <div id="adminList" class="card-list"></div>
+      </div>
+    </section>
+
+    <!-- Detalle completo del servicio -->
+    <section id="detailView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackDetail" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1 id="detailTitle">Servicio</h1>
+        <p id="detailMeta"></p>
+      </div>
+      <div id="detailStatusWrap"></div>
+      <div id="detailBody" class="card-list"></div>
+      <div class="sheet-actions" style="margin-top:12px">
+        <button id="btnDetailMap" class="btn primary" type="button">Ver ubicación en mapa</button>
+        <button id="btnDetailShare" class="btn secondary" type="button">Compartir ubicación</button>
+        <button id="btnDetailWhatsApp" class="btn secondary" type="button">Enviar por WhatsApp</button>
+        <button id="btnDetailEdit" class="btn ghost" type="button">Editar en Admin</button>
+      </div>
+    </section>
+
+    <div id="sheet" class="sheet" hidden>
+      <div class="sheet-handle"></div>
+      <div class="sheet-body">
+        <div class="sheet-top">
+          <img src="logo.jpg" alt="" class="sheet-logo" />
+          <div>
+            <h2 id="sheetTitle">Puesto</h2>
+            <p id="sheetMeta"></p>
+          </div>
+          <button id="btnCloseSheet" class="icon-btn" type="button" aria-label="Cerrar">✕</button>
+        </div>
+        <div id="sheetStatus" class="status-pill">En puesto</div>
+        <p id="sheetNote" class="sheet-note"></p>
+        <div class="sheet-actions">
+          <button id="btnOpenDetail" class="btn primary" type="button">Ver todos los datos</button>
+          <button id="btnShareLocation" class="btn secondary" type="button">Compartir ubicación</button>
+          <button id="btnShareWhatsApp" class="btn secondary" type="button">Enviar por WhatsApp</button>
+          <button id="btnCheckIn" class="btn ghost" type="button">Check-in en puesto</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="confirmModal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>¿Eliminar servicio?</h2>
+        <p id="confirmModalText" class="muted">Esta acción no se puede deshacer.</p>
+        <div class="modal-actions">
+          <button id="btnConfirmCancel" class="btn secondary" type="button">Cancelar</button>
+          <button id="btnConfirmDelete" class="btn danger" type="button">Sí, eliminar</button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="tabbar">
+      <button class="tab active" data-view="homeView" type="button"><span>Inicio</span></button>
+      <button class="tab" data-view="mapView" type="button"><span>Mapa</span></button>
+      <button class="tab" data-view="shiftsView" type="button"><span>Turnos</span></button>
+      <button class="tab" data-view="reportsView" type="button"><span>Reportes</span></button>
+      <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
+      <button class="tab" data-view="adminView" type="button"><span>Admin</span></button>
+    </nav>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

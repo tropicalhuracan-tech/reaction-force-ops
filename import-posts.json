@@ -1,0 +1,2533 @@
+[
+  {
+    "id": "p-0cba5a9001ad",
+    "site": "Casa Yanet",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-7c836f7d8e",
+        "name": "RAFAEL ESTRELLA TEJADA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "ESCOPETA 12MM ,",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-ea570b0030",
+        "name": "ADRIANO HIRALDO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "ESCOPETA 12MM ,",
+        "serial": "",
+        "role": "Cubre Día Libre"
+      },
+      {
+        "id": "g-e291a04a6c",
+        "name": "AMBIORIS GUZMAN",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "ESCOPETA 12MM ,",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-c5c0fe5c7e",
+        "name": "RAFEL BRISITA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "ESCOPETA 12MM ,",
+        "serial": "",
+        "role": "Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 4,
+    "hours": 360.0,
+    "hourlyRate": 304.17,
+    "priceMonth": 109500.0,
+    "status": "warn",
+    "note": "Dirección: Av. Paseo de los Choferes, Santiago de los Caballeros 51000 · Encargado cliente: IDAHARIS +1 (849) 358-9936 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: ASIGNADA POR OFICINA #829-259-3618 · Consignas: PROTECCION AL ESTBLECIMIENTO Y AL ENTORNO. — Control riguroso de acceso vehicular y peatonal.",
+    "address": "Av. Paseo de los Choferes, Santiago de los Caballeros 51000",
+    "clientContact": "IDAHARIS",
+    "clientPhone": "+1 (849) 358-9936",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-31cf63c6",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  CASA YANET.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  CASA YANET.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-8e0123dee2fa",
+    "site": "Colegio San Juan Bautista",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-db9f79d7eb",
+        "name": "FELIZ ARIAS",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-fb58d1c7b1",
+        "name": "FRANCISCO HERNANDEZ ARIAS",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 108000.0,
+    "status": "warn",
+    "note": "Dirección: HOYA DE CAIMITA, Santiago de los Caballeros · Encargado cliente: MARIELA MERCEDES +1 (809) 581-6008 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "HOYA DE CAIMITA, Santiago de los Caballeros",
+    "clientContact": "MARIELA MERCEDES",
+    "clientPhone": "+1 (809) 581-6008",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-f9d36ab2",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  COLEGIO SAN JUAN BAUSTISTA.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  COLEGIO SAN JUAN BAUSTISTA.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-22e80ea53feb",
+    "site": "Panaderia Maria",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-230e6a97b5",
+        "name": "DELFIN RODRIGUEZ CRISTIAN ALMONTE",
+        "phone": "",
+        "cedula": "LOS JARDINES",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-9786035530",
+        "name": "NICOLAS CORNIEL ANTONIO BURGOS",
+        "phone": "",
+        "cedula": "JACAGUA",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 1080.0,
+    "hourlyRate": 165.0,
+    "priceMonth": 178200.0,
+    "status": "warn",
+    "note": "Dirección: CARRETERERA PICO DIEGO DE OCAMPO, Santiago de los Caballeros 51000 · Riesgo: ALTO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "CARRETERERA PICO DIEGO DE OCAMPO, Santiago de los Caballeros 51000",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-1401ead7",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  PANADERIA MARIA.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  PANADERIA MARIA.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-a49753c9a36a",
+    "site": "Residencial Veza",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-d0fd0712ce",
+        "name": "MARCELINO ANT RODRIGUEZ NOESI",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-e9af9f525d",
+        "name": "GILBERTO MELO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 145.0,
+    "priceMonth": 104400.0,
+    "status": "warn",
+    "note": "Dirección: Calle Penetración 2 Urb. Thomén, Santiago de los Caballeros 51000 · Encargado cliente: PATRICIA · Riesgo: ALTO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Calle Penetración 2 Urb. Thomén, Santiago de los Caballeros 51000",
+    "clientContact": "PATRICIA",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-5ab4286d",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  RESIDENCIAL CEDRO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  RESIDENCIAL CEDRO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-53c0f07db928",
+    "site": "Residencial Duo Tower",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-2beb153fbf",
+        "name": "EUCEBIO ORTEGA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 360.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 54000.0,
+    "status": "warn",
+    "note": "Dirección: EL DORADO CALLE 7, Santiago de los Caballeros · Encargado cliente: GAYDA +1 (829) 902-0498 · Riesgo: BAJO MEDIO ALTO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "EL DORADO CALLE 7, Santiago de los Caballeros",
+    "clientContact": "GAYDA",
+    "clientPhone": "+1 (829) 902-0498",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-0db46f98",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  RESIDENCIAL DUO TOWER.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  RESIDENCIAL DUO TOWER.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-61390aae191b",
+    "site": "Residencial Marah",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-32acb1696c",
+        "name": "JOSE ANT MARTE VASQUEZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-2e290d6cee",
+        "name": "JOSE MERCEDES ALCANTARA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 145.0,
+    "priceMonth": 104400.0,
+    "status": "warn",
+    "note": "Dirección: CALLE LA VEREDA Santiago de los Caballeros · Encargado cliente: GAYDA +1 (829) 902-0498 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "CALLE LA VEREDA Santiago de los Caballeros",
+    "clientContact": "GAYDA",
+    "clientPhone": "+1 (829) 902-0498",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-3e3cbeaa",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  RESIDENCIAL MARAH.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  RESIDENCIAL MARAH.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-5f3a2638d3d6",
+    "site": "Residencial Porto Soles",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-0713ab2437",
+        "name": "NARCISO ESTRELLA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-5932256550",
+        "name": "ANIANO REYES",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 108000.0,
+    "status": "warn",
+    "note": "Dirección: AV. PASEO DE LOS CHOFERES Santiago de los Caballeros · Encargado cliente: GAYDA +1 (829) 902-0498 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "AV. PASEO DE LOS CHOFERES Santiago de los Caballeros",
+    "clientContact": "GAYDA",
+    "clientPhone": "+1 (829) 902-0498",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-2719c9b6",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  RESIDENCIAL PORTO SOLES.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  RESIDENCIAL PORTO SOLES.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-3cbbf140f942",
+    "site": "Residencial Marah (Santiago)",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-885951b1b0",
+        "name": "MAXIMO TORIBIO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-273d7a594d",
+        "name": "BEATO SIMON",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 118.06,
+    "priceMonth": 85000.0,
+    "status": "warn",
+    "note": "Dirección: VILLA OLIMPICA , Santiago de los Caballeros · Encargado cliente: JOSE · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "VILLA OLIMPICA , Santiago de los Caballeros",
+    "clientContact": "JOSE",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-f757e4b1",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  RESIDENCIAL PRADO UNIVERSITARIO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  RESIDENCIAL PRADO UNIVERSITARIO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-ce50460a6a88",
+    "site": "Residencial Ulises Perez",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-3d276191bf",
+        "name": "BRAULIO ORTIZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-92684da858",
+        "name": "JUAN BAUTISTA MELO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 138.89,
+    "priceMonth": 100000.0,
+    "status": "warn",
+    "note": "Dirección: AV. CAONABO , GURABO Santiago de los Caballeros · Encargado cliente: KENIA +1 (829) 642-7107 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "AV. CAONABO , GURABO Santiago de los Caballeros",
+    "clientContact": "KENIA",
+    "clientPhone": "+1 (829) 642-7107",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-f0886681",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  RESIDENCIAL ULISES PEREZ.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  RESIDENCIAL ULISES PEREZ.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-e417d7240b63",
+    "site": "Tri Group Restaurante Pascale",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-9f48ee5e5c",
+        "name": "WADY MIGUEL LIBERRATA REYES",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 360.0,
+    "hourlyRate": 125.0,
+    "priceMonth": 45000.0,
+    "status": "warn",
+    "note": "Dirección: Av. Benito Juárez, Santiago de los Caballeros 51000 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av. Benito Juárez, Santiago de los Caballeros 51000",
+    "clientContact": "",
+    "clientPhone": "+1 (829) 625-8836",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-aa27588c",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  TRI GROUP { PASCALEя.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  TRI GROUP { PASCALEя.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-e8172ef64faf",
+    "site": "Residencial Paseo Del Prado 1",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-4d06313833",
+        "name": "JUAN CARLOS POLANCO GARCIA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-ce98429b27",
+        "name": "CARLOS GUZMAN REYES",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 108000.0,
+    "status": "warn",
+    "note": "Dirección: AV. HISPANOAMERICANA, Santiago de los Caballeros · Encargado cliente: PERLA JIMENEZ · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "AV. HISPANOAMERICANA, Santiago de los Caballeros",
+    "clientContact": "PERLA JIMENEZ",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-b6124b14",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  residencial PASEO DEL PRADO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  residencial PASEO DEL PRADO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-733258b88f33",
+    "site": "Residencial Veza (Santiago)",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "13 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-e8047d6054",
+        "name": "HERIBERTO UBALDO MUÑOZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "ESCOPETA 12 MM , LETAL , MB63493R",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-e07ae50453",
+        "name": "SANTO CONCEPCION",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "ESCOPETA 12 MM , LETAL , MB63493R",
+        "serial": "",
+        "role": "CUBRIDOR"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 108000.0,
+    "status": "warn",
+    "note": "Dirección: Carr. Duarte, Santiago de los Caballeros · Encargado cliente: PERLA JIMENEZ · Riesgo: ALTO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita",
+    "address": "Carr. Duarte, Santiago de los Caballeros",
+    "clientContact": "PERLA JIMENEZ",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-58168224",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  residencial VEZA.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  residencial VEZA.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-45f5c70f13f0",
+    "site": "Residencial Mediterraneo",
+    "supervisor": "RAMON VRAGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-9ef1023b8e",
+        "name": "FABIO ANT POLANCO GARCIA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "Escopeta 12mm",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 360.0,
+    "hourlyRate": 155.0,
+    "priceMonth": 55800.0,
+    "status": "warn",
+    "note": "Dirección: AV. HISPANOAMERICANA, Santiago de los Caballeros · Encargado cliente: GLENIS +1 (809) 401-3358 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "AV. HISPANOAMERICANA, Santiago de los Caballeros",
+    "clientContact": "GLENIS",
+    "clientPhone": "+1 (809) 401-3358",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-f5859505",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  residencial mediterraneo.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  residencial mediterraneo.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-eff403e78744",
+    "site": "Residencial Vista Sol Etapa 2",
+    "supervisor": "RAMON VRAGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (2 Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-bd294e19c7",
+        "name": "MARTIRES MATOS",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "Escopeta 12mm",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-637de80132",
+        "name": "WILLIANS ANT UREÑA TORRES",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "Escopeta 12mm",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 147.0,
+    "priceMonth": 105840.0,
+    "status": "warn",
+    "note": "Dirección: Carretera Guayacanal, Santiago de los Caballeros · Riesgo: ALTO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: Sí asignado · Consignas: 1 Realizar rondas perimetrales cada 45 minutos registrando el código QR en cada estación. — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Carretera Guayacanal, Santiago de los Caballeros",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-d11d2754",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora  vista sol.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora  vista sol.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-7f6e749a6daf",
+    "site": "3bn Bomba",
+    "supervisor": "BARRIENTO",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-7f6e749a6d",
+        "name": "Por asignar",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": ""
+      }
+    ],
+    "guardCount": 1,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 72500.0,
+    "status": "warn",
+    "note": "Dirección: RIO SAN JUAN · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "RIO SAN JUAN",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-8cad1eb8",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora 3BN RIO SAN JUAN.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora 3BN RIO SAN JUAN.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-9381a9de598a",
+    "site": "Aetra Bus",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "10 Horas (1Turnos de 10 Horas)",
+    "guards": [
+      {
+        "id": "g-b3f07bb855",
+        "name": "JOSE DE LOS VASQUEZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 300.0,
+    "hourlyRate": 155.0,
+    "priceMonth": 46500.0,
+    "status": "warn",
+    "note": "Dirección: AV, JOAQUIN BALAGUER · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "AV, JOAQUIN BALAGUER",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-03f9e22c",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora AETRA BUS.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora AETRA BUS.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-182dfedb7171",
+    "site": "Auto Chang",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-ee76f135e9",
+        "name": "LEONCIO HERRERA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 360.0,
+    "hourlyRate": 165.81,
+    "priceMonth": 59690.0,
+    "status": "warn",
+    "note": "Dirección: Av. Salvador Estrella Sadhalá, Santiago de los Caballeros · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av. Salvador Estrella Sadhalá, Santiago de los Caballeros",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-eb1dd914",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora AUTO CHANG.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora AUTO CHANG.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-52ee75488c34",
+    "site": "Coliseo Gallistico",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-c5bee407cb",
+        "name": "JOSUE SANCHEZ JACOB ALMANZAR ALBINO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 778.0,
+    "hourlyRate": 160.0,
+    "priceMonth": 124480.0,
+    "status": "warn",
+    "note": "Dirección: Coliseo Gallistico de Santiago, C. Los Acosta, Santiago de los Caballeros 51000 , AUTOPISTA juan pablo duarte · Encargado cliente: YANELI QUEZADA · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Coliseo Gallistico de Santiago, C. Los Acosta, Santiago de los Caballeros 51000 , AUTOPISTA juan pablo duarte",
+    "clientContact": "YANELI QUEZADA",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-5b167e18",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora COLISEO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora COLISEO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-d72a56c2af8b",
+    "site": "Consorcio Sistematico De Transporte",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-d72a56c2af",
+        "name": "Por asignar",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": ""
+      }
+    ],
+    "guardCount": 1,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 3745872.0,
+    "status": "warn",
+    "note": "Dirección: MONORRIEL DE SANTIAGO · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: FLOTAS LAS MOTORIZADAS · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "MONORRIEL DE SANTIAGO",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-6577b187",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora CONSORCIO SISTEMATICO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora CONSORCIO SISTEMATICO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-c57e7a97d53a",
+    "site": "Contructora E Inmobiliaria Acevedo",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-08a6d9af62",
+        "name": "ROBERTO FRANCISCO WILLY PIE",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 816.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 122400.0,
+    "status": "warn",
+    "note": "Dirección: Av. Salvador Estrella Sadhalá No. 200. Buena Vista, Santiago · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av. Salvador Estrella Sadhalá No. 200. Buena Vista, Santiago",
+    "clientContact": "",
+    "clientPhone": "+1 (809) 489-2608",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-8b6cc2ee",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora CONSTRUCTORA INMOBILIARIA Y ACEVEDO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora CONSTRUCTORA INMOBILIARIA Y ACEVEDO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-d9ef21953aaf",
+    "site": "Coral Rojo",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-dc10822ecf",
+        "name": "AMIN ABEL REYES ASENCIO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 360.0,
+    "hourlyRate": 125.0,
+    "priceMonth": 45000.0,
+    "status": "warn",
+    "note": "Dirección: AV . 27 DE FEBRERO · Encargado cliente: CHEN · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo. — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "AV . 27 DE FEBRERO",
+    "clientContact": "CHEN",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-5e7df9d6",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora CORAL ROJO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora CORAL ROJO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-171dbc5662e9",
+    "site": "Dariana",
+    "supervisor": "",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-171dbc5662",
+        "name": "Por asignar",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": ""
+      }
+    ],
+    "guardCount": 1,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-5755d9e3",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora DARIANA.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora DARIANA.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-3da996a1008a",
+    "site": "Dominca",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-9583f3b0f0",
+        "name": "JUAN REYES YNFANTE",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-84367b79ff",
+        "name": "PLACIDO NICOLAS RIVAS",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 165.0,
+    "priceMonth": 118800.0,
+    "status": "warn",
+    "note": "Dirección: CIRCUNVALACION NORTE , Santiago de los Caballeros · Encargado cliente: MARIA +1 (829) 940-2509 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "CIRCUNVALACION NORTE , Santiago de los Caballeros",
+    "clientContact": "MARIA",
+    "clientPhone": "+1 (829) 940-2509",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-78fc7215",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora DOMINCA.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora DOMINCA.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-a2f18a936b69",
+    "site": "El Navidon",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-0f63e5a076",
+        "name": "RAFAEL ESTRELLA TEJADA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-f1134000be",
+        "name": "AMBIORIS GUZMAN",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 360.0,
+    "hourlyRate": 304.17,
+    "priceMonth": 109500.0,
+    "status": "warn",
+    "note": "Dirección: EL DORADO , 27 DE FEBRERO · Encargado cliente: YAMIR +1 (809) 650-0092 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIO · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "EL DORADO , 27 DE FEBRERO",
+    "clientContact": "YAMIR",
+    "clientPhone": "+1 (809) 650-0092",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-e956e64b",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora EL NAVIDON.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora EL NAVIDON.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-1339acdd7ce7",
+    "site": "Elite ( Sonoma )",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-655171f6f9",
+        "name": "LEONARDO FILPO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-22c2881c49",
+        "name": "RADHAMES FILPO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 155.0,
+    "priceMonth": 111600.0,
+    "status": "warn",
+    "note": "Dirección: C. los Ferreira 50 Santiago de los Caballeros 51000 · Encargado cliente: WENDY JIMENEZ +1 (829) 525-4196 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "C. los Ferreira 50 Santiago de los Caballeros 51000",
+    "clientContact": "WENDY JIMENEZ",
+    "clientPhone": "+1 (829) 525-4196",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-be84caaf",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora ELITE INGENIERIA.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora ELITE INGENIERIA.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-d45137557070",
+    "site": "Estancia Elianne",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-6606feab09",
+        "name": "EMILIO RAFAEL GUZMAN ABREU",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 360.0,
+    "hourlyRate": 160.0,
+    "priceMonth": 57600.0,
+    "status": "warn",
+    "note": "Dirección: CARRETERA .GREGORIO LUPERON PROX CALLE 21 GURABO · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "CARRETERA .GREGORIO LUPERON PROX CALLE 21 GURABO",
+    "clientContact": "",
+    "clientPhone": "+1 (849) 356-5124",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-7a95338d",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora ESTANCIA ELIANNE.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora ESTANCIA ELIANNE.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-9ac12a692800",
+    "site": "Helado Bon (plaza Livera)",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-d01d78c5b3",
+        "name": "DOMINGO ESTRELLA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 360.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 54000.0,
+    "status": "warn",
+    "note": "Dirección: PLAZA LIVERA, Av. Hispanoamericana 51000, Santiago de los Caballeros 51000 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "PLAZA LIVERA, Av. Hispanoamericana 51000, Santiago de los Caballeros 51000",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-30f67e91",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora HELADO BON.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora HELADO BON.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-fd971fa62b38",
+    "site": "Himalaya",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-4b3e95ad38",
+        "name": "MIGUEL ANGEL DE OLEO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-1e98dc8341",
+        "name": "ROBERLYN HERRERA GARCIA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 125.0,
+    "priceMonth": 90000.0,
+    "status": "warn",
+    "note": "Dirección: Parada 31 - Ruta OMSA, Carretera Gregorio Luperon, Santiago de los Caballeros · Encargado cliente: CHEN · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Parada 31 - Ruta OMSA, Carretera Gregorio Luperon, Santiago de los Caballeros",
+    "clientContact": "CHEN",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-0eb9a039",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora HIMALAYA.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora HIMALAYA.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-1006d17ee044",
+    "site": "Maelec Srl",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-ef30afe261",
+        "name": "NICOLAS SANCHEZ DIAZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-7cbd5759aa",
+        "name": "HIPOLITO GONZALEZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 140.0,
+    "priceMonth": 100800.0,
+    "status": "warn",
+    "note": "Dirección: Av. Circunvalación 6, EL INGENIO Santiago de los Caballeros · Encargado cliente: LUIS MIGUEL +1 (849) 455-9341 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av. Circunvalación 6, EL INGENIO Santiago de los Caballeros",
+    "clientContact": "LUIS MIGUEL",
+    "clientPhone": "+1 (849) 455-9341",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-97dadf46",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora MAELEC.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora MAELEC.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-f52599b2f58d",
+    "site": "Salud Visual",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "12+5 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-6ac95e4a65",
+        "name": "REYES MORALES TAVAREZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "PISTOLA 9MM",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 332.0,
+    "hourlyRate": 155.0,
+    "priceMonth": 51460.0,
+    "status": "warn",
+    "note": "Dirección: C. Sabana Larga esq, Santiago de los Caballeros 51000 · Encargado cliente: LUZ ESTRELLA +1 (829) 259-8453 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "C. Sabana Larga esq, Santiago de los Caballeros 51000",
+    "clientContact": "LUZ ESTRELLA",
+    "clientPhone": "+1 (829) 259-8453",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-dae5bf19",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora OPTICA VISUAL.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora OPTICA VISUAL.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-34a500b4b397",
+    "site": "Plaza Lotus ( Suplidores Diversos)",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-74d2894c80",
+        "name": "ROBERTO MORALES",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-b2759f77f0",
+        "name": "MODESTO DE LA CRUZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 108000.0,
+    "status": "warn",
+    "note": "Dirección: Gral. Eusebio Manzueta, Santiago de los Caballeros 51000 · Encargado cliente: YAMIR +1 (809) 650-0092 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Gral. Eusebio Manzueta, Santiago de los Caballeros 51000",
+    "clientContact": "YAMIR",
+    "clientPhone": "+1 (809) 650-0092",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-b32e561d",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora PETROMUNDO.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora PETROMUNDO.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-51d74ecc7354",
+    "site": "Plaza Lotus ( Suplidores Diversos) (Santiago)",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-74d2894c80",
+        "name": "ROBERTO MORALES",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-b2759f77f0",
+        "name": "MODESTO DE LA CRUZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 108000.0,
+    "status": "warn",
+    "note": "Dirección: Gral. Eusebio Manzueta, Santiago de los Caballeros 51000 · Encargado cliente: YAMIR +1 (809) 650-0092 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Gral. Eusebio Manzueta, Santiago de los Caballeros 51000",
+    "clientContact": "YAMIR",
+    "clientPhone": "+1 (809) 650-0092",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-9d54ca46",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora PLAZA LOTUS.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:02",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora PLAZA LOTUS.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-48d89fd0adbb",
+    "site": "Procrest Auto",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "12",
+    "startDate": "",
+    "shift": "14 Horas (1Turnos de 14 Horas)",
+    "guards": [
+      {
+        "id": "g-84c64b70b3",
+        "name": "FELIPE YIMEL CORREA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 1,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 66700.0,
+    "status": "warn",
+    "note": "Dirección: Av. Salvador Estrella Sadhalá 151, Santiago de los Caballeros 51000 · Encargado cliente: ELISA +1 (849) 564-3517 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIO · Consignas: 1 — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita. // 2 // 3 — Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo",
+    "address": "Av. Salvador Estrella Sadhalá 151, Santiago de los Caballeros 51000",
+    "clientContact": "ELISA",
+    "clientPhone": "+1 (849) 564-3517",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-cbcdef56",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora PORCREST.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora PORCREST.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-5c278175f03b",
+    "site": "Sajara Licey",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-24c8091cb3",
+        "name": "JUAN RAMON GARCIA RODRIGUEZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-9bd668c3eb",
+        "name": "NILSON NAPOLEON RODRIGUEZ",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 118.06,
+    "priceMonth": 85000.0,
+    "status": "warn",
+    "note": "Dirección: Carretera. Duarte 129, Licey al Medio · Encargado cliente: CHEN · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Carretera. Duarte 129, Licey al Medio",
+    "clientContact": "CHEN",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-f619dee4",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora SAJARA LICEY.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora SAJARA LICEY.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-aa2d637b8525",
+    "site": "Super Mercado Central",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-f8b2b2dc53",
+        "name": "FRANCISCO FLORES",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-ba9677261d",
+        "name": "JAVIER POLANCO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 173.61,
+    "priceMonth": 125000.0,
+    "status": "warn",
+    "note": "Dirección: AV . 27 DE FEBRERO , Santiago de los Caballeros · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "AV . 27 DE FEBRERO , Santiago de los Caballeros",
+    "clientContact": "",
+    "clientPhone": "",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-40d133eb",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora SUPERMERCADO CENTRAL.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora SUPERMERCADO CENTRAL.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-be7697436336",
+    "site": "Restaurante Tenu",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-abb8c72004",
+        "name": "NELSON PERALTA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-ca9a54254a",
+        "name": "MIGUEL ALMONTE",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 140.0,
+    "priceMonth": 100800.0,
+    "status": "warn",
+    "note": "Dirección: Calle 1ra Esq, C. Ramón Asensio 1, Santiago de los Caballeros · Encargado cliente: JESICA +1 (829) 464-3538 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Calle 1ra Esq, C. Ramón Asensio 1, Santiago de los Caballeros",
+    "clientContact": "JESICA",
+    "clientPhone": "+1 (829) 464-3538",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-ca70c160",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora TENU.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora TENU.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-bd05ef68bb7d",
+    "site": "Vial Gas",
+    "supervisor": "",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-06f4ca39e6",
+        "name": "SANTO LIRIANO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-f7a09a6a86",
+        "name": "JOHANSEL VENTURA CID",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 720.0,
+    "hourlyRate": 150.0,
+    "priceMonth": 108000.0,
+    "status": "warn",
+    "note": "Dirección: IMBERT · Encargado cliente: JASMIN +1 (809) 610-7032 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "IMBERT",
+    "clientContact": "JASMIN",
+    "clientPhone": "+1 (809) 610-7032",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-9e0f6104",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora VIAL GAS IMBERT.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora VIAL GAS IMBERT.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-74dae382e2c5",
+    "site": "Vidmetal",
+    "supervisor": "RAMON VARGAS",
+    "serviceType": "24",
+    "startDate": "",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-f60460d90e",
+        "name": "IDERIS PINALES JULIAN JAVIER COLLADO",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-a89e808dbe",
+        "name": "RAFAEL ANT VALERIO QUEZADA",
+        "phone": "",
+        "cedula": "",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 1080.0,
+    "hourlyRate": 160.0,
+    "priceMonth": 172800.0,
+    "status": "warn",
+    "note": "Dirección: Parada 11 En, Av. Hispanoamericana, Santiago de los Caballeros 51000 · Encargado cliente: OMAR +1 (809) 440-3451 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Parada 11 En, Av. Hispanoamericana, Santiago de los Caballeros 51000",
+    "clientContact": "OMAR",
+    "clientPhone": "+1 (809) 440-3451",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-8edc04dc",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Bitаcora VIDMETAL.docx · Zona: Santiago. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Bitаcora VIDMETAL.docx",
+    "region": "Santiago"
+  },
+  {
+    "id": "p-236abbcf1fbe",
+    "site": "Alimentos Balanceados Blanco Batista",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "18 marzo del 2026 (Rafael Estrella) 03 Septiembre del 2026 (Junior Contreras)",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-b159b7f26d",
+        "name": "Marcelo Marte Peña",
+        "phone": "829-355-7668",
+        "cedula": "047-0151047-3",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-28f0594cef",
+        "name": "Marcelo Marte Peña",
+        "phone": "829-355-7668",
+        "cedula": "047-0151047-3",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Día Libre"
+      },
+      {
+        "id": "g-98257159ce",
+        "name": "Pedro Rafael Santiago",
+        "phone": "849-471-6331",
+        "cedula": "047-0036474-0",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-0c7569dbd5",
+        "name": "Pedro Rafael Santiago",
+        "phone": "849-471-6331",
+        "cedula": "047-0036474-0",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 4,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Rancho Viejo, La penda · Encargado cliente: Sr.Leonardo Taveras 809-276-0902/ 89-890-9659 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Rancho Viejo, La penda",
+    "clientContact": "Sr.Leonardo Taveras",
+    "clientPhone": "809-276-0902/ 89-890-9659",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-2dbd6ed4",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Alimentos Balanceados Blanco Batista docx.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      },
+      {
+        "id": "h-5f6c694b18",
+        "title": "Novedad / Cambio",
+        "note": "ROBO DE ARMA REPORTADO A LA FISCALIA , DURANTE EL TURNO NOCTURNO LE DESPOJARON EL EQUIPO DE ARMAMENTO AL VIGILANTE",
+        "when": "",
+        "whenLabel": "Sin fecha"
+      }
+    ],
+    "sourceFile": "Alimentos Balanceados Blanco Batista docx.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-b783b7a483d7",
+    "site": "Banca Out 32 Sport",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-e5c3c7aae3",
+        "name": "Daniel Montas Alcantara",
+        "phone": "829-335-2424",
+        "cedula": "001-1152180-3",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-ac72c1e445",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Barranca La Vega · Encargado cliente: Sra,Lisa Nuñez 809-226-0797/829-451-3002 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Barranca La Vega",
+    "clientContact": "Sra,Lisa Nuñez",
+    "clientPhone": "809-226-0797/829-451-3002",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-6d202f4c",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Banca Out 32 Sport.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Banca Out 32 Sport.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-098f6f40ab25",
+    "site": "El Concepto Ceramicas Srl",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "12",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-651c5332fa",
+        "name": "Aurelio Acevedo",
+        "phone": "809-205-7922",
+        "cedula": "072-0004441-5",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-6248b7f4ac",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 360.0,
+    "hourlyRate": 130.0,
+    "priceMonth": 46800.0,
+    "status": "warn",
+    "note": "Dirección: Av.Pedro A.Rivera Esq. Pepito Garcia ,Lavega · Encargado cliente: Sr.Winston Rodriguez 809-660-3900 / 809-573-1038 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av.Pedro A.Rivera Esq. Pepito Garcia ,Lavega",
+    "clientContact": "Sr.Winston Rodriguez",
+    "clientPhone": "809-660-3900 / 809-573-1038",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-a1834100",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Concepto Ceramicas 1.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Concepto Ceramicas 1.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-32dfb126eae7",
+    "site": "El Concepto Ceramicas Srl (La Vega)",
+    "supervisor": "Sr. Cristian Burgos Payano",
+    "serviceType": "12",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-736ed45b3a",
+        "name": "Danilo De Jesus Rosario Milanda",
+        "phone": "849-405-0705",
+        "cedula": "047-0038519-0",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-6248b7f4ac",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Av.Pedro A.Rivera Esq. Pepito Garcia ,Lavega · Encargado cliente: Sr.Winston Rodriguez 809-660-3900 / 809-573-1038 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av.Pedro A.Rivera Esq. Pepito Garcia ,Lavega",
+    "clientContact": "Sr.Winston Rodriguez",
+    "clientPhone": "809-660-3900 / 809-573-1038",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-75a2197c",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Concepto Ceramicas 2.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Concepto Ceramicas 2.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-6a2cf2181a91",
+    "site": "Coopedac",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "18 marzo del 2026 (Rafael Estrella) 03 Septiembre del 2026 (Junior Contreras)",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-07accd646d",
+        "name": "Junior De Jesus Contreras",
+        "phone": "829-921-3566",
+        "cedula": "047-153396-2",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-04898bf6ad",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0001438-7",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Día Libre"
+      },
+      {
+        "id": "g-e08c706324",
+        "name": "Rafael Vianney Estrella Hernamdez",
+        "phone": "809-573-8406",
+        "cedula": "047-0001438-7",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-ce3abbe103",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 4,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 100800.0,
+    "status": "warn",
+    "note": "Dirección: C/Pedro Casado . Edif. Jm De La Cruz 1er Nivel · Encargado cliente: Sra. Annya Bournier 809-242-0022/829-470-2854 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "C/Pedro Casado . Edif. Jm De La Cruz 1er Nivel",
+    "clientContact": "Sra. Annya Bournier",
+    "clientPhone": "809-242-0022/829-470-2854",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-9fa8925d",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Coopedac.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Coopedac.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-8637b340ccde",
+    "site": "Distribuidora 2000 Srl",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "12",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "12 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-73a76b1a81",
+        "name": "Jose Concepcion Rodriguez Almonte",
+        "phone": "829-817-7257",
+        "cedula": "402-2612834-2",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-9571db1c49",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 54000.0,
+    "status": "warn",
+    "note": "Dirección: Av.Pedro A.Rivera km1, La Vega · Encargado cliente: Sr,Ruben Almonte 809-242-2332 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av.Pedro A.Rivera km1, La Vega",
+    "clientContact": "Sr,Ruben Almonte",
+    "clientPhone": "809-242-2332",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-8e3f854e",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Distribuidora 2000.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Distribuidora 2000.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-9681c0425158",
+    "site": "Estacion Primavera",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-8ff38dc805",
+        "name": "MiguelAngel Duran de la Cruz",
+        "phone": "829-387-3324",
+        "cedula": "047-0023732-0",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-5e59f49bbc",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Av. Pedro A.Rivera Km.11 · Encargado cliente: Sra.Yaquelin Blanco 809-242-6000/809-747-7139 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av. Pedro A.Rivera Km.11",
+    "clientContact": "Sra.Yaquelin Blanco",
+    "clientPhone": "809-242-6000/809-747-7139",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-f282c935",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Estacion Primavera.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Estacion Primavera.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-e68a79d619fa",
+    "site": "Fernandez Caceres Comercial Srl",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-6cdaf10a19",
+        "name": "Jose Antonio Valdez Paez",
+        "phone": "829-759-9108",
+        "cedula": "047-0018602-8",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-3485b68bd4",
+        "name": "Adelso Valdez Beato",
+        "phone": "809-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Día Libre"
+      },
+      {
+        "id": "g-95f1420c86",
+        "name": "Ramon Delgado",
+        "phone": "809-635-6350",
+        "cedula": "047-0096993-6",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-af0f789db3",
+        "name": "Adelso Valdez Beato",
+        "phone": "809-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 4,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Calle Garcia Gordoy esa.Gertrudis Moronta · Encargado cliente: Sr.Carlos Fernandez 809-573-1663/ 809-853-7304 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Calle Garcia Gordoy esa.Gertrudis Moronta",
+    "clientContact": "Sr.Carlos Fernandez",
+    "clientPhone": "809-573-1663/ 809-853-7304",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-54d710ef",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Fernandez Caceres Comercial srl 2.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Fernandez Caceres Comercial srl 2.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-c3f576920a02",
+    "site": "Plaza Amistad",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-cf1805d28b",
+        "name": "Jorge Luis Feliz",
+        "phone": "829-673-1206",
+        "cedula": "012-0108564-2",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Día (Puesto 1)"
+      },
+      {
+        "id": "g-ae0c6ad1e9",
+        "name": "Amaury Gonzalez",
+        "phone": "849-582-0258",
+        "cedula": "001-0204921-0",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Día Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Av.Pedro A.Rivera 1, La Vega · Encargado cliente: Sra. La China Meme 849-423-8888 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av.Pedro A.Rivera 1, La Vega",
+    "clientContact": "Sra. La China Meme",
+    "clientPhone": "849-423-8888",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-1e923f49",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Plaza Amistad Dia.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Plaza Amistad Dia.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-b66b36295e12",
+    "site": "Plaza Amistad (La Vega)",
+    "supervisor": "Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-d9bc7f7d8c",
+        "name": "Amaury Fernando Gonzalez Castillo",
+        "phone": "849-582-0258",
+        "cedula": "001-0204921-0",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-93a2f6bf34",
+        "name": "Amaury Fernando Gonzalez Castillo",
+        "phone": "849-582-0258",
+        "cedula": "0011-0204921-0",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Av.Pedro A.Rivera 1, La Vega · Encargado cliente: Sra.La China Meme 849-423-8888 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av.Pedro A.Rivera 1, La Vega",
+    "clientContact": "Sra.La China Meme",
+    "clientPhone": "849-423-8888",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-5428cf3f",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Plaza Amistad Noche 2.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Plaza Amistad Noche 2.docx",
+    "region": "La Vega"
+  },
+  {
+    "id": "p-8ea4b7c127fc",
+    "site": "Plaza Amistad · Plaza Amistada Noche",
+    "supervisor": "Sr.Cristian Burgos Payano",
+    "serviceType": "24",
+    "startDate": "01 de noviembre del 2022",
+    "shift": "24 Horas (1Turnos de 12 Horas)",
+    "guards": [
+      {
+        "id": "g-8a72b764cd",
+        "name": "TeodoroRosario Henriquez",
+        "phone": "809-615-2199",
+        "cedula": "047-0123913-1",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Oficial Turno Noche (Puesto 1)"
+      },
+      {
+        "id": "g-cb8828f5f3",
+        "name": "Adelso Valdez Beato",
+        "phone": "829-513-4238",
+        "cedula": "047-0016884-4",
+        "companyEntryDate": "",
+        "weapons": "",
+        "serial": "",
+        "role": "Relevo / Cubre Noche Libre"
+      }
+    ],
+    "guardCount": 2,
+    "hours": 0.0,
+    "hourlyRate": 0.0,
+    "priceMonth": 0.0,
+    "status": "warn",
+    "note": "Dirección: Av.Pedro A.Rivera 1, La Vega · Encargado cliente: Sra.La China Meme 849-423-8888 · Riesgo: MEDIO · Renovación: INDEFINIDO · Puestos/turno: 1 Guardias por turno · Flota/tel: PROPIA · Consignas: 1 Prohibido el ingreso de personal contratista fuera de horario de oficina sin autorización previa por correo — Control riguroso de acceso vehicular y peatonal. Solicitar identificación obligatoria a toda visita.",
+    "address": "Av.Pedro A.Rivera 1, La Vega",
+    "clientContact": "Sra.La China Meme",
+    "clientPhone": "849-423-8888",
+    "mapsUrl": "",
+    "lat": null,
+    "lng": null,
+    "history": [
+      {
+        "id": "h-import-e5995ec5",
+        "title": "Importado desde bitácora Word",
+        "note": "Archivo: Plaza Amistada Noche.docx · Zona: La Vega. Completar ubicación en el mapa.",
+        "when": "2026-10-07T18:57:03",
+        "whenLabel": "07/10/2026 18:57"
+      }
+    ],
+    "sourceFile": "Plaza Amistada Noche.docx",
+    "region": "La Vega"
+  }
+]
