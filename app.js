@@ -31,6 +31,9 @@ let posts = [];
 let reports = [];
 let employees = [];
 let selectedEmployeeId = null;
+let pendingEmpPhoto = null; // data URL or "" to clear
+let pendingEmpDoc = null; // { dataUrl, name, mime } or null; use { dataUrl:"" } to clear
+const EMP_DOC_MAX_BYTES = 400 * 1024;
 let map;
 let markersLayer;
 let selectedId = null;
@@ -111,6 +114,10 @@ function normalizeEmployee(e = {}) {
     weapons: e.weapons || "",
     serial: e.serial || "",
     note: e.note || "",
+    photo: e.photo || "",
+    documentData: e.documentData || "",
+    documentName: e.documentName || "",
+    documentMime: e.documentMime || "",
     roles: Array.isArray(e.roles) ? e.roles.filter(Boolean) : [],
     sites: Array.isArray(e.sites) ? e.sites.filter(Boolean) : [],
     updatedAt: e.updatedAt || new Date().toISOString(),
@@ -134,6 +141,10 @@ function mergeEmployeeRecord(base, incoming) {
     weapons: preferFill(base.weapons, incoming.weapons),
     serial: preferFill(base.serial, incoming.serial),
     note: preferFill(base.note, incoming.note),
+    photo: preferFill(base.photo, incoming.photo),
+    documentData: preferFill(base.documentData, incoming.documentData),
+    documentName: preferFill(base.documentName, incoming.documentName),
+    documentMime: preferFill(base.documentMime, incoming.documentMime),
     roles: [...new Set([...(base.roles || []), ...(incoming.roles || [])].filter(Boolean))],
     sites: [...new Set([...(base.sites || []), ...(incoming.sites || [])].filter(Boolean))],
     updatedAt: new Date().toISOString(),
@@ -230,12 +241,18 @@ function renderEmployees() {
       const meta = [
         e.phone ? `Tel: ${e.phone}` : "Tel: —",
         e.cedula ? `Cédula: ${e.cedula}` : "Cédula: —",
+        e.documentData ? "Doc ✓" : "Sin doc",
         `${filled}/${total} datos`,
       ].join(" · ");
+      const initial = escapeHtml((e.name || "?").trim().charAt(0).toUpperCase() || "?");
+      const avatar = e.photo
+        ? `<img class="avatar" src="${e.photo}" alt="" />`
+        : `<span class="avatar placeholder">${initial}</span>`;
       return `
       <button class="employee-card" type="button" data-id="${escapeHtml(e.id)}">
         <div class="row">
-          <div>
+          ${avatar}
+          <div style="flex:1;min-width:0">
             <h3>${escapeHtml(e.name)}</h3>
             <p>${escapeHtml(sitesFixed)}</p>
             <p style="margin-top:6px">${escapeHtml(meta)}</p>
@@ -255,6 +272,199 @@ function getEmployee(id) {
   return employees.find((e) => e.id === id);
 }
 
+function safeDownloadName(name, fallback) {
+  const clean = String(name || fallback || "archivo")
+    .replace(/[^a-zA-Z0-9._\- áéíóúÁÉÍÓÚñÑ]/g, "_")
+    .trim();
+  return clean || fallback || "archivo";
+}
+
+function currentEmpPhoto() {
+  if (pendingEmpPhoto === "") return "";
+  if (pendingEmpPhoto) return pendingEmpPhoto;
+  const emp = getEmployee(selectedEmployeeId);
+  return (emp && emp.photo) || "";
+}
+
+function currentEmpDoc() {
+  if (pendingEmpDoc && pendingEmpDoc.dataUrl === "") {
+    return { dataUrl: "", name: "", mime: "" };
+  }
+  if (pendingEmpDoc && pendingEmpDoc.dataUrl) return pendingEmpDoc;
+  const emp = getEmployee(selectedEmployeeId);
+  if (!emp || !emp.documentData) return { dataUrl: "", name: "", mime: "" };
+  return {
+    dataUrl: emp.documentData,
+    name: emp.documentName || "documento",
+    mime: emp.documentMime || "",
+  };
+}
+
+function renderEmpPhotoPreview() {
+  const photo = currentEmpPhoto();
+  const wrap = document.getElementById("ePhotoPreviewWrap");
+  const img = document.getElementById("ePhotoPreview");
+  const dl = document.getElementById("ePhotoDownload");
+  const fileInput = document.getElementById("ePhotoFile");
+  if (!photo) {
+    wrap.hidden = true;
+    img.removeAttribute("src");
+    dl.removeAttribute("href");
+    if (fileInput) fileInput.value = "";
+    return;
+  }
+  img.src = photo;
+  dl.href = photo;
+  dl.download = safeDownloadName(
+    (getEmployee(selectedEmployeeId) || {}).name || "empleado",
+    "foto-empleado"
+  ) + ".jpg";
+  wrap.hidden = false;
+}
+
+function renderEmpDocPreview() {
+  const doc = currentEmpDoc();
+  const wrap = document.getElementById("eDocPreviewWrap");
+  const nameEl = document.getElementById("eDocName");
+  const img = document.getElementById("eDocPreviewImg");
+  const pdf = document.getElementById("eDocPreviewPdf");
+  const dl = document.getElementById("eDocDownload");
+  const fileInput = document.getElementById("eDocFile");
+  if (!doc.dataUrl) {
+    wrap.hidden = true;
+    nameEl.textContent = "";
+    img.hidden = true;
+    pdf.hidden = true;
+    img.removeAttribute("src");
+    pdf.removeAttribute("src");
+    dl.removeAttribute("href");
+    if (fileInput) fileInput.value = "";
+    return;
+  }
+  const mime = (doc.mime || "").toLowerCase();
+  const isPdf = mime.includes("pdf") || /\.pdf$/i.test(doc.name || "");
+  const isImage = mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(doc.name || "");
+  nameEl.textContent = doc.name || (isPdf ? "Documento PDF" : "Documento");
+  img.hidden = !isImage;
+  pdf.hidden = !isPdf;
+  if (isImage) {
+    img.src = doc.dataUrl;
+    pdf.removeAttribute("src");
+  } else if (isPdf) {
+    pdf.src = doc.dataUrl;
+    img.removeAttribute("src");
+  } else {
+    img.hidden = true;
+    pdf.hidden = true;
+  }
+  dl.href = doc.dataUrl;
+  dl.download = safeDownloadName(doc.name, isPdf ? "documento.pdf" : "documento.jpg");
+  wrap.hidden = false;
+}
+
+function clearEmpPhotoPending() {
+  pendingEmpPhoto = "";
+  document.getElementById("ePhotoFile").value = "";
+  renderEmpPhotoPreview();
+  toast("Foto quitada. Pulsa Guardar empleado para confirmar.");
+}
+
+function clearEmpDocPending() {
+  pendingEmpDoc = { dataUrl: "", name: "", mime: "" };
+  document.getElementById("eDocFile").value = "";
+  renderEmpDocPreview();
+  toast("Documento quitado. Pulsa Guardar empleado para confirmar.");
+}
+
+async function onEmpPhotoSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    pendingEmpPhoto = await compressImage(file, 720, 0.7);
+    renderEmpPhotoPreview();
+    toast("Foto lista. Pulsa Guardar empleado.");
+  } catch (_) {
+    toast("No se pudo procesar la foto.");
+    event.target.value = "";
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read fail"));
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onEmpDocSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  const mime = (file.type || "").toLowerCase();
+  const name = file.name || "documento";
+  const isPdf = mime === "application/pdf" || /\.pdf$/i.test(name);
+  const isImage = mime.startsWith("image/") || /\.(jpe?g|png)$/i.test(name);
+  if (!isPdf && !isImage) {
+    toast("Solo se permiten JPG, PNG o PDF.");
+    event.target.value = "";
+    return;
+  }
+  if (file.size > EMP_DOC_MAX_BYTES) {
+    toast("El documento es muy pesado. Usa uno de máximo 400 KB.");
+    event.target.value = "";
+    return;
+  }
+  try {
+    let dataUrl;
+    let outMime = mime;
+    let outName = name;
+    if (isImage) {
+      dataUrl = await compressImage(file, 1280, 0.72);
+      outMime = "image/jpeg";
+      if (!/\.jpe?g$/i.test(outName)) outName = outName.replace(/\.[^.]+$/, "") + ".jpg";
+    } else {
+      dataUrl = await readFileAsDataUrl(file);
+      outMime = "application/pdf";
+    }
+    // data URL ~ +33% size
+    if (String(dataUrl).length > EMP_DOC_MAX_BYTES * 1.45) {
+      toast("El archivo quedó muy grande después de cargarlo. Usa uno más liviano.");
+      event.target.value = "";
+      return;
+    }
+    pendingEmpDoc = { dataUrl, name: outName, mime: outMime };
+    renderEmpDocPreview();
+    toast("Documento listo. Pulsa Guardar empleado.");
+  } catch (_) {
+    toast("No se pudo leer el documento.");
+    event.target.value = "";
+  }
+}
+
+function openEmpDocument() {
+  const doc = currentEmpDoc();
+  if (!doc.dataUrl) {
+    toast("No hay documento para ver.");
+    return;
+  }
+  const win = window.open();
+  if (!win) {
+    toast("Permite ventanas emergentes para previsualizar.");
+    return;
+  }
+  const mime = (doc.mime || "").toLowerCase();
+  if (mime.includes("pdf") || /\.pdf$/i.test(doc.name || "")) {
+    win.document.write(
+      `<title>${escapeHtml(doc.name || "Documento")}</title><embed src="${doc.dataUrl}" type="application/pdf" width="100%" height="100%" style="border:0;position:fixed;inset:0" />`
+    );
+  } else {
+    win.document.write(
+      `<title>${escapeHtml(doc.name || "Documento")}</title><img src="${doc.dataUrl}" style="max-width:100%;height:auto;display:block;margin:0 auto" alt="Documento" />`
+    );
+  }
+}
+
 function openEmployeeDetail(id) {
   const emp = getEmployee(id);
   if (!emp) {
@@ -262,6 +472,8 @@ function openEmployeeDetail(id) {
     return;
   }
   selectedEmployeeId = emp.id;
+  pendingEmpPhoto = null;
+  pendingEmpDoc = null;
   document.getElementById("employeeDetailTitle").textContent = emp.name || "Empleado";
   document.getElementById("eName").value = emp.name || "";
   document.getElementById("ePhone").value = emp.phone || "";
@@ -270,11 +482,15 @@ function openEmployeeDetail(id) {
   document.getElementById("eWeapons").value = emp.weapons || "";
   document.getElementById("eSerial").value = emp.serial || "";
   document.getElementById("eNote").value = emp.note || "";
+  document.getElementById("ePhotoFile").value = "";
+  document.getElementById("eDocFile").value = "";
   const sites = (emp.sites || []).join(", ") || "—";
   const roles = (emp.roles || []).join(", ");
   document.getElementById("eSites").textContent = roles
     ? `Servicios: ${sites} · Roles: ${roles}`
     : `Servicios: ${sites}`;
+  renderEmpPhotoPreview();
+  renderEmpDocPreview();
   switchView("employeeDetailView");
 }
 
@@ -313,6 +529,8 @@ function saveEmployeeDetail() {
     return;
   }
   const current = employees[idx];
+  const photo = currentEmpPhoto();
+  const doc = currentEmpDoc();
   const updated = normalizeEmployee({
     ...current,
     name,
@@ -322,10 +540,16 @@ function saveEmployeeDetail() {
     weapons: document.getElementById("eWeapons").value.trim(),
     serial: document.getElementById("eSerial").value.trim(),
     note: document.getElementById("eNote").value.trim(),
+    photo,
+    documentData: doc.dataUrl || "",
+    documentName: doc.dataUrl ? doc.name || "" : "",
+    documentMime: doc.dataUrl ? doc.mime || "" : "",
     updatedAt: new Date().toISOString(),
   });
   employees[idx] = updated;
   selectedEmployeeId = updated.id;
+  pendingEmpPhoto = null;
+  pendingEmpDoc = null;
   const postsTouched = pushEmployeeIntoPosts(updated);
   if (postsTouched) {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1298,14 +1522,13 @@ function clearPhoto() {
   document.getElementById("photoPreview").removeAttribute("src");
 }
 
-function compressImage(file) {
+function compressImage(file, maxSide = 1280, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("No se pudo leer la foto"));
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        const maxSide = 1280;
         let { width, height } = img;
         if (width > maxSide || height > maxSide) {
           const ratio = Math.min(maxSide / width, maxSide / height);
@@ -1316,7 +1539,7 @@ function compressImage(file) {
         canvas.width = width;
         canvas.height = height;
         canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.onerror = () => reject(new Error("Foto inválida"));
       img.src = reader.result;
@@ -1598,6 +1821,11 @@ function bindUi() {
   document.getElementById("employeeSearch").addEventListener("input", () => renderEmployees());
   document.getElementById("btnBackEmployees").addEventListener("click", () => switchView("employeesView"));
   document.getElementById("btnSaveEmployee").addEventListener("click", saveEmployeeDetail);
+  document.getElementById("ePhotoFile").addEventListener("change", onEmpPhotoSelected);
+  document.getElementById("eDocFile").addEventListener("change", onEmpDocSelected);
+  document.getElementById("btnClearEmpPhoto").addEventListener("click", clearEmpPhotoPending);
+  document.getElementById("btnClearEmpDoc").addEventListener("click", clearEmpDocPending);
+  document.getElementById("btnOpenEmpDoc").addEventListener("click", openEmpDocument);
 }
 
 async function mergeImportedPosts() {

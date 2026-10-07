@@ -121,6 +121,39 @@
         <label>Arma / equipo<input id="eWeapons" type="text" /></label>
         <label>Número de serie<input id="eSerial" type="text" /></label>
         <label>Notas<textarea id="eNote" rows="2" placeholder="Observaciones del empleado"></textarea></label>
+
+        <div class="attach-block">
+          <h3 class="attach-title">Foto del empleado</h3>
+          <label class="photo-label">Subir foto
+            <input id="ePhotoFile" type="file" accept="image/*" capture="environment" />
+          </label>
+          <div id="ePhotoPreviewWrap" class="photo-preview emp-attach-preview" hidden>
+            <img id="ePhotoPreview" alt="Foto del empleado" />
+            <div class="attach-actions">
+              <a id="ePhotoDownload" class="btn secondary attach-btn" download="foto-empleado.jpg">Descargar foto</a>
+              <button id="btnClearEmpPhoto" class="btn ghost attach-btn" type="button">Quitar foto</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="attach-block">
+          <h3 class="attach-title">Documento (JPG o PDF)</h3>
+          <p class="muted tight">Cédula, contrato u otro archivo. Máx. aprox. 400 KB.</p>
+          <label class="photo-label">Subir documento
+            <input id="eDocFile" type="file" accept="image/jpeg,image/jpg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf" />
+          </label>
+          <div id="eDocPreviewWrap" class="emp-attach-preview" hidden>
+            <p id="eDocName" class="doc-name"></p>
+            <img id="eDocPreviewImg" class="doc-preview-img" alt="Vista previa del documento" hidden />
+            <iframe id="eDocPreviewPdf" class="doc-preview-pdf" title="Vista previa PDF" hidden></iframe>
+            <div class="attach-actions">
+              <a id="eDocDownload" class="btn secondary attach-btn" download="documento-empleado">Descargar</a>
+              <button id="btnOpenEmpDoc" class="btn secondary attach-btn" type="button">Ver / previsualizar</button>
+              <button id="btnClearEmpDoc" class="btn ghost attach-btn" type="button">Quitar documento</button>
+            </div>
+          </div>
+        </div>
+
         <p class="muted" id="eSites"></p>
         <button id="btnSaveEmployee" class="btn primary" type="button">Guardar empleado</button>
       </div>
