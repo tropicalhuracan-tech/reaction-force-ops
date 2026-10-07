@@ -356,7 +356,7 @@ textarea { resize: vertical; }
 
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 2px;
   padding: 8px 4px calc(8px + var(--safe-bottom));
   background: #101012;
@@ -798,4 +798,118 @@ textarea { resize: vertical; }
   font-size: 14px;
   font-weight: 700;
   color: var(--muted);
+}
+
+
+.loan-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.loans-stats {
+  margin-bottom: 12px;
+}
+
+.emp-pick-list {
+  max-height: 180px;
+  overflow: auto;
+  margin-bottom: 10px;
+}
+
+.emp-pick-list .employee-card.selected {
+  border-color: rgba(212, 20, 20, 0.7);
+  box-shadow: 0 0 0 1px rgba(212, 20, 20, 0.35);
+}
+
+.loan-preview {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  font-size: 13px;
+}
+
+.loan-preview table,
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.loan-preview th,
+.loan-preview td,
+.schedule-table th,
+.schedule-table td {
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.loan-preview th:first-child,
+.loan-preview td:first-child,
+.schedule-table th:first-child,
+.schedule-table td:first-child {
+  text-align: left;
+}
+
+.schedule-wrap {
+  overflow-x: auto;
+}
+
+.loan-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: inherit;
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.loan-card .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+}
+
+.loan-card h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.loan-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.payroll-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.payroll-item:last-child {
+  border-bottom: 0;
+}
+
+.payroll-item label {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+}
+
+.payroll-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex-shrink: 0;
 }

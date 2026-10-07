@@ -37,6 +37,7 @@
           <button class="btn primary" type="button" data-go="mapView">Ver mapa</button>
           <button class="btn secondary" type="button" data-go="shiftsView">Ver turnos</button>
           <button class="btn secondary" type="button" data-go="employeesView">Empleados</button>
+          <button class="btn secondary" type="button" data-go="loansView">Préstamos</button>
           <button class="btn secondary" type="button" data-go="reportsView">Reportes</button>
           <button class="btn secondary" type="button" data-go="financeView">Finanzas</button>
           <button class="btn ghost" type="button" data-go="adminView">Administración</button>
@@ -157,6 +158,100 @@
         <p class="muted" id="eSites"></p>
         <button id="btnSaveEmployee" class="btn primary" type="button">Guardar empleado</button>
       </div>
+    </section>
+
+
+    <section id="loansView" class="view scroll-view">
+      <div class="section-head">
+        <h1>Préstamos</h1>
+        <p id="loansSummary">Avances de efectivo y préstamos con amortización.</p>
+      </div>
+      <div id="loansStats" class="form-card stats-grid loans-stats"></div>
+      <div class="loan-toolbar">
+        <button id="btnNewLoan" class="btn primary" type="button">Nuevo préstamo</button>
+        <label class="search-label" style="margin:0;flex:1">
+          Buscar
+          <input id="loanListSearch" type="search" placeholder="Empleado o tipo" />
+        </label>
+      </div>
+      <div class="section-head tight">
+        <h2>Cobro quincenal</h2>
+        <p class="muted">Marca las cuotas que se descontaron en la nómina de esta quincena.</p>
+      </div>
+      <div id="loansPayrollBox" class="form-card"></div>
+      <div class="section-head tight"><h2>Listado</h2></div>
+      <div id="loansList" class="card-list"></div>
+    </section>
+
+    <section id="loanNewView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackLoansFromNew" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1>Nuevo préstamo</h1>
+        <p class="muted">Busca el empleado y elige el tipo de préstamo.</p>
+      </div>
+      <div class="form-card">
+        <label class="search-label">Buscar empleado
+          <input id="loanEmpSearch" type="search" placeholder="Nombre, cédula o teléfono" />
+        </label>
+        <div id="loanEmpPickList" class="card-list emp-pick-list"></div>
+        <p id="loanEmpSelected" class="muted">Ningún empleado seleccionado.</p>
+
+        <label>Tipo de préstamo
+          <select id="loanType">
+            <option value="advance">Avance de efectivo</option>
+            <option value="amortized">Préstamo con amortización</option>
+          </select>
+        </label>
+
+        <div id="loanAdvanceFields">
+          <label>Monto del avance
+            <select id="loanAdvancePackage">
+              <option value="2000">RD$ 2,000 → cobrar RD$ 2,250</option>
+              <option value="3000">RD$ 3,000 → cobrar RD$ 3,350</option>
+              <option value="5000">RD$ 5,000 → cobrar RD$ 5,550</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="loanAmortFields" hidden>
+          <label>Monto a prestar (capital)<input id="loanPrincipal" type="number" min="1" step="1" placeholder="Ej. 10000" /></label>
+          <label>Cantidad de pagos quincenales
+            <select id="loanPeriods">
+              <option value="3">3 pagos</option>
+              <option value="5">5 pagos</option>
+              <option value="10">10 pagos</option>
+              <option value="12">12 pagos</option>
+            </select>
+          </label>
+          <label>Interés por quincena (%)
+            <input id="loanRate" type="number" min="0" max="100" step="0.1" value="10" />
+          </label>
+          <p class="muted tight">Por defecto 10% cada 15 días. Para bajarlo usa la clave de autorización.</p>
+          <div class="coords-row">
+            <label>Clave autorización<input id="loanRateAuth" type="password" placeholder="••••••" autocomplete="off" /></label>
+            <button id="btnUnlockLoanRate" class="btn secondary" type="button" style="margin-top:22px">Autorizar interés</button>
+          </div>
+          <p id="loanRateAuthMsg" class="muted tight"></p>
+        </div>
+
+        <label>Fecha de inicio / primera quincena<input id="loanStartDate" type="date" /></label>
+        <label>Nota<textarea id="loanNote" rows="2" placeholder="Opcional"></textarea></label>
+
+        <div id="loanPreviewBox" class="loan-preview"></div>
+        <button id="btnSaveLoan" class="btn primary" type="button">Guardar préstamo</button>
+      </div>
+    </section>
+
+    <section id="loanDetailView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackLoansFromDetail" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1 id="loanDetailTitle">Préstamo</h1>
+        <p id="loanDetailSub" class="muted"></p>
+      </div>
+      <div id="loanDetailStats" class="form-card"></div>
+      <div class="section-head tight"><h2>Cuadro de amortización / cuotas</h2></div>
+      <div id="loanScheduleBox" class="form-card schedule-wrap"></div>
+      <button id="btnDeleteLoan" class="btn danger" type="button">Eliminar préstamo</button>
     </section>
 
     <section id="financeView" class="view scroll-view">
@@ -343,6 +438,7 @@
       <button class="tab" data-view="mapView" type="button"><span>Mapa</span></button>
       <button class="tab" data-view="shiftsView" type="button"><span>Turnos</span></button>
       <button class="tab" data-view="employeesView" type="button"><span>Empleados</span></button>
+      <button class="tab" data-view="loansView" type="button"><span>Préstamos</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="adminView" type="button"><span>Admin</span></button>
     </nav>

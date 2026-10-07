@@ -668,7 +668,7 @@ async function pushToCloud() {
   cloudSaving = true;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -690,11 +690,13 @@ async function syncFromCloud() {
     const localPosts = posts;
     const localReports = reports;
     const localEmployees = employees;
+    const localLoans = loans;
 
     if (remote.empty || (!remote.posts.length && !remote.reports.length)) {
       rebuildEmployeesFromPosts(localEmployees);
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+      localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -703,12 +705,16 @@ async function syncFromCloud() {
     posts = remote.posts.map(normalizePost);
     reports = Array.isArray(remote.reports) ? remote.reports : [];
     employees = Array.isArray(remote.employees) ? remote.employees.map(normalizeEmployee) : [];
+    // Si la nube aún no tiene préstamos, conservar los locales
+    const remoteLoans = Array.isArray(remote.loans) ? remote.loans.map(normalizeLoan) : [];
+    loans = remoteLoans.length ? remoteLoans : localLoans.map(normalizeLoan);
     rebuildEmployeesFromPosts(employees);
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     cloudReady = true;
-    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados`);
+    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos`);
     return { added: 0, usedCloud: true };
   } catch (err) {
     console.error(err);
@@ -1254,6 +1260,658 @@ function shareWhatsApp() {
   window.open(`https://wa.me/?text=${encodeURIComponent(shareText(post))}`, "_blank");
 }
 
+/* ==== MÓDULO PRÉSTAMOS ==== */
+const LOANS_KEY = "rfs-ops-loans";
+const LOAN_RATE_AUTH = "021112";
+const DEFAULT_LOAN_RATE = 0.1;
+const ADVANCE_PACKAGES = {
+  2000: { lend: 2000, collect: 2250 },
+  3000: { lend: 3000, collect: 3350 },
+  5000: { lend: 5000, collect: 5550 },
+};
+
+let loans = [];
+let selectedLoanId = null;
+let loanSelectedEmployeeId = null;
+let loanRateUnlocked = false;
+
+function roundMoney(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function addDaysIso(isoDate, days) {
+  const d = isoDate ? new Date(`${isoDate}T12:00:00`) : new Date();
+  if (Number.isNaN(d.getTime())) {
+    const now = new Date();
+    now.setDate(now.getDate() + days);
+    return now.toISOString().slice(0, 10);
+  }
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function buildAmortizationSchedule(principal, rate, periods, startDate) {
+  const P = roundMoney(principal);
+  const r = Number(rate) || 0;
+  const n = Number(periods) || 1;
+  let payment;
+  if (r <= 0) {
+    payment = roundMoney(P / n);
+  } else {
+    const factor = Math.pow(1 + r, n);
+    payment = roundMoney((P * r * factor) / (factor - 1));
+  }
+  let balance = P;
+  const schedule = [];
+  for (let i = 1; i <= n; i += 1) {
+    const interest = roundMoney(balance * r);
+    let principalPart = roundMoney(payment - interest);
+    if (i === n) {
+      principalPart = roundMoney(balance);
+      payment = roundMoney(principalPart + interest);
+    }
+    balance = roundMoney(Math.max(0, balance - principalPart));
+    schedule.push({
+      n: i,
+      dueDate: addDaysIso(startDate, 15 * i),
+      principal: principalPart,
+      interest,
+      payment,
+      balance,
+      paid: false,
+      paidAt: "",
+      paidAmount: 0,
+    });
+  }
+  return schedule;
+}
+
+function buildAdvanceSchedule(collectAmount, startDate) {
+  const payment = roundMoney(collectAmount);
+  return [
+    {
+      n: 1,
+      dueDate: addDaysIso(startDate, 15),
+      principal: payment,
+      interest: 0,
+      payment,
+      balance: 0,
+      paid: false,
+      paidAt: "",
+      paidAmount: 0,
+    },
+  ];
+}
+
+function normalizeLoanInstallment(row = {}, index = 0) {
+  return {
+    n: Number(row.n) || index + 1,
+    dueDate: row.dueDate || "",
+    principal: roundMoney(row.principal),
+    interest: roundMoney(row.interest),
+    payment: roundMoney(row.payment),
+    balance: roundMoney(row.balance),
+    paid: !!row.paid,
+    paidAt: row.paidAt || "",
+    paidAmount: roundMoney(row.paidAmount),
+  };
+}
+
+function normalizeLoan(raw = {}) {
+  const type = raw.type === "advance" ? "advance" : "amortized";
+  const schedule = Array.isArray(raw.schedule) ? raw.schedule.map(normalizeLoanInstallment) : [];
+  const paidTotal = roundMoney(schedule.filter((s) => s.paid).reduce((a, s) => a + (s.paidAmount || s.payment), 0));
+  const dueTotal = roundMoney(schedule.reduce((a, s) => a + s.payment, 0));
+  const interestTotal = roundMoney(schedule.reduce((a, s) => a + s.interest, 0));
+  const remaining = roundMoney(schedule.filter((s) => !s.paid).reduce((a, s) => a + s.payment, 0));
+  let status = raw.status || "active";
+  if (schedule.length && schedule.every((s) => s.paid)) status = "paid";
+  else if (schedule.some((s) => !s.paid && s.dueDate && s.dueDate < todayIso())) status = "overdue";
+  else if (status === "paid" || status === "overdue") status = remaining > 0 ? "active" : "paid";
+
+  return {
+    id: raw.id || `loan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    employeeId: raw.employeeId || "",
+    employeeName: raw.employeeName || "",
+    principal: roundMoney(raw.principal),
+    collectAmount: roundMoney(raw.collectAmount),
+    rate: Number(raw.rate) || 0,
+    rateUnlocked: !!raw.rateUnlocked,
+    periods: Number(raw.periods) || schedule.length || 1,
+    startDate: raw.startDate || "",
+    note: raw.note || "",
+    schedule,
+    paidTotal,
+    dueTotal,
+    interestTotal,
+    remaining,
+    profitExpected:
+      type === "advance"
+        ? roundMoney((raw.collectAmount || 0) - (raw.principal || 0))
+        : interestTotal,
+    profitCollected: roundMoney(
+      type === "advance"
+        ? (schedule.length && schedule.every((s) => s.paid) ? (Number(raw.collectAmount) || 0) - (Number(raw.principal) || 0) : 0)
+        : schedule.filter((s) => s.paid).reduce((a, s) => a + s.interest, 0)
+    ),
+    status: schedule.length && schedule.every((s) => s.paid) ? "paid" : status === "overdue" ? "overdue" : "active",
+    createdAt: raw.createdAt || new Date().toISOString(),
+    updatedAt: raw.updatedAt || new Date().toISOString(),
+  };
+}
+
+function refreshLoanDerived(loan) {
+  return normalizeLoan(loan);
+}
+
+function saveLoans() {
+  localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+  queueCloudSave();
+}
+
+function getLoan(id) {
+  return loans.find((l) => l.id === id);
+}
+
+function loanTypeLabel(type) {
+  return type === "advance" ? "Avance de efectivo" : "Préstamo amortizado";
+}
+
+function loanStatusLabel(status) {
+  if (status === "paid") return "Saldado";
+  if (status === "overdue") return "Cuota vencida";
+  return "Activo";
+}
+
+function computeLoanPreview() {
+  const type = document.getElementById("loanType").value;
+  const startDate = document.getElementById("loanStartDate").value || todayIso();
+  if (type === "advance") {
+    const pkg = ADVANCE_PACKAGES[document.getElementById("loanAdvancePackage").value] || ADVANCE_PACKAGES[2000];
+    const schedule = buildAdvanceSchedule(pkg.collect, startDate);
+    return {
+      type,
+      principal: pkg.lend,
+      collectAmount: pkg.collect,
+      rate: 0,
+      periods: 1,
+      schedule,
+      profit: pkg.collect - pkg.lend,
+    };
+  }
+  const principal = Number(document.getElementById("loanPrincipal").value) || 0;
+  const periods = Number(document.getElementById("loanPeriods").value) || 3;
+  let ratePct = Number(document.getElementById("loanRate").value);
+  if (!Number.isFinite(ratePct)) ratePct = 10;
+  const rate = ratePct / 100;
+  const schedule = principal > 0 ? buildAmortizationSchedule(principal, rate, periods, startDate) : [];
+  const dueTotal = roundMoney(schedule.reduce((a, s) => a + s.payment, 0));
+  const interestTotal = roundMoney(schedule.reduce((a, s) => a + s.interest, 0));
+  return {
+    type,
+    principal,
+    collectAmount: dueTotal,
+    rate,
+    periods,
+    schedule,
+    profit: interestTotal,
+  };
+}
+
+function renderLoanPreview() {
+  const box = document.getElementById("loanPreviewBox");
+  if (!box) return;
+  const preview = computeLoanPreview();
+  if (!preview.schedule.length) {
+    box.innerHTML = `<p class="muted">Completa el monto para ver el cuadro.</p>`;
+    return;
+  }
+  const rows = preview.schedule
+    .map(
+      (s) => `<tr>
+      <td>${s.n}</td>
+      <td>${escapeHtml(s.dueDate)}</td>
+      <td>${money(s.principal)}</td>
+      <td>${money(s.interest)}</td>
+      <td><strong>${money(s.payment)}</strong></td>
+      <td>${money(s.balance)}</td>
+    </tr>`
+    )
+    .join("");
+  box.innerHTML = `
+    <p><strong>${loanTypeLabel(preview.type)}</strong> · Capital ${money(preview.principal)} · A cobrar ${money(preview.collectAmount)} · Ganancia ${money(preview.profit)}</p>
+    <table>
+      <thead><tr><th>#</th><th>Vence</th><th>Capital</th><th>Interés</th><th>Cuota</th><th>Saldo</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function toggleLoanTypeFields() {
+  const type = document.getElementById("loanType").value;
+  document.getElementById("loanAdvanceFields").hidden = type !== "advance";
+  document.getElementById("loanAmortFields").hidden = type !== "amortized";
+  if (type === "amortized" && !loanRateUnlocked) {
+    document.getElementById("loanRate").value = "10";
+    document.getElementById("loanRate").readOnly = true;
+  }
+  renderLoanPreview();
+}
+
+function unlockLoanRate() {
+  const code = document.getElementById("loanRateAuth").value.trim();
+  const msg = document.getElementById("loanRateAuthMsg");
+  if (code !== LOAN_RATE_AUTH) {
+    loanRateUnlocked = false;
+    document.getElementById("loanRate").value = "10";
+    document.getElementById("loanRate").readOnly = true;
+    msg.textContent = "Clave incorrecta. El interés sigue en 10%.";
+    msg.style.color = "#fca5a5";
+    toast("Clave de autorización incorrecta.");
+    return;
+  }
+  loanRateUnlocked = true;
+  document.getElementById("loanRate").readOnly = false;
+  msg.textContent = "Autorizado: puedes bajar el interés quincenal.";
+  msg.style.color = "#86efac";
+  toast("Interés desbloqueado.");
+  renderLoanPreview();
+}
+
+function renderLoanEmployeePicker() {
+  const list = document.getElementById("loanEmpPickList");
+  const selected = document.getElementById("loanEmpSelected");
+  if (!list) return;
+  const needle = String(document.getElementById("loanEmpSearch").value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const filtered = employees
+    .filter((e) => e.name)
+    .filter((e) => {
+      if (!needle) return true;
+      const blob = [e.name, e.phone, e.cedula].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      return blob.includes(needle);
+    })
+    .slice(0, 30);
+
+  if (!filtered.length) {
+    list.innerHTML = `<p class="empty">No hay empleados para mostrar.</p>`;
+  } else {
+    list.innerHTML = filtered
+      .map((e) => {
+        const sel = e.id === loanSelectedEmployeeId ? "selected" : "";
+        return `<button class="employee-card ${sel}" type="button" data-emp-id="${escapeHtml(e.id)}">
+          <div class="row">
+            <div>
+              <h3>${escapeHtml(e.name)}</h3>
+              <p>${escapeHtml(e.cedula || "Sin cédula")} · ${escapeHtml(e.phone || "Sin tel.")}</p>
+            </div>
+          </div>
+        </button>`;
+      })
+      .join("");
+    list.querySelectorAll("[data-emp-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        loanSelectedEmployeeId = btn.dataset.empId;
+        renderLoanEmployeePicker();
+      });
+    });
+  }
+
+  const emp = employees.find((e) => e.id === loanSelectedEmployeeId);
+  selected.textContent = emp
+    ? `Seleccionado: ${emp.name}${emp.cedula ? ` · Cédula ${emp.cedula}` : ""}`
+    : "Ningún empleado seleccionado.";
+}
+
+function resetNewLoanForm() {
+  loanSelectedEmployeeId = null;
+  loanRateUnlocked = false;
+  document.getElementById("loanEmpSearch").value = "";
+  document.getElementById("loanType").value = "advance";
+  document.getElementById("loanAdvancePackage").value = "2000";
+  document.getElementById("loanPrincipal").value = "";
+  document.getElementById("loanPeriods").value = "3";
+  document.getElementById("loanRate").value = "10";
+  document.getElementById("loanRate").readOnly = true;
+  document.getElementById("loanRateAuth").value = "";
+  document.getElementById("loanRateAuthMsg").textContent = "";
+  document.getElementById("loanStartDate").value = todayIso();
+  document.getElementById("loanNote").value = "";
+  toggleLoanTypeFields();
+  renderLoanEmployeePicker();
+  renderLoanPreview();
+}
+
+function openNewLoan() {
+  resetNewLoanForm();
+  switchView("loanNewView");
+}
+
+function saveNewLoan() {
+  const emp = employees.find((e) => e.id === loanSelectedEmployeeId);
+  if (!emp) {
+    toast("Selecciona un empleado de la lista.");
+    return;
+  }
+  const preview = computeLoanPreview();
+  if (preview.type === "amortized" && preview.principal <= 0) {
+    toast("Indica el monto a prestar.");
+    return;
+  }
+  if (!preview.schedule.length) {
+    toast("No se pudo armar el cuadro de cuotas.");
+    return;
+  }
+  if (preview.type === "amortized" && preview.rate < DEFAULT_LOAN_RATE && !loanRateUnlocked) {
+    toast("Para bajar el 10% necesitas la clave de autorización.");
+    return;
+  }
+  const loan = refreshLoanDerived({
+    id: `loan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type: preview.type,
+    employeeId: emp.id,
+    employeeName: emp.name,
+    principal: preview.principal,
+    collectAmount: preview.collectAmount,
+    rate: preview.rate,
+    rateUnlocked: loanRateUnlocked,
+    periods: preview.periods,
+    startDate: document.getElementById("loanStartDate").value || todayIso(),
+    note: document.getElementById("loanNote").value.trim(),
+    schedule: preview.schedule,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  loans.unshift(loan);
+  saveLoans();
+  toast("Préstamo guardado.");
+  openLoanDetail(loan.id);
+}
+
+function loansSummaryStats() {
+  const active = loans.filter((l) => l.status !== "paid");
+  const paid = loans.filter((l) => l.status === "paid");
+  const overdue = loans.filter((l) => l.status === "overdue");
+  const capitalActive = roundMoney(active.reduce((a, l) => a + l.principal, 0));
+  const toCollect = roundMoney(active.reduce((a, l) => a + l.remaining, 0));
+  const collected = roundMoney(loans.reduce((a, l) => a + l.paidTotal, 0));
+  const profitExpected = roundMoney(active.reduce((a, l) => a + (l.profitExpected || 0), 0));
+  const profitCollected = roundMoney(loans.reduce((a, l) => a + (l.profitCollected || 0), 0));
+
+  // Ganancia de cuotas con vencimiento en los próximos 15 días (esta quincena)
+  const horizon = addDaysIso(todayIso(), 15);
+  let quincenaDue = 0;
+  let quincenaProfit = 0;
+  let quincenaCount = 0;
+  active.forEach((loan) => {
+    loan.schedule.forEach((s) => {
+      if (s.paid) return;
+      if (!s.dueDate || s.dueDate > horizon) return;
+      quincenaDue += s.payment;
+      quincenaCount += 1;
+      if (loan.type === "advance") quincenaProfit += loan.profitExpected || 0;
+      else quincenaProfit += s.interest;
+    });
+  });
+
+  return {
+    active: active.length,
+    paid: paid.length,
+    overdue: overdue.length,
+    capitalActive,
+    toCollect,
+    collected,
+    profitExpected,
+    profitCollected,
+    quincenaDue: roundMoney(quincenaDue),
+    quincenaProfit: roundMoney(quincenaProfit),
+    quincenaCount,
+  };
+}
+
+function renderLoansStats() {
+  const el = document.getElementById("loansStats");
+  const summary = document.getElementById("loansSummary");
+  if (!el) return;
+  const s = loansSummaryStats();
+  if (summary) {
+    summary.textContent = `${s.active} activos · ${s.overdue} con cuota vencida · ${s.paid} saldados`;
+  }
+  el.innerHTML = `
+    <div class="stat-box"><span class="muted">Por cobrar</span><strong>${money(s.toCollect)}</strong></div>
+    <div class="stat-box"><span class="muted">Ya cobrado</span><strong>${money(s.collected)}</strong></div>
+    <div class="stat-box"><span class="muted">Ganancia cobrada</span><strong>${money(s.profitCollected)}</strong></div>
+    <div class="stat-box"><span class="muted">Ganancia pendiente</span><strong>${money(s.profitExpected)}</strong></div>
+    <div class="stat-box"><span class="muted">Capital activo</span><strong>${money(s.capitalActive)}</strong></div>
+    <div class="stat-box"><span class="muted">Esta quincena</span><strong>${money(s.quincenaDue)}</strong><span class="muted" style="display:block;font-size:11px;margin-top:4px">${s.quincenaCount} cuotas · ganancia ${money(s.quincenaProfit)}</span></div>
+  `;
+}
+
+function renderLoansPayrollBox() {
+  const box = document.getElementById("loansPayrollBox");
+  if (!box) return;
+  const horizon = addDaysIso(todayIso(), 15);
+  const items = [];
+  loans.forEach((loan) => {
+    if (loan.status === "paid") return;
+    loan.schedule.forEach((inst, idx) => {
+      if (inst.paid) return;
+      if (inst.dueDate && inst.dueDate > horizon) return;
+      items.push({ loan, inst, idx });
+    });
+  });
+  items.sort((a, b) => String(a.inst.dueDate).localeCompare(String(b.inst.dueDate)));
+
+  if (!items.length) {
+    box.innerHTML = `<p class="muted">No hay cuotas pendientes para esta quincena.</p>`;
+    return;
+  }
+
+  box.innerHTML = `
+    ${items
+      .map(({ loan, inst, idx }) => {
+        const overdue = inst.dueDate && inst.dueDate < todayIso();
+        return `<div class="payroll-item">
+          <label>
+            <input type="checkbox" data-pay-loan="${escapeHtml(loan.id)}" data-pay-idx="${idx}" />
+            <span>
+              <strong>${escapeHtml(loan.employeeName)}</strong> · ${loanTypeLabel(loan.type)} · Cuota #${inst.n}<br/>
+              <span class="muted">Vence ${escapeHtml(inst.dueDate || "—")} · ${money(inst.payment)}${overdue ? " · VENCIDA" : ""}</span>
+            </span>
+          </label>
+        </div>`;
+      })
+      .join("")}
+    <button id="btnApplyPayrollPayments" class="btn primary" type="button">Registrar cuotas marcadas como pagadas</button>
+  `;
+  document.getElementById("btnApplyPayrollPayments").addEventListener("click", applyPayrollPayments);
+}
+
+function applyPayrollPayments() {
+  const checks = [...document.querySelectorAll("#loansPayrollBox input[type=checkbox]:checked")];
+  if (!checks.length) {
+    toast("Marca al menos una cuota pagada.");
+    return;
+  }
+  let count = 0;
+  checks.forEach((chk) => {
+    const loan = getLoan(chk.dataset.payLoan);
+    const idx = Number(chk.dataset.payIdx);
+    if (!loan || !loan.schedule[idx] || loan.schedule[idx].paid) return;
+    loan.schedule[idx].paid = true;
+    loan.schedule[idx].paidAt = new Date().toISOString();
+    loan.schedule[idx].paidAmount = loan.schedule[idx].payment;
+    loan.updatedAt = new Date().toISOString();
+    const refreshed = refreshLoanDerived(loan);
+    const pos = loans.findIndex((l) => l.id === loan.id);
+    if (pos >= 0) loans[pos] = refreshed;
+    count += 1;
+  });
+  saveLoans();
+  renderLoans();
+  toast(`${count} cuota(s) registradas como pagadas.`);
+}
+
+function renderLoansList() {
+  const list = document.getElementById("loansList");
+  if (!list) return;
+  const needle = String(document.getElementById("loanListSearch").value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const filtered = loans.filter((l) => {
+    if (!needle) return true;
+    const blob = [l.employeeName, loanTypeLabel(l.type), l.note, l.status].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return blob.includes(needle);
+  });
+
+  if (!filtered.length) {
+    list.innerHTML = loans.length
+      ? `<p class="empty">Ningún préstamo coincide con la búsqueda.</p>`
+      : `<p class="empty">Aún no hay préstamos. Pulsa “Nuevo préstamo”.</p>`;
+    return;
+  }
+
+  list.innerHTML = filtered
+    .map((l) => {
+      const pill =
+        l.status === "paid" ? "ok" : l.status === "overdue" ? "alert" : "warn";
+      return `<button class="loan-card" type="button" data-loan-id="${escapeHtml(l.id)}">
+        <div class="row">
+          <div>
+            <h3>${escapeHtml(l.employeeName || "Empleado")}</h3>
+            <p>${loanTypeLabel(l.type)} · Capital ${money(l.principal)}</p>
+            <p style="margin-top:6px">Pendiente ${money(l.remaining)} · Cobrado ${money(l.paidTotal)}</p>
+          </div>
+          <span class="status-pill ${pill}">${loanStatusLabel(l.status)}</span>
+        </div>
+      </button>`;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-loan-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openLoanDetail(btn.dataset.loanId));
+  });
+}
+
+function renderLoans() {
+  loans = loans.map(refreshLoanDerived);
+  renderLoansStats();
+  renderLoansPayrollBox();
+  renderLoansList();
+}
+
+function openLoanDetail(id) {
+  const loan = getLoan(id);
+  if (!loan) {
+    toast("Préstamo no encontrado.");
+    return;
+  }
+  selectedLoanId = id;
+  document.getElementById("loanDetailTitle").textContent = loan.employeeName || "Préstamo";
+  document.getElementById("loanDetailSub").textContent = `${loanTypeLabel(loan.type)} · ${loanStatusLabel(loan.status)}`;
+  document.getElementById("loanDetailStats").innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-box"><span class="muted">Capital</span><strong>${money(loan.principal)}</strong></div>
+      <div class="stat-box"><span class="muted">A cobrar</span><strong>${money(loan.dueTotal)}</strong></div>
+      <div class="stat-box"><span class="muted">Pendiente</span><strong>${money(loan.remaining)}</strong></div>
+      <div class="stat-box"><span class="muted">Ganancia</span><strong>${money(loan.profitExpected)}</strong></div>
+    </div>
+    <p class="muted" style="margin-top:12px">Inicio: ${escapeHtml(loan.startDate || "—")} · Cuotas: ${loan.periods}${
+      loan.type === "amortized" ? ` · Interés: ${(loan.rate * 100).toFixed(1)}% / quincena` : ""
+    }</p>
+    ${loan.note ? `<p class="muted">Nota: ${escapeHtml(loan.note)}</p>` : ""}
+  `;
+
+  const rows = loan.schedule
+    .map((s, idx) => {
+      const overdue = !s.paid && s.dueDate && s.dueDate < todayIso();
+      return `<tr>
+        <td>${s.n}</td>
+        <td>${escapeHtml(s.dueDate)}${overdue ? " *" : ""}</td>
+        <td>${money(s.principal)}</td>
+        <td>${money(s.interest)}</td>
+        <td>${money(s.payment)}</td>
+        <td>${s.paid ? "Pagada" : "Pendiente"}</td>
+        <td>${
+          s.paid
+            ? escapeHtml((s.paidAt || "").slice(0, 10))
+            : `<button class="btn secondary" type="button" data-mark-idx="${idx}" style="margin:0;padding:6px 8px;width:auto;font-size:12px">Marcar pagada</button>`
+        }</td>
+      </tr>`;
+    })
+    .join("");
+
+  document.getElementById("loanScheduleBox").innerHTML = `
+    <table class="schedule-table">
+      <thead><tr><th>#</th><th>Vence</th><th>Capital</th><th>Interés</th><th>Cuota</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="muted tight">* Cuota vencida. Después de la nómina marca aquí o en Cobro quincenal.</p>
+  `;
+  document.querySelectorAll("#loanScheduleBox [data-mark-idx]").forEach((btn) => {
+    btn.addEventListener("click", () => markLoanInstallmentPaid(selectedLoanId, Number(btn.dataset.markIdx)));
+  });
+  switchView("loanDetailView");
+}
+
+function markLoanInstallmentPaid(loanId, idx) {
+  const loan = getLoan(loanId);
+  if (!loan || !loan.schedule[idx] || loan.schedule[idx].paid) return;
+  loan.schedule[idx].paid = true;
+  loan.schedule[idx].paidAt = new Date().toISOString();
+  loan.schedule[idx].paidAmount = loan.schedule[idx].payment;
+  loan.updatedAt = new Date().toISOString();
+  const pos = loans.findIndex((l) => l.id === loanId);
+  if (pos >= 0) loans[pos] = refreshLoanDerived(loan);
+  saveLoans();
+  openLoanDetail(loanId);
+  toast("Cuota marcada como pagada. Saldo actualizado.");
+}
+
+function deleteSelectedLoan() {
+  if (!selectedLoanId) return;
+  const ok = window.confirm("¿Eliminar este préstamo? Esta acción no se puede deshacer.");
+  if (!ok) return;
+  loans = loans.filter((l) => l.id !== selectedLoanId);
+  selectedLoanId = null;
+  saveLoans();
+  switchView("loansView");
+  renderLoans();
+  toast("Préstamo eliminado.");
+}
+
+function bindLoansUi() {
+  const btnNew = document.getElementById("btnNewLoan");
+  if (!btnNew) return;
+  btnNew.addEventListener("click", openNewLoan);
+  document.getElementById("btnBackLoansFromNew").addEventListener("click", () => switchView("loansView"));
+  document.getElementById("btnBackLoansFromDetail").addEventListener("click", () => {
+    switchView("loansView");
+    renderLoans();
+  });
+  document.getElementById("btnSaveLoan").addEventListener("click", saveNewLoan);
+  document.getElementById("btnDeleteLoan").addEventListener("click", deleteSelectedLoan);
+  document.getElementById("btnUnlockLoanRate").addEventListener("click", unlockLoanRate);
+  document.getElementById("loanType").addEventListener("change", toggleLoanTypeFields);
+  ["loanAdvancePackage", "loanPrincipal", "loanPeriods", "loanRate", "loanStartDate"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", renderLoanPreview);
+    document.getElementById(id).addEventListener("change", renderLoanPreview);
+  });
+  document.getElementById("loanEmpSearch").addEventListener("input", renderLoanEmployeePicker);
+  document.getElementById("loanListSearch").addEventListener("input", renderLoansList);
+}
+/* ==== FIN MÓDULO PRÉSTAMOS ==== */
+
+
 function switchView(viewId) {
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === viewId));
   document.querySelectorAll(".tab").forEach((t) => {
@@ -1269,6 +1927,11 @@ function switchView(viewId) {
   }
   if (viewId === "financeView") renderFinance();
   if (viewId === "employeesView") renderEmployees();
+  if (viewId === "loansView") renderLoans();
+  if (viewId === "loanNewView") {
+    renderLoanEmployeePicker();
+    renderLoanPreview();
+  }
   if (viewId === "adminView") updateAdminGate();
 }
 
@@ -1613,11 +2276,12 @@ function saveReport() {
 function exportBackup() {
   const payload = {
     app: "Reaction Force Security Ops",
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     posts,
     reports,
     employees,
+    loans,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1687,15 +2351,26 @@ function restoreBackupMerge() {
         });
         employees = [...byKey.values()];
       }
+      if (Array.isArray(data.loans)) {
+        const byId = new Map(loans.map((l) => [l.id, l]));
+        data.loans.map(normalizeLoan).forEach((incoming) => {
+          if (!byId.has(incoming.id)) {
+            loans.push(incoming);
+            byId.set(incoming.id, incoming);
+          }
+        });
+      }
       savePosts();
       saveReports();
       saveEmployees();
+      saveLoans();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
       renderReports();
       renderFinance();
       renderEmployees();
+      renderLoans();
       renderAdminList();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
@@ -1715,16 +2390,19 @@ function restoreBackupReplace() {
       posts = data.posts.map(normalizePost);
       reports = Array.isArray(data.reports) ? data.reports : [];
       employees = Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [];
+      loans = Array.isArray(data.loans) ? data.loans.map(normalizeLoan) : [];
       rebuildEmployeesFromPosts(employees);
       savePosts();
       saveReports();
       saveEmployees();
+      saveLoans();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
       renderReports();
       renderFinance();
       renderEmployees();
+      renderLoans();
       renderAdminList();
       toast("Respaldo restaurado (reemplazo completo).");
     })
@@ -1826,6 +2504,7 @@ function bindUi() {
   document.getElementById("btnClearEmpPhoto").addEventListener("click", clearEmpPhotoPending);
   document.getElementById("btnClearEmpDoc").addEventListener("click", clearEmpDocPending);
   document.getElementById("btnOpenEmpDoc").addEventListener("click", openEmpDocument);
+  bindLoansUi();
 }
 
 async function mergeImportedPosts() {
@@ -1864,6 +2543,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   posts = loadPreservingUserData(POSTS_KEY, LEGACY_POST_KEYS).map(normalizePost);
   reports = loadPreservingUserData(REPORTS_KEY, LEGACY_REPORT_KEYS);
   employees = loadJson(EMPLOYEES_KEY, []).map(normalizeEmployee);
+  loans = loadJson(LOANS_KEY, []).map(normalizeLoan);
   rebuildEmployeesFromPosts(employees);
 
   // 1) Intentar nube primero
@@ -1875,14 +2555,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (added > 0) {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     await pushToCloud();
     toast(`Se importaron ${added} servicios y se subieron a la nube.`);
   } else {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+    localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     // Sube el listado consolidado a la nube (sin borrar servicios)
-    if (cloud.usedCloud && employees.length) await pushToCloud();
+    if (cloud.usedCloud && (employees.length || loans.length)) await pushToCloud();
   }
 
   bindUi();
@@ -1896,6 +2578,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderReports();
   renderFinance();
   renderEmployees();
+  renderLoans();
 
   if (cloud.usedCloud && !added) {
     toast("Datos sincronizados desde la nube.");
