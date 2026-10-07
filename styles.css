@@ -356,7 +356,7 @@ textarea { resize: vertical; }
 
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(8, 1fr);
   gap: 2px;
   padding: 8px 4px calc(8px + var(--safe-bottom));
   background: #101012;
@@ -369,9 +369,9 @@ textarea { resize: vertical; }
   border-radius: 12px;
   background: transparent;
   color: var(--muted);
-  padding: 12px 1px;
+  padding: 10px 0;
   font: inherit;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
 }
 
@@ -912,4 +912,50 @@ textarea { resize: vertical; }
   height: 18px;
   margin-top: 2px;
   flex-shrink: 0;
+}
+
+
+.mono-posts-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+
+.mono-post-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--panel-2);
+}
+
+.mono-post-row .mono-post-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.mono-post-row select {
+  width: 100%;
+  margin: 0;
+}
+
+.mono-print-sheet {
+  color: #111;
+  background: #fff;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.mono-print-sheet table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mono-print-sheet th,
+.mono-print-sheet td {
+  border: 1px solid #333;
+  padding: 4px 6px;
+  text-align: left;
 }

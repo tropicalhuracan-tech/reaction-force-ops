@@ -38,6 +38,7 @@
           <button class="btn secondary" type="button" data-go="shiftsView">Ver turnos</button>
           <button class="btn secondary" type="button" data-go="employeesView">Empleados</button>
           <button class="btn secondary" type="button" data-go="loansView">Préstamos</button>
+          <button class="btn secondary" type="button" data-go="monorrielView">Monorriel</button>
           <button class="btn secondary" type="button" data-go="reportsView">Reportes</button>
           <button class="btn secondary" type="button" data-go="financeView">Finanzas</button>
           <button class="btn ghost" type="button" data-go="adminView">Administración</button>
@@ -254,6 +255,80 @@
       <button id="btnDeleteLoan" class="btn danger" type="button">Eliminar préstamo</button>
     </section>
 
+
+    <section id="monorrielView" class="view scroll-view">
+      <div class="section-head">
+        <h1>Monorriel</h1>
+        <p id="monorrielSummary">Servicio especial · 28 puestos · turnos AM y PM.</p>
+      </div>
+      <div class="form-card">
+        <p class="muted">Reportes diarios de quién cubrió cada puesto. El personal Monorriel también aparece en Empleados y Préstamos.</p>
+        <button id="btnOpenMonoReportNew" class="btn primary" type="button">Nuevo reporte Monorriel</button>
+        <button id="btnMonoStaffInfo" class="btn secondary" type="button">Ver personal Monorriel</button>
+      </div>
+      <div class="section-head tight">
+        <h2>Reportes Monorriel</h2>
+        <p class="muted">Historial por fecha y turno.</p>
+      </div>
+      <label class="search-label">Buscar reporte
+        <input id="monoReportSearch" type="search" placeholder="Fecha, turno o novedad" />
+      </label>
+      <div id="monoReportsList" class="card-list"></div>
+    </section>
+
+    <section id="monoReportEditView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackMonoFromEdit" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1 id="monoReportEditTitle">Reporte Monorriel</h1>
+        <p class="muted">Fecha automática · puedes dejar puestos vacantes.</p>
+      </div>
+      <div class="form-card">
+        <div class="coords-row">
+          <label>Fecha<input id="monoReportDate" type="date" /></label>
+          <label>Turno
+            <select id="monoReportShift">
+              <option value="am">A.M. / Diurno</option>
+              <option value="pm">P.M. / Nocturno</option>
+            </select>
+          </label>
+        </div>
+        <label>Supervisor<input id="monoReportSupervisor" type="text" placeholder="Nombre del supervisor" /></label>
+        <div class="loan-toolbar">
+          <button id="btnMonoCopyLast" class="btn secondary" type="button">Copiar último reporte del turno</button>
+          <button id="btnMonoClearPosts" class="btn ghost" type="button">Vaciar todos los puestos</button>
+        </div>
+        <p id="monoCoverageHint" class="muted tight"></p>
+        <div id="monoPostsEditor" class="mono-posts-editor"></div>
+        <label>Novedades<textarea id="monoReportNovedades" rows="3" placeholder="Novedades del turno (opcional)"></textarea></label>
+        <button id="btnSaveMonoReport" class="btn primary" type="button">Guardar reporte</button>
+      </div>
+    </section>
+
+    <section id="monoReportDetailView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackMonoFromDetail" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1 id="monoReportDetailTitle">Reporte Monorriel</h1>
+        <p id="monoReportDetailSub" class="muted"></p>
+      </div>
+      <div id="monoReportDetailBody" class="form-card"></div>
+      <div class="loan-toolbar">
+        <button id="btnEditMonoReport" class="btn primary" type="button">Editar / corregir</button>
+        <button id="btnPrintMonoReport" class="btn secondary" type="button">Imprimir</button>
+        <button id="btnDownloadMonoReport" class="btn secondary" type="button">Descargar</button>
+        <button id="btnShareMonoReport" class="btn secondary" type="button">Compartir</button>
+        <button id="btnDeleteMonoReport" class="btn danger" type="button">Eliminar reporte</button>
+      </div>
+    </section>
+
+    <section id="monoStaffView" class="view scroll-view">
+      <div class="section-head">
+        <button id="btnBackMonoFromStaff" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <h1>Personal Monorriel</h1>
+        <p class="muted">Ya están en Empleados. Completa teléfono, cédula y datos allí.</p>
+      </div>
+      <div id="monoStaffList" class="card-list"></div>
+    </section>
+
     <section id="financeView" class="view scroll-view">
       <div class="section-head">
         <h1>Finanzas</h1>
@@ -439,6 +514,7 @@
       <button class="tab" data-view="shiftsView" type="button"><span>Turnos</span></button>
       <button class="tab" data-view="employeesView" type="button"><span>Empleados</span></button>
       <button class="tab" data-view="loansView" type="button"><span>Préstamos</span></button>
+      <button class="tab" data-view="monorrielView" type="button"><span>Monorriel</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="adminView" type="button"><span>Admin</span></button>
     </nav>
@@ -446,6 +522,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="cloud-config.js"></script>
+  <script src="monorriel-data.js"></script>
   <script src="cloud.js"></script>
   <script src="app.js"></script>
 </body>

@@ -1,4 +1,4 @@
-const CACHE = "rfs-ops-v15";
+const CACHE = "rfs-ops-v16";
 const ASSETS = [
   "./",
   "index.html",
@@ -6,6 +6,7 @@ const ASSETS = [
   "app.js",
   "cloud.js",
   "cloud-config.js",
+  "monorriel-data.js",
   "manifest.json",
   "logo.jpg",
   "import-posts.json",

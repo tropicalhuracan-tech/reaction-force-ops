@@ -8,13 +8,14 @@
     return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${docPath}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  function encodeFields(posts, reports, employees, loans) {
+  function encodeFields(posts, reports, employees, loans, monorrielReports) {
     return {
       fields: {
         postsJson: { stringValue: JSON.stringify(posts || []) },
         reportsJson: { stringValue: JSON.stringify(reports || []) },
         employeesJson: { stringValue: JSON.stringify(employees || []) },
         loansJson: { stringValue: JSON.stringify(loans || []) },
+        monorrielReportsJson: { stringValue: JSON.stringify(monorrielReports || []) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -39,6 +40,7 @@
       reports: parseJsonField(fields, "reportsJson"),
       employees: parseJsonField(fields, "employeesJson"),
       loans: parseJsonField(fields, "loansJson"),
+      monorrielReports: parseJsonField(fields, "monorrielReportsJson"),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
     };
   }
@@ -47,16 +49,16 @@
     if (!projectId || !apiKey) return null;
     const res = await fetch(docUrl(), { method: "GET" });
     if (res.status === 404) {
-      return { posts: [], reports: [], employees: [], loans: [], updatedAt: null, empty: true };
+      return { posts: [], reports: [], employees: [], loans: [], monorrielReports: [], updatedAt: null, empty: true };
     }
     if (!res.ok) throw new Error(`cloud load ${res.status}`);
     const doc = await res.json();
     return { ...decodeDoc(doc), empty: false };
   }
 
-  async function saveCloud(posts, reports, employees, loans) {
+  async function saveCloud(posts, reports, employees, loans, monorrielReports) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
-    const body = encodeFields(posts, reports, employees, loans);
+    const body = encodeFields(posts, reports, employees, loans, monorrielReports);
     const res = await fetch(docUrl(), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

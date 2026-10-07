@@ -668,7 +668,7 @@ async function pushToCloud() {
   cloudSaving = true;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -691,12 +691,15 @@ async function syncFromCloud() {
     const localReports = reports;
     const localEmployees = employees;
     const localLoans = loans;
+    const localMono = monorrielReports;
 
     if (remote.empty || (!remote.posts.length && !remote.reports.length)) {
       rebuildEmployeesFromPosts(localEmployees);
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans);
+      ensureMonorrielEmployeesImported();
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+      localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -705,16 +708,20 @@ async function syncFromCloud() {
     posts = remote.posts.map(normalizePost);
     reports = Array.isArray(remote.reports) ? remote.reports : [];
     employees = Array.isArray(remote.employees) ? remote.employees.map(normalizeEmployee) : [];
-    // Si la nube aún no tiene préstamos, conservar los locales
+    // Si la nube aún no tiene préstamos/monorriel, conservar los locales
     const remoteLoans = Array.isArray(remote.loans) ? remote.loans.map(normalizeLoan) : [];
     loans = remoteLoans.length ? remoteLoans : localLoans.map(normalizeLoan);
+    const remoteMono = Array.isArray(remote.monorrielReports) ? remote.monorrielReports.map(normalizeMonoReport) : [];
+    monorrielReports = remoteMono.length ? remoteMono : localMono.map(normalizeMonoReport);
     rebuildEmployeesFromPosts(employees);
+    ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+    localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     cloudReady = true;
-    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos`);
+    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
   } catch (err) {
     console.error(err);
@@ -1912,6 +1919,571 @@ function bindLoansUi() {
 /* ==== FIN MÓDULO PRÉSTAMOS ==== */
 
 
+/* ==== MÓDULO MONORRIEL ==== */
+const MONORRIEL_REPORTS_KEY = "rfs-ops-monorriel-reports";
+const MONORRIEL_TAG = "Monorriel";
+
+let monorrielReports = [];
+let selectedMonoReportId = null;
+let editingMonoReportId = null;
+let monoDraftAssignments = {}; // postId -> employeeId or ""
+
+function monoData() {
+  return window.RFS_MONORRIEL || { posts: [], staffAm: [], staffPm: [] };
+}
+
+function monoPosts() {
+  return monoData().posts || [];
+}
+
+function monoDisplayName(baseName) {
+  const raw = String(baseName || "").trim();
+  if (!raw) return "";
+  if (/\(monorriel\)/i.test(raw)) return raw;
+  return `${raw} (${MONORRIEL_TAG})`;
+}
+
+function monoBaseName(displayName) {
+  return String(displayName || "")
+    .replace(/\s*\(monorriel\)\s*$/i, "")
+    .trim();
+}
+
+function isMonorrielEmployee(emp) {
+  if (!emp) return false;
+  if (/\(monorriel\)/i.test(emp.name || "")) return true;
+  if ((emp.sites || []).some((s) => /monorriel/i.test(s))) return true;
+  if ((emp.roles || []).some((r) => /monorriel/i.test(r))) return true;
+  return false;
+}
+
+function getMonorrielEmployees() {
+  return employees.filter(isMonorrielEmployee).sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+/** Importa personal AM/PM a la lista general sin borrar datos ya llenos */
+function ensureMonorrielEmployeesImported() {
+  const data = monoData();
+  const names = [...new Set([...(data.staffAm || []), ...(data.staffPm || [])].map((n) => n.trim()).filter(Boolean))];
+  let added = 0;
+  names.forEach((base) => {
+    const display = monoDisplayName(base);
+    const key = employeeKey(display);
+    const keyBase = employeeKey(base);
+    const existing = employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
+    if (existing) {
+      const idx = employees.findIndex((e) => e.id === existing.id);
+      const merged = mergeEmployeeRecord(existing, {
+        name: /\(monorriel\)/i.test(existing.name) ? existing.name : display,
+        sites: ["Monorriel"],
+        roles: ["Monorriel"],
+      });
+      // Forzar etiqueta Monorriel en nombre si faltaba
+      if (!/\(monorriel\)/i.test(merged.name)) merged.name = display;
+      merged.sites = [...new Set([...(merged.sites || []), "Monorriel"])];
+      merged.roles = [...new Set([...(merged.roles || []), "Monorriel"])];
+      employees[idx] = merged;
+      return;
+    }
+    employees.push(
+      normalizeEmployee({
+        name: display,
+        sites: ["Monorriel"],
+        roles: ["Monorriel"],
+      })
+    );
+    added += 1;
+  });
+  if (added) {
+    employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  }
+  return added;
+}
+
+function normalizeMonoAssignment(a = {}) {
+  return {
+    postId: a.postId || "",
+    employeeId: a.employeeId || "",
+    employeeName: a.employeeName || "",
+  };
+}
+
+function normalizeMonoReport(raw = {}) {
+  const posts = monoPosts();
+  const byPost = new Map((raw.assignments || []).map((a) => [a.postId, normalizeMonoAssignment(a)]));
+  const assignments = posts.map((p) => byPost.get(p.id) || { postId: p.id, employeeId: "", employeeName: "" });
+  const covered = assignments.filter((a) => (a.employeeName || "").trim()).length;
+  return {
+    id: raw.id || `mono-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    date: raw.date || todayIso(),
+    shift: raw.shift === "pm" ? "pm" : "am",
+    supervisor: raw.supervisor || "",
+    novedades: raw.novedades || "",
+    assignments,
+    covered,
+    vacant: Math.max(0, posts.length - covered),
+    createdAt: raw.createdAt || new Date().toISOString(),
+    updatedAt: raw.updatedAt || new Date().toISOString(),
+  };
+}
+
+function saveMonorrielReports() {
+  localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+  queueCloudSave();
+}
+
+function getMonoReport(id) {
+  return monorrielReports.find((r) => r.id === id);
+}
+
+function monoShiftLabel(shift) {
+  return shift === "pm" ? "P.M. / Nocturno" : "A.M. / Diurno";
+}
+
+function monoPostLabel(post) {
+  return `${post.no}. ${post.location} — ${post.position}`;
+}
+
+function emptyMonoDraft() {
+  const draft = {};
+  monoPosts().forEach((p) => {
+    draft[p.id] = "";
+  });
+  return draft;
+}
+
+function draftFromReport(report) {
+  const draft = emptyMonoDraft();
+  (report.assignments || []).forEach((a) => {
+    draft[a.postId] = a.employeeId || "";
+  });
+  return draft;
+}
+
+function renderMonoPostsEditor() {
+  const box = document.getElementById("monoPostsEditor");
+  if (!box) return;
+  const staff = getMonorrielEmployees();
+  const options = [`<option value="">— Vacante —</option>`]
+    .concat(staff.map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.name)}</option>`))
+    .join("");
+
+  box.innerHTML = monoPosts()
+    .map((p) => {
+      const selected = monoDraftAssignments[p.id] || "";
+      return `<div class="mono-post-row">
+        <div class="mono-post-label">${escapeHtml(monoPostLabel(p))}</div>
+        <select data-mono-post="${escapeHtml(p.id)}">${options}</select>
+      </div>`;
+    })
+    .join("");
+
+  box.querySelectorAll("select[data-mono-post]").forEach((sel) => {
+    const postId = sel.dataset.monoPost;
+    sel.value = monoDraftAssignments[postId] || "";
+    sel.addEventListener("change", () => {
+      monoDraftAssignments[postId] = sel.value;
+      updateMonoCoverageHint();
+    });
+  });
+  updateMonoCoverageHint();
+}
+
+function updateMonoCoverageHint() {
+  const hint = document.getElementById("monoCoverageHint");
+  if (!hint) return;
+  const total = monoPosts().length;
+  const covered = Object.values(monoDraftAssignments).filter(Boolean).length;
+  hint.textContent = `Cubiertos: ${covered} · Vacantes: ${total - covered} · Plazas: ${total}`;
+}
+
+function openMonoReportNew() {
+  editingMonoReportId = null;
+  monoDraftAssignments = emptyMonoDraft();
+  document.getElementById("monoReportEditTitle").textContent = "Nuevo reporte Monorriel";
+  document.getElementById("monoReportDate").value = todayIso();
+  document.getElementById("monoReportShift").value = "am";
+  document.getElementById("monoReportSupervisor").value = "";
+  document.getElementById("monoReportNovedades").value = "";
+  renderMonoPostsEditor();
+  switchView("monoReportEditView");
+}
+
+function openMonoReportEdit(id) {
+  const report = getMonoReport(id);
+  if (!report) {
+    toast("Reporte no encontrado.");
+    return;
+  }
+  editingMonoReportId = id;
+  monoDraftAssignments = draftFromReport(report);
+  document.getElementById("monoReportEditTitle").textContent = "Editar reporte Monorriel";
+  document.getElementById("monoReportDate").value = report.date || todayIso();
+  document.getElementById("monoReportShift").value = report.shift || "am";
+  document.getElementById("monoReportSupervisor").value = report.supervisor || "";
+  document.getElementById("monoReportNovedades").value = report.novedades || "";
+  renderMonoPostsEditor();
+  switchView("monoReportEditView");
+}
+
+function copyLastMonoReport() {
+  const shift = document.getElementById("monoReportShift").value;
+  const previous = monorrielReports
+    .filter((r) => r.shift === shift && r.id !== editingMonoReportId)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.updatedAt).localeCompare(String(a.updatedAt)))[0];
+  if (!previous) {
+    toast("No hay un reporte anterior de ese turno para copiar.");
+    return;
+  }
+  monoDraftAssignments = draftFromReport(previous);
+  if (previous.supervisor && !document.getElementById("monoReportSupervisor").value.trim()) {
+    document.getElementById("monoReportSupervisor").value = previous.supervisor;
+  }
+  renderMonoPostsEditor();
+  toast(`Se copió el reporte del ${previous.date}. Puedes corregir puestos.`);
+}
+
+function clearMonoDraftPosts() {
+  monoDraftAssignments = emptyMonoDraft();
+  renderMonoPostsEditor();
+  toast("Puestos vaciados.");
+}
+
+function collectMonoAssignmentsFromDraft() {
+  const staffById = new Map(employees.map((e) => [e.id, e]));
+  return monoPosts().map((p) => {
+    const employeeId = monoDraftAssignments[p.id] || "";
+    const emp = staffById.get(employeeId);
+    return {
+      postId: p.id,
+      employeeId: emp ? emp.id : "",
+      employeeName: emp ? emp.name : "",
+    };
+  });
+}
+
+function saveMonoReport() {
+  const date = document.getElementById("monoReportDate").value || todayIso();
+  const shift = document.getElementById("monoReportShift").value === "pm" ? "pm" : "am";
+  const assignments = collectMonoAssignmentsFromDraft();
+  const payload = {
+    id: editingMonoReportId || `mono-${date}-${shift}-${Date.now().toString(36)}`,
+    date,
+    shift,
+    supervisor: document.getElementById("monoReportSupervisor").value.trim(),
+    novedades: document.getElementById("monoReportNovedades").value.trim(),
+    assignments,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const existingSame = monorrielReports.find(
+    (r) => r.date === date && r.shift === shift && r.id !== editingMonoReportId
+  );
+  if (existingSame) {
+    const ok = window.confirm(
+      `Ya hay un reporte ${monoShiftLabel(shift)} del ${date}.\n¿Reemplazarlo con este?`
+    );
+    if (!ok) return;
+    monorrielReports = monorrielReports.filter((r) => r.id !== existingSame.id);
+  }
+
+  const normalized = normalizeMonoReport({
+    ...payload,
+    createdAt: (getMonoReport(editingMonoReportId) || {}).createdAt || new Date().toISOString(),
+  });
+
+  if (editingMonoReportId) {
+    const idx = monorrielReports.findIndex((r) => r.id === editingMonoReportId);
+    if (idx >= 0) monorrielReports[idx] = normalized;
+    else monorrielReports.unshift(normalized);
+  } else {
+    monorrielReports.unshift(normalized);
+  }
+
+  monorrielReports.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.shift).localeCompare(String(b.shift)));
+  saveMonorrielReports();
+  toast("Reporte Monorriel guardado.");
+  openMonoReportDetail(normalized.id);
+}
+
+function renderMonorrielHome() {
+  const summary = document.getElementById("monorrielSummary");
+  if (summary) {
+    const staff = getMonorrielEmployees().length;
+    summary.textContent = `28 puestos · ${staff} empleados Monorriel · ${monorrielReports.length} reportes`;
+  }
+  renderMonoReportsList();
+}
+
+function renderMonoReportsList() {
+  const list = document.getElementById("monoReportsList");
+  if (!list) return;
+  const needle = String(document.getElementById("monoReportSearch")?.value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const filtered = monorrielReports.filter((r) => {
+    if (!needle) return true;
+    const blob = [r.date, monoShiftLabel(r.shift), r.supervisor, r.novedades].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    return blob.includes(needle);
+  });
+  if (!filtered.length) {
+    list.innerHTML = monorrielReports.length
+      ? `<p class="empty">Ningún reporte coincide.</p>`
+      : `<p class="empty">Aún no hay reportes. Crea el de hoy con “Nuevo reporte Monorriel”.</p>`;
+    return;
+  }
+  list.innerHTML = filtered
+    .map((r) => {
+      const pill = r.vacant ? "warn" : "ok";
+      return `<button class="loan-card" type="button" data-mono-id="${escapeHtml(r.id)}">
+        <div class="row">
+          <div>
+            <h3>${escapeHtml(r.date)} · ${escapeHtml(monoShiftLabel(r.shift))}</h3>
+            <p>Cubiertos ${r.covered} · Vacantes ${r.vacant}</p>
+            <p style="margin-top:6px">Supervisor: ${escapeHtml(r.supervisor || "—")}</p>
+          </div>
+          <span class="status-pill ${pill}">${r.vacant ? `${r.vacant} vacantes` : "Completo"}</span>
+        </div>
+      </button>`;
+    })
+    .join("");
+  list.querySelectorAll("[data-mono-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openMonoReportDetail(btn.dataset.monoId));
+  });
+}
+
+function monoReportPlainText(report) {
+  const postsById = new Map(monoPosts().map((p) => [p.id, p]));
+  const lines = [
+    "REACTION FORCE SECURITY — REPORTE DE PERSONAL",
+    `Proyecto Monorriel · ${monoShiftLabel(report.shift)} · ${report.date}`,
+    `Cubiertos: ${report.covered} · Vacantes: ${report.vacant} · Plazas: ${monoPosts().length}`,
+    `Supervisor: ${report.supervisor || "—"}`,
+    "",
+    "No. | Ubicación | Puesto | Personal",
+    "-".repeat(64),
+  ];
+  report.assignments.forEach((a) => {
+    const post = postsById.get(a.postId);
+    if (!post) return;
+    lines.push(`${post.no}. ${post.location} / ${post.position} · ${a.employeeName || "VACANTE"}`);
+  });
+  lines.push("");
+  lines.push(`Novedades: ${report.novedades || "Ninguna"}`);
+  return lines.join("\n");
+}
+
+function monoReportHtml(report) {
+  const postsById = new Map(monoPosts().map((p) => [p.id, p]));
+  const rows = report.assignments
+    .map((a) => {
+      const post = postsById.get(a.postId);
+      if (!post) return "";
+      return `<tr>
+        <td>${post.no}</td>
+        <td>${escapeHtml(post.location)}</td>
+        <td>${escapeHtml(post.position)}</td>
+        <td>${escapeHtml(a.employeeName || "VACANTE")}</td>
+      </tr>`;
+    })
+    .join("");
+  return `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8" />
+<title>Reporte Monorriel ${escapeHtml(report.date)} ${escapeHtml(report.shift.toUpperCase())}</title>
+<style>
+  body{font-family:Arial,sans-serif;color:#111;padding:24px;max-width:900px;margin:0 auto}
+  h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:0 0 16px;font-weight:normal;color:#444}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{border:1px solid #333;padding:6px 8px;text-align:left}
+  th{background:#eee}
+  .novedades{margin-top:16px;border:1px solid #333;padding:10px;min-height:60px}
+  @media print{button{display:none}}
+</style></head><body class="mono-print-sheet">
+  <h1>REACTION FORCE SECURITY — REPORTE DE PERSONAL</h1>
+  <h2>Proyecto Monorriel · ${escapeHtml(monoShiftLabel(report.shift))} · ${escapeHtml(report.date)}</h2>
+  <div class="meta">
+    <div><strong>Cubiertos:</strong> ${report.covered}</div>
+    <div><strong>Vacantes:</strong> ${report.vacant}</div>
+    <div><strong>Plazas:</strong> ${monoPosts().length}</div>
+    <div><strong>Supervisor:</strong> ${escapeHtml(report.supervisor || "—")}</div>
+  </div>
+  <table>
+    <thead><tr><th>No.</th><th>Ubicación / Área</th><th>Posición / Puesto</th><th>Nombre del personal</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="novedades"><strong>Novedades:</strong><br/>${escapeHtml(report.novedades || "Ninguna").replaceAll("\n", "<br/>")}</div>
+</body></html>`;
+}
+
+function openMonoReportDetail(id) {
+  const report = getMonoReport(id);
+  if (!report) {
+    toast("Reporte no encontrado.");
+    return;
+  }
+  selectedMonoReportId = id;
+  document.getElementById("monoReportDetailTitle").textContent = `Monorriel ${report.date}`;
+  document.getElementById("monoReportDetailSub").textContent = `${monoShiftLabel(report.shift)} · ${report.covered} cubiertos · ${report.vacant} vacantes`;
+  const postsById = new Map(monoPosts().map((p) => [p.id, p]));
+  const rows = report.assignments
+    .map((a) => {
+      const post = postsById.get(a.postId);
+      if (!post) return "";
+      return `<tr>
+        <td>${post.no}</td>
+        <td>${escapeHtml(post.location)}<br/><span class="muted">${escapeHtml(post.position)}</span></td>
+        <td>${escapeHtml(a.employeeName || "VACANTE")}</td>
+      </tr>`;
+    })
+    .join("");
+  document.getElementById("monoReportDetailBody").innerHTML = `
+    <p class="muted">Supervisor: ${escapeHtml(report.supervisor || "—")}</p>
+    <div class="schedule-wrap">
+      <table class="schedule-table">
+        <thead><tr><th>#</th><th>Puesto</th><th>Personal</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <p style="margin-top:12px"><strong>Novedades</strong></p>
+    <p class="muted">${escapeHtml(report.novedades || "Ninguna").replaceAll("\n", "<br/>")}</p>
+  `;
+  switchView("monoReportDetailView");
+}
+
+function printMonoReport() {
+  const report = getMonoReport(selectedMonoReportId);
+  if (!report) return;
+  const win = window.open("", "_blank");
+  if (!win) {
+    toast("Permite ventanas emergentes para imprimir.");
+    return;
+  }
+  win.document.write(monoReportHtml(report));
+  win.document.close();
+  setTimeout(() => {
+    win.focus();
+    win.print();
+  }, 250);
+}
+
+function downloadMonoReport() {
+  const report = getMonoReport(selectedMonoReportId);
+  if (!report) return;
+  const html = monoReportHtml(report);
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `reporte-monorriel-${report.date}-${report.shift}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast("Reporte descargado. Puedes abrirlo o imprimirlo.");
+}
+
+async function shareMonoReport() {
+  const report = getMonoReport(selectedMonoReportId);
+  if (!report) return;
+  const text = monoReportPlainText(report);
+  const title = `Reporte Monorriel ${report.date} ${report.shift.toUpperCase()}`;
+  try {
+    if (navigator.share) {
+      const file = new File([monoReportHtml(report)], `reporte-monorriel-${report.date}-${report.shift}.html`, {
+        type: "text/html",
+      });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ title, text, files: [file] });
+      } else {
+        await navigator.share({ title, text });
+      }
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("Reporte copiado. Ya puedes pegarlo en WhatsApp u otra app.");
+  } catch (_) {
+    downloadMonoReport();
+  }
+}
+
+function deleteMonoReport() {
+  if (!selectedMonoReportId) return;
+  const ok = window.confirm("¿Eliminar este reporte Monorriel?");
+  if (!ok) return;
+  monorrielReports = monorrielReports.filter((r) => r.id !== selectedMonoReportId);
+  selectedMonoReportId = null;
+  saveMonorrielReports();
+  switchView("monorrielView");
+  renderMonorrielHome();
+  toast("Reporte eliminado.");
+}
+
+function renderMonoStaffList() {
+  const list = document.getElementById("monoStaffList");
+  if (!list) return;
+  const staff = getMonorrielEmployees();
+  if (!staff.length) {
+    list.innerHTML = `<p class="empty">No hay personal Monorriel importado todavía.</p>`;
+    return;
+  }
+  list.innerHTML = staff
+    .map((e) => {
+      return `<button class="employee-card" type="button" data-emp-id="${escapeHtml(e.id)}">
+        <div class="row">
+          <div>
+            <h3>${escapeHtml(e.name)}</h3>
+            <p>${escapeHtml(e.phone || "Sin teléfono")} · ${escapeHtml(e.cedula || "Sin cédula")}</p>
+            <p style="margin-top:6px">Completa datos en Empleados</p>
+          </div>
+        </div>
+      </button>`;
+    })
+    .join("");
+  list.querySelectorAll("[data-emp-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openEmployeeDetail(btn.dataset.empId));
+  });
+}
+
+function bindMonorrielUi() {
+  if (!document.getElementById("btnOpenMonoReportNew")) return;
+  document.getElementById("btnOpenMonoReportNew").addEventListener("click", openMonoReportNew);
+  document.getElementById("btnMonoStaffInfo").addEventListener("click", () => {
+    renderMonoStaffList();
+    switchView("monoStaffView");
+  });
+  document.getElementById("btnBackMonoFromEdit").addEventListener("click", () => {
+    switchView("monorrielView");
+    renderMonorrielHome();
+  });
+  document.getElementById("btnBackMonoFromDetail").addEventListener("click", () => {
+    switchView("monorrielView");
+    renderMonorrielHome();
+  });
+  document.getElementById("btnBackMonoFromStaff").addEventListener("click", () => switchView("monorrielView"));
+  document.getElementById("btnSaveMonoReport").addEventListener("click", saveMonoReport);
+  document.getElementById("btnMonoCopyLast").addEventListener("click", copyLastMonoReport);
+  document.getElementById("btnMonoClearPosts").addEventListener("click", clearMonoDraftPosts);
+  document.getElementById("btnEditMonoReport").addEventListener("click", () => openMonoReportEdit(selectedMonoReportId));
+  document.getElementById("btnPrintMonoReport").addEventListener("click", printMonoReport);
+  document.getElementById("btnDownloadMonoReport").addEventListener("click", downloadMonoReport);
+  document.getElementById("btnShareMonoReport").addEventListener("click", () => {
+    shareMonoReport().catch(() => downloadMonoReport());
+  });
+  document.getElementById("btnDeleteMonoReport").addEventListener("click", deleteMonoReport);
+  document.getElementById("monoReportSearch").addEventListener("input", renderMonoReportsList);
+  document.getElementById("monoReportShift").addEventListener("change", () => {
+    // keep draft; only hint refresh
+    updateMonoCoverageHint();
+  });
+}
+/* ==== FIN MÓDULO MONORRIEL ==== */
+
+
 function switchView(viewId) {
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === viewId));
   document.querySelectorAll(".tab").forEach((t) => {
@@ -1932,6 +2504,9 @@ function switchView(viewId) {
     renderLoanEmployeePicker();
     renderLoanPreview();
   }
+  if (viewId === "monorrielView") renderMonorrielHome();
+  if (viewId === "monoReportEditView") renderMonoPostsEditor();
+  if (viewId === "monoStaffView") renderMonoStaffList();
   if (viewId === "adminView") updateAdminGate();
 }
 
@@ -2276,12 +2851,13 @@ function saveReport() {
 function exportBackup() {
   const payload = {
     app: "Reaction Force Security Ops",
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
     posts,
     reports,
     employees,
     loans,
+    monorrielReports,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -2360,10 +2936,21 @@ function restoreBackupMerge() {
           }
         });
       }
+      if (Array.isArray(data.monorrielReports)) {
+        const byId = new Map(monorrielReports.map((r) => [r.id, r]));
+        data.monorrielReports.map(normalizeMonoReport).forEach((incoming) => {
+          if (!byId.has(incoming.id)) {
+            monorrielReports.push(incoming);
+            byId.set(incoming.id, incoming);
+          }
+        });
+      }
+      ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
       saveEmployees();
       saveLoans();
+      saveMonorrielReports();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -2371,6 +2958,7 @@ function restoreBackupMerge() {
       renderFinance();
       renderEmployees();
       renderLoans();
+      renderMonorrielHome();
       renderAdminList();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
@@ -2391,11 +2979,14 @@ function restoreBackupReplace() {
       reports = Array.isArray(data.reports) ? data.reports : [];
       employees = Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [];
       loans = Array.isArray(data.loans) ? data.loans.map(normalizeLoan) : [];
+      monorrielReports = Array.isArray(data.monorrielReports) ? data.monorrielReports.map(normalizeMonoReport) : [];
       rebuildEmployeesFromPosts(employees);
+      ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
       saveEmployees();
       saveLoans();
+      saveMonorrielReports();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -2403,6 +2994,7 @@ function restoreBackupReplace() {
       renderFinance();
       renderEmployees();
       renderLoans();
+      renderMonorrielHome();
       renderAdminList();
       toast("Respaldo restaurado (reemplazo completo).");
     })
@@ -2505,6 +3097,7 @@ function bindUi() {
   document.getElementById("btnClearEmpDoc").addEventListener("click", clearEmpDocPending);
   document.getElementById("btnOpenEmpDoc").addEventListener("click", openEmpDocument);
   bindLoansUi();
+  bindMonorrielUi();
 }
 
 async function mergeImportedPosts() {
@@ -2544,7 +3137,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   reports = loadPreservingUserData(REPORTS_KEY, LEGACY_REPORT_KEYS);
   employees = loadJson(EMPLOYEES_KEY, []).map(normalizeEmployee);
   loans = loadJson(LOANS_KEY, []).map(normalizeLoan);
+  monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   rebuildEmployeesFromPosts(employees);
+  ensureMonorrielEmployeesImported();
 
   // 1) Intentar nube primero
   const cloud = await syncFromCloud();
@@ -2556,6 +3151,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+    localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     await pushToCloud();
     toast(`Se importaron ${added} servicios y se subieron a la nube.`);
   } else {
@@ -2563,8 +3159,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
+    localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     // Sube el listado consolidado a la nube (sin borrar servicios)
-    if (cloud.usedCloud && (employees.length || loans.length)) await pushToCloud();
+    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length)) await pushToCloud();
   }
 
   bindUi();
@@ -2579,6 +3176,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderFinance();
   renderEmployees();
   renderLoans();
+  renderMonorrielHome();
 
   if (cloud.usedCloud && !added) {
     toast("Datos sincronizados desde la nube.");
