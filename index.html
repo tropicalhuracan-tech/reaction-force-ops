@@ -44,6 +44,7 @@
           Para instalarla en la PC: en Chrome abre el menú ⋮ → <strong>Instalar Reaction Force…</strong> o el icono ⊕ en la barra de dirección.
         </p>
         <button id="btnInstallApp" class="btn primary" type="button" hidden>Instalar en esta PC</button>
+        <p id="cloudStatus" class="muted" style="margin-top:12px">Nube: conectando…</p>
       </div>
     </section>
 
@@ -281,6 +282,8 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="cloud-config.js"></script>
+  <script src="cloud.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

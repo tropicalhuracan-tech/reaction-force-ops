@@ -148,12 +148,81 @@ function primaryGuard(post) {
   return (post.guards && post.guards.find((g) => g.name.trim())) || (post.guards && post.guards[0]) || emptyGuard();
 }
 
+let cloudReady = false;
+let cloudSaving = false;
+let cloudSaveTimer = null;
+
+function setCloudStatus(text) {
+  const el = document.getElementById("cloudStatus");
+  if (el) el.textContent = text;
+}
+
 function savePosts() {
   localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+  queueCloudSave();
 }
 
 function saveReports() {
   localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+  queueCloudSave();
+}
+
+function queueCloudSave() {
+  if (!window.RFSCloudApi) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = setTimeout(() => {
+    pushToCloud().catch(() => {});
+  }, 600);
+}
+
+async function pushToCloud() {
+  if (!window.RFSCloudApi || cloudSaving) return;
+  cloudSaving = true;
+  setCloudStatus("Nube: guardando…");
+  try {
+    await window.RFSCloudApi.saveCloud(posts, reports);
+    cloudReady = true;
+    setCloudStatus("Nube: guardado ✓ (todas las PCs)");
+  } catch (err) {
+    console.error(err);
+    setCloudStatus("Nube: error al guardar (se mantiene copia local)");
+  } finally {
+    cloudSaving = false;
+  }
+}
+
+async function syncFromCloud() {
+  if (!window.RFSCloudApi) {
+    setCloudStatus("Nube: no configurada");
+    return { added: 0, usedCloud: false };
+  }
+  setCloudStatus("Nube: sincronizando…");
+  try {
+    const remote = await window.RFSCloudApi.loadCloud();
+    const localPosts = posts;
+    const localReports = reports;
+
+    if (remote.empty || (!remote.posts.length && !remote.reports.length)) {
+      // Primera vez: subir lo local / importado a la nube (sin borrar)
+      await window.RFSCloudApi.saveCloud(localPosts, localReports);
+      cloudReady = true;
+      setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
+      return { added: 0, usedCloud: true };
+    }
+
+    // La nube manda para multi-dispositivo; se conserva también en local
+    posts = remote.posts.map(normalizePost);
+    reports = Array.isArray(remote.reports) ? remote.reports : [];
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+    cloudReady = true;
+    setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios`);
+    return { added: 0, usedCloud: true };
+  } catch (err) {
+    console.error(err);
+    setCloudStatus("Nube: sin conexión (usando datos locales)");
+    return { added: 0, usedCloud: false };
+  }
 }
 
 function toast(message) {
@@ -1273,13 +1342,23 @@ async function mergeImportedPosts() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // IMPORTANTE: nunca borrar localStorage de puestos/reportes del usuario
+  // IMPORTANTE: nunca borrar datos del usuario
   posts = loadPreservingUserData(POSTS_KEY, LEGACY_POST_KEYS).map(normalizePost);
   reports = loadPreservingUserData(REPORTS_KEY, LEGACY_REPORT_KEYS);
 
+  // 1) Intentar nube primero
+  const cloud = await syncFromCloud();
+
+  // 2) Si la nube estaba vacía o falló, completar con importación Word (solo agregar faltantes)
   const added = await mergeImportedPosts();
-  savePosts();
-  saveReports();
+  if (added > 0) {
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    await pushToCloud();
+    toast(`Se importaron ${added} servicios y se subieron a la nube.`);
+  } else {
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+  }
 
   bindUi();
   setupInstallPrompt();
@@ -1292,8 +1371,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderReports();
   renderFinance();
 
-  if (added > 0) {
-    toast(`Se importaron ${added} servicios desde las bitácoras. Completa ubicaciones cuando quieras.`);
+  if (cloud.usedCloud && !added) {
+    toast("Datos sincronizados desde la nube.");
   }
 
   if ("serviceWorker" in navigator) {
