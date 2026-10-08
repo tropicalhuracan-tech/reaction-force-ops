@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=25" />
+  <link rel="stylesheet" href="styles.css?v=27" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=25" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=27" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -53,7 +53,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=25" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=27" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -61,6 +61,7 @@
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
           <button class="welcome-action" type="button" data-go="employeesView">Empleados</button>
+          <button class="welcome-action" type="button" data-go="messagesView">Mensajes</button>
           <button class="welcome-action" type="button" data-go="loansView">Préstamos</button>
           <button class="welcome-action" type="button" data-go="monorrielView">Monorriel</button>
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
@@ -411,6 +412,44 @@
       <div id="monoStaffList" class="card-list"></div>
     </section>
 
+
+    <section id="messagesView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Mensajes</h1>
+          <p id="messagesSummary">Chat interno entre usuarios de la empresa.</p>
+        </div>
+        <button id="btnRefreshMessages" class="icon-btn" type="button" aria-label="Actualizar" title="Actualizar">⟳</button>
+      </div>
+      <div class="msg-layout">
+        <div class="msg-people form-card">
+          <p class="muted tight">Conversar con</p>
+          <button class="btn secondary msg-broadcast" type="button" id="btnMsgBroadcast" data-user-id="*">Todos (aviso general)</button>
+          <div id="msgUsersList" class="card-list"></div>
+        </div>
+        <div class="msg-thread form-card" id="msgThreadCard">
+          <div class="msg-thread-head">
+            <strong id="msgThreadTitle">Selecciona un usuario</strong>
+            <span class="muted" id="msgThreadSub"></span>
+          </div>
+          <div id="msgThread" class="msg-thread-body"></div>
+          <div class="msg-compose">
+            <textarea id="msgText" rows="2" placeholder="Escribe un mensaje…"></textarea>
+            <div class="msg-compose-actions">
+              <button id="btnMsgSend" class="btn primary" type="button">Enviar</button>
+              <button id="btnMsgVoice" class="btn secondary" type="button">🎙 Voz</button>
+              <label class="btn secondary msg-file-btn">📎 Archivo
+                <input id="msgFile" type="file" accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png" hidden />
+              </label>
+            </div>
+            <p id="msgVoiceStatus" class="muted tight" hidden></p>
+            <div id="msgPendingAttach" class="msg-pending" hidden></div>
+          </div>
+        </div>
+      </div>
+      <p class="muted tight">Notas de voz: máx. 40 s. Archivos JPG/PDF: máx. ~300 KB. Los mensajes se sincronizan en la nube entre usuarios.</p>
+    </section>
+
     <section id="financeView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -542,6 +581,7 @@
             <label class="check-row"><input type="checkbox" data-perm="monorriel" checked /><span>Monorriel</span></label>
             <label class="check-row"><input type="checkbox" data-perm="finance" /><span>Finanzas</span></label>
             <label class="check-row"><input type="checkbox" data-perm="reports" checked /><span>Reportes</span></label>
+            <label class="check-row"><input type="checkbox" data-perm="messages" checked /><span>Mensajes</span></label>
             <label class="check-row"><input type="checkbox" data-perm="admin" /><span>Admin</span></label>
           </div>
           <input type="hidden" id="uEditingId" value="" />
@@ -623,6 +663,7 @@
       <button class="tab" data-view="mapView" type="button"><span>Mapa</span></button>
       <button class="tab" data-view="shiftsView" type="button"><span>Clientes</span></button>
       <button class="tab" data-view="employeesView" type="button"><span>Empleados</span></button>
+      <button class="tab" data-view="messagesView" type="button"><span>Mensajes</span></button>
       <button class="tab" data-view="loansView" type="button"><span>Préstamos</span></button>
       <button class="tab" data-view="monorrielView" type="button"><span>Monorriel</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
@@ -631,9 +672,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=25"></script>
-  <script src="monorriel-data.js?v=25"></script>
-  <script src="cloud.js?v=25"></script>
-  <script src="app.js?v=25"></script>
+  <script src="cloud-config.js?v=27"></script>
+  <script src="monorriel-data.js?v=27"></script>
+  <script src="cloud.js?v=27"></script>
+  <script src="app.js?v=27"></script>
 </body>
 </html>

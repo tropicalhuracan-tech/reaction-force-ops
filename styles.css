@@ -356,7 +356,7 @@ textarea { resize: vertical; }
 
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(8, 1fr);
+  grid-template-columns: repeat(9, 1fr);
   gap: 2px;
   padding: 8px 4px calc(8px + var(--safe-bottom));
   background: #101012;
@@ -1255,4 +1255,140 @@ textarea { resize: vertical; }
 #app.logged-out #btnLocateMe,
 #app.logged-out #btnPrintCurrent {
   display: none !important;
+}
+
+
+.msg-layout {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 780px) {
+  .msg-layout {
+    grid-template-columns: 240px 1fr;
+    align-items: start;
+  }
+}
+
+.msg-people {
+  padding: 12px;
+}
+
+.msg-broadcast {
+  margin-bottom: 8px;
+}
+
+.msg-user-btn {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: inherit;
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 6px;
+  font: inherit;
+}
+
+.msg-user-btn.active {
+  border-color: rgba(212, 20, 20, 0.55);
+  background: rgba(212, 20, 20, 0.16);
+}
+
+.msg-user-btn .unread {
+  float: right;
+  background: var(--red);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.msg-thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+  padding: 12px;
+}
+
+.msg-thread-head {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.msg-thread-body {
+  flex: 1;
+  overflow: auto;
+  max-height: 48vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px 10px;
+}
+
+.msg-bubble {
+  max-width: 88%;
+  padding: 8px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  align-self: flex-start;
+}
+
+.msg-bubble.mine {
+  align-self: flex-end;
+  background: rgba(212, 20, 20, 0.18);
+  border-color: rgba(212, 20, 20, 0.35);
+}
+
+.msg-bubble .meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.msg-bubble audio {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.msg-bubble a.doc-link {
+  color: #fca5a5;
+  word-break: break-all;
+}
+
+.msg-compose textarea {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.msg-compose-actions {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 6px;
+}
+
+.msg-compose-actions .btn,
+.msg-file-btn {
+  width: 100%;
+  margin: 0;
+  padding: 10px 6px;
+  font-size: 12px;
+}
+
+.msg-file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.msg-pending {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px dashed var(--line);
+  font-size: 12px;
 }

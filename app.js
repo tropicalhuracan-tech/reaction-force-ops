@@ -35,6 +35,7 @@ let reports = [];
 let employees = [];
 let appUsers = [];
 let currentUser = null;
+let chatMessages = [];
 let selectedEmployeeId = null;
 let employeeListFilter = "active"; // active | inactive
 let creatingEmployee = false;
@@ -934,7 +935,7 @@ async function pushToCloud() {
   cloudSaving = true;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -964,11 +965,12 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+      localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -990,6 +992,8 @@ async function syncFromCloud() {
       appUsers = localUsers.map(normalizeUser);
       ensureOwnerUser();
     }
+    const remoteMsgs = Array.isArray(remote.messages) ? remote.messages.map(normalizeChatMessage) : [];
+    chatMessages = mergeChatMessages(chatMessages, remoteMsgs);
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -998,6 +1002,7 @@ async function syncFromCloud() {
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -1488,6 +1493,7 @@ const MODULE_DEFS = [
   { key: "monorriel", label: "Monorriel", view: "monorrielView" },
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "reports", label: "Reportes", view: "reportsView" },
+  { key: "messages", label: "Mensajes", view: "messagesView" },
   { key: "admin", label: "Admin", view: "adminView" },
 ];
 
@@ -1507,6 +1513,7 @@ const VIEW_TO_MODULE = {
   monoStaffView: "monorriel",
   financeView: "finance",
   reportsView: "reports",
+  messagesView: "messages",
   adminView: "admin",
   detailView: "clients",
   loginView: null,
@@ -1606,7 +1613,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "loansView", "monorrielView", "financeView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "loansView", "monorrielView", "financeView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -1737,6 +1744,7 @@ function clearUserForm() {
     monorriel: true,
     finance: false,
     reports: true,
+    messages: true,
     admin: false,
   });
   document.getElementById("btnCancelUserEdit").hidden = true;
@@ -3510,6 +3518,492 @@ function bindMonorrielUi() {
 /* ==== FIN MÓDULO MONORRIEL ==== */
 
 
+/* ==== MENSAJERÍA INTERNA ==== */
+const MESSAGES_KEY = "rfs-ops-messages";
+const MAX_MESSAGES = 180;
+const MSG_FILE_MAX_BYTES = 300 * 1024;
+const MSG_VOICE_MAX_MS = 40000;
+
+let selectedChatUserId = null; // user id or "*"
+let pendingMsgAttach = null; // { type, dataUrl, fileName, mime, durationMs }
+let voiceRecorder = null;
+let voiceChunks = [];
+let voiceStartedAt = 0;
+let voiceTimer = null;
+let messagesPollTimer = null;
+
+function normalizeChatMessage(m = {}) {
+  const type = m.type === "voice" || m.type === "file" ? m.type : "text";
+  return {
+    id: m.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fromUserId: m.fromUserId || "",
+    fromName: m.fromName || "",
+    toUserId: m.toUserId || "",
+    toName: m.toName || "",
+    type,
+    text: m.text || "",
+    dataUrl: m.dataUrl || "",
+    fileName: m.fileName || "",
+    mime: m.mime || "",
+    durationMs: Number(m.durationMs) || 0,
+    createdAt: m.createdAt || new Date().toISOString(),
+    readBy: Array.isArray(m.readBy) ? m.readBy.filter(Boolean) : [],
+  };
+}
+
+function pruneChatMessages(list = chatMessages) {
+  let arr = [...list].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  if (arr.length > MAX_MESSAGES) arr = arr.slice(arr.length - MAX_MESSAGES);
+  // si aún es muy pesado, quitar adjuntos viejos primero
+  const rough = JSON.stringify(arr).length;
+  if (rough > 700000) {
+    for (let i = 0; i < arr.length && JSON.stringify(arr).length > 700000; i += 1) {
+      if (arr[i].dataUrl && arr[i].type !== "text") {
+        arr[i] = { ...arr[i], dataUrl: "", text: arr[i].text || "[Adjunto antiguo omitido por tamaño]" };
+      }
+    }
+  }
+  return arr;
+}
+
+function saveChatMessages() {
+  chatMessages = pruneChatMessages(chatMessages);
+  localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+  queueCloudSave();
+}
+
+function mergeChatMessages(localList, remoteList) {
+  const map = new Map();
+  [...(localList || []), ...(remoteList || [])].map(normalizeChatMessage).forEach((m) => {
+    if (!m.id) return;
+    if (!map.has(m.id)) {
+      map.set(m.id, m);
+      return;
+    }
+    const prev = map.get(m.id);
+    map.set(m.id, {
+      ...prev,
+      ...m,
+      readBy: [...new Set([...(prev.readBy || []), ...(m.readBy || [])])],
+      dataUrl: m.dataUrl || prev.dataUrl,
+      text: m.text || prev.text,
+    });
+  });
+  return pruneChatMessages([...map.values()]);
+}
+
+function otherChatUsers() {
+  if (!currentUser) return [];
+  return appUsers
+    .filter((u) => u.active && u.id !== currentUser.id)
+    .sort((a, b) => (a.displayName || a.username).localeCompare(b.displayName || b.username, "es"));
+}
+
+function conversationWith(userId) {
+  if (!currentUser) return [];
+  return chatMessages
+    .filter((m) => {
+      if (userId === "*") {
+        return m.toUserId === "*";
+      }
+      return (
+        (m.fromUserId === currentUser.id && m.toUserId === userId) ||
+        (m.fromUserId === userId && m.toUserId === currentUser.id)
+      );
+    })
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
+function unreadCountFor(userId) {
+  if (!currentUser) return 0;
+  return conversationWith(userId).filter(
+    (m) => m.fromUserId !== currentUser.id && !(m.readBy || []).includes(currentUser.id)
+  ).length;
+}
+
+function totalUnreadMessages() {
+  if (!currentUser) return 0;
+  return chatMessages.filter(
+    (m) =>
+      (m.toUserId === currentUser.id || m.toUserId === "*") &&
+      m.fromUserId !== currentUser.id &&
+      !(m.readBy || []).includes(currentUser.id)
+  ).length;
+}
+
+function markConversationRead(userId) {
+  if (!currentUser) return;
+  let changed = false;
+  chatMessages = chatMessages.map((m) => {
+    const inConv =
+      userId === "*"
+        ? m.toUserId === "*"
+        : (m.fromUserId === userId && m.toUserId === currentUser.id) ||
+          (m.fromUserId === currentUser.id && m.toUserId === userId);
+    if (!inConv) return m;
+    if (m.fromUserId === currentUser.id) return m;
+    if ((m.readBy || []).includes(currentUser.id)) return m;
+    changed = true;
+    return { ...m, readBy: [...new Set([...(m.readBy || []), currentUser.id])] };
+  });
+  if (changed) saveChatMessages();
+}
+
+function clearPendingMsgAttach() {
+  pendingMsgAttach = null;
+  const box = document.getElementById("msgPendingAttach");
+  if (box) {
+    box.hidden = true;
+    box.innerHTML = "";
+  }
+}
+
+function showPendingMsgAttach() {
+  const box = document.getElementById("msgPendingAttach");
+  if (!box) return;
+  if (!pendingMsgAttach) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const a = pendingMsgAttach;
+  box.hidden = false;
+  if (a.type === "voice") {
+    box.innerHTML = `Nota de voz lista (${Math.round((a.durationMs || 0) / 1000)}s) <button type="button" class="btn ghost" id="btnClearMsgAttach" style="width:auto;margin:0;padding:4px 8px">Quitar</button><audio controls src="${a.dataUrl}" style="width:100%;margin-top:6px"></audio>`;
+  } else {
+    box.innerHTML = `Archivo: ${escapeHtml(a.fileName || "documento")} <button type="button" class="btn ghost" id="btnClearMsgAttach" style="width:auto;margin:0;padding:4px 8px">Quitar</button>`;
+  }
+  const btn = document.getElementById("btnClearMsgAttach");
+  if (btn) btn.addEventListener("click", clearPendingMsgAttach);
+}
+
+function renderMessagesUsers() {
+  const list = document.getElementById("msgUsersList");
+  if (!list) return;
+  const users = otherChatUsers();
+  list.innerHTML = users
+    .map((u) => {
+      const unread = unreadCountFor(u.id);
+      const active = selectedChatUserId === u.id ? "active" : "";
+      return `<button class="msg-user-btn ${active}" type="button" data-user-id="${escapeHtml(u.id)}">
+        ${escapeHtml(u.displayName || u.username)}
+        ${unread ? `<span class="unread">${unread}</span>` : ""}
+      </button>`;
+    })
+    .join("") || `<p class="empty">No hay otros usuarios. Créalos en Admin.</p>`;
+
+  list.querySelectorAll("[data-user-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openChatWith(btn.dataset.userId));
+  });
+
+  const bcast = document.getElementById("btnMsgBroadcast");
+  if (bcast) bcast.classList.toggle("active", selectedChatUserId === "*");
+}
+
+function renderMessageThread() {
+  const thread = document.getElementById("msgThread");
+  const title = document.getElementById("msgThreadTitle");
+  const sub = document.getElementById("msgThreadSub");
+  const summary = document.getElementById("messagesSummary");
+  if (!thread) return;
+
+  const unread = totalUnreadMessages();
+  if (summary) {
+    summary.textContent = unread
+      ? `Chat interno · ${unread} sin leer`
+      : "Chat interno entre usuarios de la empresa.";
+  }
+
+  if (!selectedChatUserId) {
+    title.textContent = "Selecciona un usuario";
+    sub.textContent = "";
+    thread.innerHTML = `<p class="empty">Elige a quién escribir o envía un aviso a todos.</p>`;
+    return;
+  }
+
+  if (selectedChatUserId === "*") {
+    title.textContent = "Aviso a todos";
+    sub.textContent = "Visible para todos los usuarios";
+  } else {
+    const u = appUsers.find((x) => x.id === selectedChatUserId);
+    title.textContent = u ? u.displayName || u.username : "Usuario";
+    sub.textContent = u ? `@${u.username}` : "";
+  }
+
+  const msgs = conversationWith(selectedChatUserId);
+  markConversationRead(selectedChatUserId);
+  renderMessagesUsers();
+
+  thread.innerHTML = msgs
+    .map((m) => {
+      const mine = currentUser && m.fromUserId === currentUser.id;
+      const when = (m.createdAt || "").replace("T", " ").slice(0, 16);
+      let body = "";
+      if (m.type === "voice" && m.dataUrl) {
+        body = `<div>${escapeHtml(m.text || "Nota de voz")}</div><audio controls preload="metadata" src="${m.dataUrl}"></audio>`;
+      } else if (m.type === "file" && m.dataUrl) {
+        const isImg = (m.mime || "").startsWith("image/");
+        body = isImg
+          ? `<div>${escapeHtml(m.text || m.fileName || "Imagen")}</div><img src="${m.dataUrl}" alt="" style="max-width:100%;border-radius:10px;margin-top:6px" />`
+          : `<div>${escapeHtml(m.text || "Documento")}</div><a class="doc-link" href="${m.dataUrl}" download="${escapeHtml(m.fileName || "documento")}">Descargar ${escapeHtml(m.fileName || "archivo")}</a>`;
+      } else {
+        body = `<div>${escapeHtml(m.text || "").replaceAll("\n", "<br/>")}</div>`;
+      }
+      return `<div class="msg-bubble ${mine ? "mine" : ""}">
+        <div class="meta">${escapeHtml(m.fromName || "Usuario")} · ${escapeHtml(when)}</div>
+        ${body}
+      </div>`;
+    })
+    .join("") || `<p class="empty">Sin mensajes todavía. Escribe el primero.</p>`;
+
+  thread.scrollTop = thread.scrollHeight;
+}
+
+function openChatWith(userId) {
+  selectedChatUserId = userId;
+  renderMessagesUsers();
+  renderMessageThread();
+}
+
+function sendChatMessage() {
+  if (!currentUser) {
+    toast("Inicia sesión para enviar mensajes.");
+    return;
+  }
+  if (!selectedChatUserId) {
+    toast("Selecciona un usuario o “Todos”.");
+    return;
+  }
+  const text = document.getElementById("msgText").value.trim();
+  if (!text && !pendingMsgAttach) {
+    toast("Escribe un mensaje o adjunta voz/archivo.");
+    return;
+  }
+
+  let toName = "Todos";
+  if (selectedChatUserId !== "*") {
+    const u = appUsers.find((x) => x.id === selectedChatUserId);
+    if (!u) {
+      toast("Usuario no encontrado.");
+      return;
+    }
+    toName = u.displayName || u.username;
+  }
+
+  const msg = normalizeChatMessage({
+    fromUserId: currentUser.id,
+    fromName: currentUser.displayName || currentUser.username,
+    toUserId: selectedChatUserId,
+    toName,
+    type: pendingMsgAttach ? pendingMsgAttach.type : "text",
+    text: text || (pendingMsgAttach && pendingMsgAttach.type === "voice" ? "Nota de voz" : pendingMsgAttach ? pendingMsgAttach.fileName : ""),
+    dataUrl: pendingMsgAttach ? pendingMsgAttach.dataUrl : "",
+    fileName: pendingMsgAttach ? pendingMsgAttach.fileName : "",
+    mime: pendingMsgAttach ? pendingMsgAttach.mime : "",
+    durationMs: pendingMsgAttach ? pendingMsgAttach.durationMs : 0,
+    readBy: [currentUser.id],
+  });
+
+  chatMessages.push(msg);
+  document.getElementById("msgText").value = "";
+  clearPendingMsgAttach();
+  saveChatMessages();
+  renderMessageThread();
+  toast(selectedChatUserId === "*" ? "Aviso enviado a todos." : "Mensaje enviado.");
+}
+
+async function toggleVoiceRecording() {
+  const status = document.getElementById("msgVoiceStatus");
+  const btn = document.getElementById("btnMsgVoice");
+  if (voiceRecorder && voiceRecorder.state === "recording") {
+    voiceRecorder.stop();
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast("Este dispositivo no permite grabar audio.");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    voiceChunks = [];
+    voiceStartedAt = Date.now();
+    const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+      ? "audio/webm;codecs=opus"
+      : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+    voiceRecorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    voiceRecorder.ondataavailable = (e) => {
+      if (e.data && e.data.size) voiceChunks.push(e.data);
+    };
+    voiceRecorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      clearTimeout(voiceTimer);
+      if (status) status.hidden = true;
+      if (btn) btn.textContent = "🎙 Voz";
+      const blob = new Blob(voiceChunks, { type: voiceRecorder.mimeType || "audio/webm" });
+      const durationMs = Date.now() - voiceStartedAt;
+      if (blob.size > MSG_FILE_MAX_BYTES) {
+        toast("La nota de voz quedó muy pesada. Graba más corto.");
+        voiceRecorder = null;
+        return;
+      }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+      pendingMsgAttach = {
+        type: "voice",
+        dataUrl,
+        fileName: `voz-${Date.now()}.webm`,
+        mime: blob.type || "audio/webm",
+        durationMs,
+      };
+      showPendingMsgAttach();
+      toast("Nota de voz lista. Pulsa Enviar.");
+      voiceRecorder = null;
+    };
+    voiceRecorder.start();
+    if (btn) btn.textContent = "⏹ Detener";
+    if (status) {
+      status.hidden = false;
+      status.textContent = "Grabando… pulsa Detener (máx. 40 s)";
+    }
+    voiceTimer = setTimeout(() => {
+      if (voiceRecorder && voiceRecorder.state === "recording") voiceRecorder.stop();
+    }, MSG_VOICE_MAX_MS);
+  } catch (_) {
+    toast("No se pudo acceder al micrófono.");
+  }
+}
+
+async function onMsgFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  if (file.size > MSG_FILE_MAX_BYTES) {
+    toast("Archivo muy pesado. Máximo aprox. 300 KB.");
+    return;
+  }
+  const mime = file.type || "";
+  const isPdf = mime === "application/pdf" || /\.pdf$/i.test(file.name);
+  const isImage = mime.startsWith("image/");
+  if (!isPdf && !isImage) {
+    toast("Solo JPG/PNG o PDF.");
+    return;
+  }
+  try {
+    let dataUrl;
+    let outMime = mime;
+    let outName = file.name || "archivo";
+    if (isImage && typeof compressImage === "function") {
+      dataUrl = await compressImage(file, 1280, 0.7);
+      outMime = "image/jpeg";
+      if (!/\.jpe?g$/i.test(outName)) outName = outName.replace(/\.[^.]+$/, "") + ".jpg";
+    } else {
+      dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+    if (String(dataUrl).length > MSG_FILE_MAX_BYTES * 1.5) {
+      toast("El archivo quedó muy grande.");
+      return;
+    }
+    pendingMsgAttach = {
+      type: "file",
+      dataUrl,
+      fileName: outName,
+      mime: outMime || (isPdf ? "application/pdf" : "image/jpeg"),
+      durationMs: 0,
+    };
+    showPendingMsgAttach();
+    toast("Archivo listo. Pulsa Enviar.");
+  } catch (_) {
+    toast("No se pudo leer el archivo.");
+  }
+}
+
+function renderMessagesModule() {
+  if (!canAccessModule("messages")) return;
+  renderMessagesUsers();
+  renderMessageThread();
+}
+
+function startMessagesPolling() {
+  stopMessagesPolling();
+  messagesPollTimer = setInterval(() => {
+    if (!currentUser || !canAccessModule("messages")) return;
+    const active = document.querySelector(".view.active");
+    if (!active || active.id !== "messagesView") return;
+    if (!window.RFSCloudApi) return;
+    window.RFSCloudApi
+      .loadCloud()
+      .then((remote) => {
+        if (!remote || remote.empty) return;
+        const remoteMsgs = Array.isArray(remote.messages) ? remote.messages.map(normalizeChatMessage) : [];
+        if (!remoteMsgs.length) return;
+        const before = chatMessages.length;
+        chatMessages = mergeChatMessages(chatMessages, remoteMsgs);
+        localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+        if (chatMessages.length !== before || document.querySelector(".view.active")?.id === "messagesView") {
+          renderMessagesModule();
+        }
+      })
+      .catch(() => {});
+  }, 12000);
+}
+
+function stopMessagesPolling() {
+  if (messagesPollTimer) {
+    clearInterval(messagesPollTimer);
+    messagesPollTimer = null;
+  }
+}
+
+function bindMessagesUi() {
+  if (!document.getElementById("messagesView")) return;
+  document.getElementById("btnMsgSend").addEventListener("click", sendChatMessage);
+  document.getElementById("btnMsgVoice").addEventListener("click", () => {
+    toggleVoiceRecording().catch(() => toast("No se pudo grabar."));
+  });
+  document.getElementById("msgFile").addEventListener("change", onMsgFileSelected);
+  document.getElementById("btnMsgBroadcast").addEventListener("click", () => openChatWith("*"));
+  document.getElementById("btnRefreshMessages").addEventListener("click", () => {
+    if (!window.RFSCloudApi) {
+      renderMessagesModule();
+      return;
+    }
+    window.RFSCloudApi
+      .loadCloud()
+      .then((remote) => {
+        if (remote && Array.isArray(remote.messages)) {
+          chatMessages = mergeChatMessages(chatMessages, remote.messages.map(normalizeChatMessage));
+          localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+        }
+        renderMessagesModule();
+        toast("Mensajes actualizados.");
+      })
+      .catch(() => {
+        renderMessagesModule();
+        toast("Sin conexión. Mostrando mensajes locales.");
+      });
+  });
+  document.getElementById("msgText").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+  startMessagesPolling();
+}
+/* ==== FIN MENSAJERÍA ==== */
+
+
 function switchView(viewId) {
   if (!currentUser) {
     viewId = "loginView";
@@ -3541,6 +4035,7 @@ function switchView(viewId) {
   if (viewId === "monorrielView") renderMonorrielHome();
   if (viewId === "monoReportEditView") renderMonoPostsEditor();
   if (viewId === "monoStaffView") renderMonoStaffList();
+  if (viewId === "messagesView") renderMessagesModule();
   if (viewId === "adminView") updateAdminGate();
 }
 
@@ -3894,6 +4389,7 @@ function exportBackup() {
     loans,
     monorrielReports,
     users: appUsers,
+    messages: chatMessages,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -3992,6 +4488,10 @@ function restoreBackupMerge() {
         });
         ensureOwnerUser();
       }
+      if (Array.isArray(data.messages)) {
+        chatMessages = mergeChatMessages(chatMessages, data.messages.map(normalizeChatMessage));
+        saveChatMessages();
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -4032,6 +4532,9 @@ function restoreBackupReplace() {
         appUsers = data.users.map(normalizeUser);
         ensureOwnerUser();
       }
+      if (Array.isArray(data.messages)) {
+        chatMessages = pruneChatMessages(data.messages.map(normalizeChatMessage));
+      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -4040,6 +4543,7 @@ function restoreBackupReplace() {
       saveLoans();
       saveMonorrielReports();
       saveUsers();
+      saveChatMessages();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -4181,6 +4685,7 @@ function bindUi() {
   bindLoansUi();
   bindMonorrielUi();
   bindPrintUi();
+  bindMessagesUi();
 
   document.getElementById("btnAppLogin").addEventListener("click", tryAppLogin);
   document.getElementById("loginPassword").addEventListener("keydown", (e) => {
@@ -4233,8 +4738,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   loans = loadJson(LOANS_KEY, []).map(normalizeLoan);
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
+  chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+  localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
   restoreSessionUser();
@@ -4256,6 +4763,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
     await pushToCloud();
     toast(`Se importaron ${added} servicios y se subieron a la nube.`);
   } else {
@@ -4265,8 +4773,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
     // Sube el listado consolidado a la nube (sin borrar servicios)
-    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length)) await pushToCloud();
+    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length || chatMessages.length)) await pushToCloud();
   }
 
   bindUi();
@@ -4291,14 +4800,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=25").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=27").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v25").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v27").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

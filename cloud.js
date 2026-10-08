@@ -8,7 +8,7 @@
     return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${docPath}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  function encodeFields(posts, reports, employees, loans, monorrielReports, users) {
+  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages) {
     return {
       fields: {
         postsJson: { stringValue: JSON.stringify(posts || []) },
@@ -17,6 +17,7 @@
         loansJson: { stringValue: JSON.stringify(loans || []) },
         monorrielReportsJson: { stringValue: JSON.stringify(monorrielReports || []) },
         usersJson: { stringValue: JSON.stringify(users || []) },
+        messagesJson: { stringValue: JSON.stringify(messages || []) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -43,6 +44,7 @@
       loans: parseJsonField(fields, "loansJson"),
       monorrielReports: parseJsonField(fields, "monorrielReportsJson"),
       users: parseJsonField(fields, "usersJson"),
+      messages: parseJsonField(fields, "messagesJson"),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
     };
   }
@@ -58,6 +60,7 @@
         loans: [],
         monorrielReports: [],
         users: [],
+        messages: [],
         updatedAt: null,
         empty: true,
       };
@@ -67,9 +70,9 @@
     return { ...decodeDoc(doc), empty: false };
   }
 
-  async function saveCloud(posts, reports, employees, loans, monorrielReports, users) {
+  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
-    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users);
+    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages);
     const res = await fetch(docUrl(), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
