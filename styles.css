@@ -1590,3 +1590,8 @@ textarea { resize: vertical; }
 .activity-item h3 {
   font-size: 0.98rem;
 }
+
+
+#lvaView .form-card h2 {
+  margin-top: 0;
+}

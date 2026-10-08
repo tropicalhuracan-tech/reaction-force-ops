@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=33" />
+  <link rel="stylesheet" href="styles.css?v=34" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=33" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=34" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -53,7 +53,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=33" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=34" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -65,6 +65,7 @@
           <button class="welcome-action" type="button" data-go="radioView">Radio</button>
           <button class="welcome-action" type="button" data-go="loansView">Préstamos</button>
           <button class="welcome-action" type="button" data-go="monorrielView">Monorriel</button>
+          <button class="welcome-action" type="button" data-go="lvaView">La Vega Autopista</button>
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
           <button class="welcome-action ghost" type="button" data-go="adminView">Admin</button>
@@ -415,6 +416,43 @@
       <div id="monoStaffList" class="card-list"></div>
     </section>
 
+    <section id="lvaView" class="view scroll-view">
+      <div class="section-head">
+        <h1>La Vega Autopista</h1>
+        <p id="lvaSummary">Puestos y empleados de este proyecto. Los cambios quedan en historial.</p>
+      </div>
+
+      <div class="form-card">
+        <h2>Puestos del proyecto</h2>
+        <p class="muted tight">Agrega o quita puestos según cambie la operación.</p>
+        <div id="lvaPostsList" class="card-list"></div>
+        <label>Nombre del puesto<input id="lvaPostName" type="text" placeholder="Ej. Caseta entrada, KM 12, Torre 1…" /></label>
+        <label>Nota (opcional)<input id="lvaPostNote" type="text" placeholder="Detalle breve" /></label>
+        <button id="btnLvaAddPost" class="btn secondary" type="button">+ Agregar puesto</button>
+      </div>
+
+      <div class="form-card" style="margin-top:12px">
+        <h2>Empleados del proyecto</h2>
+        <p class="muted tight">Al crearlos aquí también aparecen en Empleados general.</p>
+        <label>Nombre completo<input id="lvaStaffName" type="text" placeholder="Nombre y apellido" /></label>
+        <label>Puesto
+          <select id="lvaStaffPost">
+            <option value="">Selecciona puesto</option>
+          </select>
+        </label>
+        <div class="coords-row">
+          <label>Teléfono<input id="lvaStaffPhone" type="tel" placeholder="809…" /></label>
+          <label>Cédula<input id="lvaStaffCedula" type="text" placeholder="000-0000000-0" /></label>
+        </div>
+        <button id="btnLvaAddStaff" class="btn primary" type="button">+ Agregar empleado</button>
+        <div id="lvaStaffList" class="card-list" style="margin-top:12px"></div>
+      </div>
+
+      <div class="form-card" style="margin-top:12px">
+        <h2>Historial de cambios</h2>
+        <div id="lvaHistoryList" class="card-list activity-log-list"></div>
+      </div>
+    </section>
 
     <section id="messagesView" class="view scroll-view">
       <div class="section-head section-head-row">
@@ -653,6 +691,7 @@
             <label class="check-row"><input type="checkbox" data-perm="employees" checked /><span>Empleados</span></label>
             <label class="check-row"><input type="checkbox" data-perm="loans" /><span>Préstamos</span></label>
             <label class="check-row"><input type="checkbox" data-perm="monorriel" checked /><span>Monorriel</span></label>
+            <label class="check-row"><input type="checkbox" data-perm="lavega" checked /><span>La Vega Autopista</span></label>
             <label class="check-row"><input type="checkbox" data-perm="finance" /><span>Finanzas</span></label>
             <label class="check-row"><input type="checkbox" data-perm="reports" checked /><span>Reportes</span></label>
             <label class="check-row"><input type="checkbox" data-perm="messages" checked /><span>Mensajes</span></label>
@@ -742,15 +781,16 @@
       <button class="tab" data-view="radioView" type="button"><span>Radio</span></button>
       <button class="tab" data-view="loansView" type="button"><span>Préstamos</span></button>
       <button class="tab" data-view="monorrielView" type="button"><span>Monorriel</span></button>
+      <button class="tab" data-view="lvaView" type="button"><span>La Vega</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="adminView" type="button"><span>Admin</span></button>
     </nav>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=33"></script>
-  <script src="monorriel-data.js?v=33"></script>
-  <script src="cloud.js?v=33"></script>
-  <script src="app.js?v=33"></script>
+  <script src="cloud-config.js?v=34"></script>
+  <script src="monorriel-data.js?v=34"></script>
+  <script src="cloud.js?v=34"></script>
+  <script src="app.js?v=34"></script>
 </body>
 </html>
