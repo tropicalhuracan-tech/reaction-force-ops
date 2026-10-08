@@ -2,8 +2,11 @@
 const POSTS_KEY = "rfs-ops-posts";
 const REPORTS_KEY = "rfs-ops-reports";
 const EMPLOYEES_KEY = "rfs-ops-employees";
+const USERS_KEY = "rfs-ops-users";
+const APP_SESSION_KEY = "rfs-app-session-user";
 const ADMIN_SESSION_KEY = "rfs-admin-unlocked";
 const ADMIN_PASSWORD = "mitesoro01";
+const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
@@ -30,6 +33,8 @@ const TYPE_LABEL = {
 let posts = [];
 let reports = [];
 let employees = [];
+let appUsers = [];
+let currentUser = null;
 let selectedEmployeeId = null;
 let employeeListFilter = "active"; // active | inactive
 let creatingEmployee = false;
@@ -929,7 +934,7 @@ async function pushToCloud() {
   cloudSaving = true;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -953,14 +958,17 @@ async function syncFromCloud() {
     const localEmployees = employees;
     const localLoans = loans;
     const localMono = monorrielReports;
+    const localUsers = appUsers;
 
     if (remote.empty || (!remote.posts.length && !remote.reports.length)) {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono);
+      ensureOwnerUser();
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+      localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -974,6 +982,14 @@ async function syncFromCloud() {
     loans = remoteLoans.length ? remoteLoans : localLoans.map(normalizeLoan);
     const remoteMono = Array.isArray(remote.monorrielReports) ? remote.monorrielReports.map(normalizeMonoReport) : [];
     monorrielReports = remoteMono.length ? remoteMono : localMono.map(normalizeMonoReport);
+    const remoteUsers = Array.isArray(remote.users) ? remote.users.map(normalizeUser) : [];
+    if (remoteUsers.length) {
+      appUsers = remoteUsers;
+      ensureOwnerUser();
+    } else {
+      appUsers = localUsers.map(normalizeUser);
+      ensureOwnerUser();
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -981,6 +997,7 @@ async function syncFromCloud() {
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+    localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -1460,6 +1477,397 @@ function focusPost(id) {
   openSheet(id);
 }
 
+
+/* ==== USUARIOS Y PERMISOS ==== */
+const MODULE_DEFS = [
+  { key: "home", label: "Inicio", view: "homeView" },
+  { key: "map", label: "Mapa", view: "mapView" },
+  { key: "clients", label: "Clientes", view: "shiftsView" },
+  { key: "employees", label: "Empleados", view: "employeesView" },
+  { key: "loans", label: "Préstamos", view: "loansView" },
+  { key: "monorriel", label: "Monorriel", view: "monorrielView" },
+  { key: "finance", label: "Finanzas", view: "financeView" },
+  { key: "reports", label: "Reportes", view: "reportsView" },
+  { key: "admin", label: "Admin", view: "adminView" },
+];
+
+const VIEW_TO_MODULE = {
+  homeView: "home",
+  mapView: "map",
+  shiftsView: "clients",
+  employeesView: "employees",
+  employeeDetailView: "employees",
+  employeeNewView: "employees",
+  loansView: "loans",
+  loanNewView: "loans",
+  loanDetailView: "loans",
+  monorrielView: "monorriel",
+  monoReportEditView: "monorriel",
+  monoReportDetailView: "monorriel",
+  monoStaffView: "monorriel",
+  financeView: "finance",
+  reportsView: "reports",
+  adminView: "admin",
+  detailView: "clients",
+  loginView: null,
+};
+
+function allModulesTrue() {
+  const mods = {};
+  MODULE_DEFS.forEach((m) => {
+    mods[m.key] = true;
+  });
+  return mods;
+}
+
+function normalizeUser(u = {}) {
+  const modules = { ...allModulesTrue(), ...(u.modules || {}) };
+  // ensure keys exist
+  MODULE_DEFS.forEach((m) => {
+    if (typeof modules[m.key] !== "boolean") modules[m.key] = !!modules[m.key];
+  });
+  const username = String(u.username || "").trim().toLowerCase();
+  const role = u.role === "owner" || username === OWNER_USERNAME ? "owner" : "user";
+  if (role === "owner") {
+    MODULE_DEFS.forEach((m) => {
+      modules[m.key] = true;
+    });
+  }
+  return {
+    id: u.id || `user-${username || Date.now()}`,
+    username,
+    password: String(u.password || ""),
+    displayName: (u.displayName || u.name || username || "").trim(),
+    role,
+    modules,
+    active: u.active === false ? false : true,
+    createdAt: u.createdAt || new Date().toISOString(),
+    updatedAt: u.updatedAt || new Date().toISOString(),
+  };
+}
+
+function ensureOwnerUser() {
+  let owner = appUsers.find((u) => u.role === "owner" || u.username === OWNER_USERNAME);
+  if (!owner) {
+    owner = normalizeUser({
+      id: "user-owner",
+      username: OWNER_USERNAME,
+      password: ADMIN_PASSWORD,
+      displayName: "Dueño",
+      role: "owner",
+      modules: allModulesTrue(),
+    });
+    appUsers.unshift(owner);
+    return true;
+  }
+  // keep owner password in sync with master admin password if empty
+  const idx = appUsers.findIndex((u) => u.id === owner.id);
+  owner = normalizeUser({ ...owner, role: "owner", username: OWNER_USERNAME, modules: allModulesTrue() });
+  if (!owner.password) owner.password = ADMIN_PASSWORD;
+  appUsers[idx] = owner;
+  return false;
+}
+
+function saveUsers() {
+  ensureOwnerUser();
+  localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+  queueCloudSave();
+}
+
+function getSessionUserId() {
+  return localStorage.getItem(APP_SESSION_KEY) || "";
+}
+
+function setSessionUserId(id) {
+  if (id) localStorage.setItem(APP_SESSION_KEY, id);
+  else localStorage.removeItem(APP_SESSION_KEY);
+}
+
+function restoreSessionUser() {
+  const id = getSessionUserId();
+  currentUser = appUsers.find((u) => u.id === id && u.active) || null;
+  return currentUser;
+}
+
+function canAccessModule(moduleKey) {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  return !!(currentUser.modules && currentUser.modules[moduleKey]);
+}
+
+function canAccessView(viewId) {
+  if (viewId === "loginView") return true;
+  const mod = VIEW_TO_MODULE[viewId];
+  if (!mod) return !!currentUser;
+  return canAccessModule(mod);
+}
+
+function firstAllowedView() {
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "loansView", "monorrielView", "financeView", "reportsView", "adminView"];
+  for (const v of order) {
+    if (canAccessView(v)) return v;
+  }
+  return "loginView";
+}
+
+function applyAccessControl() {
+  const loggedIn = !!currentUser;
+  document.getElementById("app").classList.toggle("logged-out", !loggedIn);
+
+  const label = document.getElementById("sessionUserLabel");
+  const btnOut = document.getElementById("btnLogoutUser");
+  if (label && btnOut) {
+    if (loggedIn) {
+      label.hidden = false;
+      btnOut.hidden = false;
+      label.textContent = currentUser.displayName || currentUser.username;
+      label.title = currentUser.username;
+    } else {
+      label.hidden = true;
+      btnOut.hidden = true;
+    }
+  }
+
+  // Tabs
+  document.querySelectorAll(".tabbar .tab").forEach((tab) => {
+    const view = tab.dataset.view;
+    const allowed = loggedIn && canAccessView(view);
+    tab.hidden = !allowed;
+    if (!allowed) tab.classList.remove("active");
+  });
+
+  // Home shortcuts
+  document.querySelectorAll(".welcome-actions [data-go]").forEach((btn) => {
+    const view = btn.dataset.go;
+    btn.hidden = !(loggedIn && canAccessView(view));
+  });
+
+  // Users admin card only for owner
+  const usersCard = document.getElementById("usersAdminCard");
+  if (usersCard) usersCard.hidden = !(currentUser && currentUser.role === "owner");
+
+  // Print button: available if logged in
+  const printBtn = document.getElementById("btnPrintCurrent");
+  if (printBtn) printBtn.hidden = !loggedIn;
+}
+
+function requireLoginOrContinue() {
+  if (currentUser) {
+    applyAccessControl();
+    const active = document.querySelector(".view.active");
+    if (!active || active.id === "loginView" || !canAccessView(active.id)) {
+      switchView(firstAllowedView());
+    }
+    return true;
+  }
+  applyAccessControl();
+  switchView("loginView");
+  return false;
+}
+
+function tryAppLogin() {
+  const user = document.getElementById("loginUsername").value.trim().toLowerCase();
+  const pass = document.getElementById("loginPassword").value;
+  const error = document.getElementById("loginError");
+  const found = appUsers.find((u) => u.active && u.username === user && u.password === pass);
+  if (!found) {
+    error.hidden = false;
+    toast("Usuario o clave incorrectos.");
+    return;
+  }
+  currentUser = found;
+  setSessionUserId(found.id);
+  error.hidden = true;
+  document.getElementById("loginPassword").value = "";
+  // Owner auto-unlock admin tools
+  if (found.role === "owner" || found.modules.admin) setAdminUnlocked(true);
+  else setAdminUnlocked(false);
+  applyAccessControl();
+  switchView(firstAllowedView());
+  toast(`Bienvenido, ${found.displayName || found.username}`);
+}
+
+function logoutAppUser() {
+  currentUser = null;
+  setSessionUserId("");
+  setAdminUnlocked(false);
+  applyAccessControl();
+  switchView("loginView");
+  toast("Sesión cerrada.");
+}
+
+function readUserFormModules() {
+  const modules = allModulesTrue();
+  MODULE_DEFS.forEach((m) => {
+    const el = document.querySelector(`#uPermGrid [data-perm="${m.key}"]`);
+    modules[m.key] = !!(el && el.checked);
+  });
+  modules.home = true; // siempre puede volver al inicio si tiene algún acceso; still honor checkbox if unchecked
+  const homeEl = document.querySelector(`#uPermGrid [data-perm="home"]`);
+  modules.home = !!(homeEl && homeEl.checked);
+  return modules;
+}
+
+function fillUserFormModules(modules) {
+  MODULE_DEFS.forEach((m) => {
+    const el = document.querySelector(`#uPermGrid [data-perm="${m.key}"]`);
+    if (el) el.checked = modules && typeof modules[m.key] === "boolean" ? modules[m.key] : true;
+  });
+}
+
+function clearUserForm() {
+  document.getElementById("uEditingId").value = "";
+  document.getElementById("uDisplayName").value = "";
+  document.getElementById("uUsername").value = "";
+  document.getElementById("uPassword").value = "";
+  document.getElementById("uUsername").disabled = false;
+  fillUserFormModules({
+    home: true,
+    map: true,
+    clients: true,
+    employees: true,
+    loans: false,
+    monorriel: true,
+    finance: false,
+    reports: true,
+    admin: false,
+  });
+  document.getElementById("btnCancelUserEdit").hidden = true;
+  document.getElementById("btnSaveUser").textContent = "Guardar usuario";
+}
+
+function renderUsersAdmin() {
+  const list = document.getElementById("usersList");
+  if (!list) return;
+  if (!(currentUser && currentUser.role === "owner")) {
+    list.innerHTML = "";
+    return;
+  }
+  const rows = appUsers
+    .slice()
+    .sort((a, b) => a.username.localeCompare(b.username))
+    .map((u) => {
+      const allowed = MODULE_DEFS.filter((m) => u.modules[m.key]).map((m) => m.label).join(", ");
+      return `<article class="report-card">
+        <div class="row">
+          <div>
+            <h3>${escapeHtml(u.displayName || u.username)} ${u.role === "owner" ? "(Dueño)" : ""}</h3>
+            <p>Usuario: <strong>${escapeHtml(u.username)}</strong> · ${u.active ? "Activo" : "Inactivo"}</p>
+            <p style="margin-top:6px">${escapeHtml(allowed || "Sin módulos")}</p>
+          </div>
+        </div>
+        <div class="admin-actions">
+          ${
+            u.role === "owner"
+              ? ""
+              : `<button class="btn secondary btn-edit-user" type="button" data-id="${escapeHtml(u.id)}">Editar</button>
+                 <button class="btn danger btn-del-user" type="button" data-id="${escapeHtml(u.id)}">Eliminar</button>`
+          }
+        </div>
+      </article>`;
+    })
+    .join("");
+  list.innerHTML = rows || `<p class="empty">Solo está el usuario dueño.</p>`;
+  list.querySelectorAll(".btn-edit-user").forEach((btn) => {
+    btn.addEventListener("click", () => editUser(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-del-user").forEach((btn) => {
+    btn.addEventListener("click", () => deleteUser(btn.dataset.id));
+  });
+}
+
+function editUser(id) {
+  const u = appUsers.find((x) => x.id === id);
+  if (!u || u.role === "owner") return;
+  document.getElementById("uEditingId").value = u.id;
+  document.getElementById("uDisplayName").value = u.displayName || "";
+  document.getElementById("uUsername").value = u.username;
+  document.getElementById("uUsername").disabled = true;
+  document.getElementById("uPassword").value = "";
+  document.getElementById("uPassword").placeholder = "Dejar vacío para no cambiar";
+  fillUserFormModules(u.modules);
+  document.getElementById("btnCancelUserEdit").hidden = false;
+  document.getElementById("btnSaveUser").textContent = "Actualizar usuario";
+  toast("Editando usuario. Cambia permisos y guarda.");
+}
+
+function deleteUser(id) {
+  const u = appUsers.find((x) => x.id === id);
+  if (!u || u.role === "owner") return;
+  const ok = window.confirm(`¿Eliminar el usuario "${u.username}"?`);
+  if (!ok) return;
+  appUsers = appUsers.filter((x) => x.id !== id);
+  saveUsers();
+  renderUsersAdmin();
+  toast("Usuario eliminado.");
+}
+
+function saveUserFromForm() {
+  if (!(currentUser && currentUser.role === "owner")) {
+    toast("Solo el dueño puede crear usuarios.");
+    return;
+  }
+  const editingId = document.getElementById("uEditingId").value;
+  const displayName = document.getElementById("uDisplayName").value.trim();
+  let username = document.getElementById("uUsername").value.trim().toLowerCase();
+  const password = document.getElementById("uPassword").value;
+  const modules = readUserFormModules();
+
+  if (!username) {
+    toast("Escribe el usuario.");
+    return;
+  }
+  if (username === OWNER_USERNAME) {
+    toast("Ese usuario está reservado para el dueño.");
+    return;
+  }
+  if (!editingId && !password) {
+    toast("Escribe una clave para el nuevo usuario.");
+    return;
+  }
+  // must have at least one module
+  if (!Object.values(modules).some(Boolean)) {
+    toast("Marca al menos un módulo visible.");
+    return;
+  }
+
+  if (editingId) {
+    const idx = appUsers.findIndex((u) => u.id === editingId);
+    if (idx < 0) return;
+    const prev = appUsers[idx];
+    appUsers[idx] = normalizeUser({
+      ...prev,
+      displayName: displayName || prev.displayName,
+      password: password || prev.password,
+      modules,
+      role: "user",
+      updatedAt: new Date().toISOString(),
+    });
+    toast("Usuario actualizado.");
+  } else {
+    if (appUsers.some((u) => u.username === username)) {
+      toast("Ese usuario ya existe.");
+      return;
+    }
+    appUsers.push(
+      normalizeUser({
+        username,
+        password,
+        displayName: displayName || username,
+        modules,
+        role: "user",
+      })
+    );
+    toast("Usuario creado.");
+  }
+  saveUsers();
+  clearUserForm();
+  document.getElementById("uPassword").placeholder = "Clave del usuario";
+  renderUsersAdmin();
+}
+/* ==== FIN USUARIOS ==== */
+
+
 function isAdminUnlocked() {
   return sessionStorage.getItem(ADMIN_SESSION_KEY) === "1";
 }
@@ -1471,10 +1879,20 @@ function setAdminUnlocked(value) {
 }
 
 function updateAdminGate() {
-  const unlocked = isAdminUnlocked();
-  document.getElementById("adminLock").hidden = unlocked;
-  document.getElementById("adminContent").hidden = !unlocked;
-  if (unlocked) renderAdminList();
+  const canAdmin = !!currentUser && canAccessModule("admin");
+  if (!canAdmin) {
+    document.getElementById("adminLock").hidden = true;
+    document.getElementById("adminContent").hidden = true;
+    return;
+  }
+  // Con permiso Admin, entrar directo (ya validó usuario/clave al iniciar sesión)
+  if (!isAdminUnlocked()) {
+    sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
+  }
+  document.getElementById("adminLock").hidden = true;
+  document.getElementById("adminContent").hidden = false;
+  renderAdminList();
+  renderUsersAdmin();
 }
 
 function tryAdminLogin() {
@@ -3086,6 +3504,12 @@ function bindMonorrielUi() {
 
 
 function switchView(viewId) {
+  if (viewId !== "loginView" && !currentUser) {
+    viewId = "loginView";
+  } else if (viewId !== "loginView" && currentUser && !canAccessView(viewId)) {
+    toast("Tu usuario no tiene acceso a esa sección.");
+    viewId = firstAllowedView();
+  }
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === viewId));
   document.querySelectorAll(".tab").forEach((t) => {
     // detailView no tiene tab; no marcar ninguno extra
@@ -3454,13 +3878,14 @@ function saveReport() {
 function exportBackup() {
   const payload = {
     app: "Reaction Force Security Ops",
-    version: 4,
+    version: 5,
     exportedAt: new Date().toISOString(),
     posts,
     reports,
     employees,
     loans,
     monorrielReports,
+    users: appUsers,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -3548,12 +3973,24 @@ function restoreBackupMerge() {
           }
         });
       }
+      if (Array.isArray(data.users)) {
+        const byUser = new Map(appUsers.map((u) => [u.username, u]));
+        data.users.map(normalizeUser).forEach((incoming) => {
+          if (!incoming.username) return;
+          if (!byUser.has(incoming.username)) {
+            appUsers.push(incoming);
+            byUser.set(incoming.username, incoming);
+          }
+        });
+        ensureOwnerUser();
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
       saveEmployees();
       saveLoans();
       saveMonorrielReports();
+      saveUsers();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -3583,6 +4020,10 @@ function restoreBackupReplace() {
       employees = Array.isArray(data.employees) ? data.employees.map(normalizeEmployee) : [];
       loans = Array.isArray(data.loans) ? data.loans.map(normalizeLoan) : [];
       monorrielReports = Array.isArray(data.monorrielReports) ? data.monorrielReports.map(normalizeMonoReport) : [];
+      if (Array.isArray(data.users)) {
+        appUsers = data.users.map(normalizeUser);
+        ensureOwnerUser();
+      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -3590,6 +4031,7 @@ function restoreBackupReplace() {
       saveEmployees();
       saveLoans();
       saveMonorrielReports();
+      saveUsers();
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -3713,6 +4155,17 @@ function bindUi() {
   bindLoansUi();
   bindMonorrielUi();
   bindPrintUi();
+
+  document.getElementById("btnAppLogin").addEventListener("click", tryAppLogin);
+  document.getElementById("loginPassword").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryAppLogin();
+  });
+  document.getElementById("loginUsername").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryAppLogin();
+  });
+  document.getElementById("btnLogoutUser").addEventListener("click", logoutAppUser);
+  document.getElementById("btnSaveUser").addEventListener("click", saveUserFromForm);
+  document.getElementById("btnCancelUserEdit").addEventListener("click", clearUserForm);
 }
 
 async function mergeImportedPosts() {
@@ -3753,8 +4206,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   employees = loadJson(EMPLOYEES_KEY, []).map(normalizeEmployee);
   loans = loadJson(LOANS_KEY, []).map(normalizeLoan);
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
+  appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
+  ensureOwnerUser();
+  localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
+  restoreSessionUser();
 
   // 1) Intentar nube primero
   const cloud = await syncFromCloud();
@@ -3767,6 +4224,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+    localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     await pushToCloud();
     toast(`Se importaron ${added} servicios y se subieron a la nube.`);
   } else {
@@ -3775,8 +4233,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
+    localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     // Sube el listado consolidado a la nube (sin borrar servicios)
-    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length)) await pushToCloud();
+    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length)) await pushToCloud();
   }
 
   bindUi();
@@ -3799,14 +4258,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=22").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=23").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v22").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v23").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

@@ -8,7 +8,7 @@
     return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${docPath}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  function encodeFields(posts, reports, employees, loans, monorrielReports) {
+  function encodeFields(posts, reports, employees, loans, monorrielReports, users) {
     return {
       fields: {
         postsJson: { stringValue: JSON.stringify(posts || []) },
@@ -16,6 +16,7 @@
         employeesJson: { stringValue: JSON.stringify(employees || []) },
         loansJson: { stringValue: JSON.stringify(loans || []) },
         monorrielReportsJson: { stringValue: JSON.stringify(monorrielReports || []) },
+        usersJson: { stringValue: JSON.stringify(users || []) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -41,6 +42,7 @@
       employees: parseJsonField(fields, "employeesJson"),
       loans: parseJsonField(fields, "loansJson"),
       monorrielReports: parseJsonField(fields, "monorrielReportsJson"),
+      users: parseJsonField(fields, "usersJson"),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
     };
   }
@@ -49,16 +51,25 @@
     if (!projectId || !apiKey) return null;
     const res = await fetch(docUrl(), { method: "GET" });
     if (res.status === 404) {
-      return { posts: [], reports: [], employees: [], loans: [], monorrielReports: [], updatedAt: null, empty: true };
+      return {
+        posts: [],
+        reports: [],
+        employees: [],
+        loans: [],
+        monorrielReports: [],
+        users: [],
+        updatedAt: null,
+        empty: true,
+      };
     }
     if (!res.ok) throw new Error(`cloud load ${res.status}`);
     const doc = await res.json();
     return { ...decodeDoc(doc), empty: false };
   }
 
-  async function saveCloud(posts, reports, employees, loans, monorrielReports) {
+  async function saveCloud(posts, reports, employees, loans, monorrielReports, users) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
-    const body = encodeFields(posts, reports, employees, loans, monorrielReports);
+    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users);
     const res = await fetch(docUrl(), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
