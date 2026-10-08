@@ -1239,3 +1239,20 @@ textarea { resize: vertical; }
 #loginView .login-card .form-card label {
   text-align: left;
 }
+
+
+#app.logged-out {
+  grid-template-rows: calc(var(--topbar-h) + var(--safe-top)) 1fr 0px !important;
+}
+
+#app.logged-out .tabbar {
+  display: none !important;
+  height: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+#app.logged-out #btnLocateMe,
+#app.logged-out #btnPrintCurrent {
+  display: none !important;
+}

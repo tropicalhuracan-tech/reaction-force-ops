@@ -1575,12 +1575,15 @@ function saveUsers() {
 }
 
 function getSessionUserId() {
-  return localStorage.getItem(APP_SESSION_KEY) || "";
+  // sessionStorage: al cerrar la app hay que volver a poner usuario y clave
+  return sessionStorage.getItem(APP_SESSION_KEY) || "";
 }
 
 function setSessionUserId(id) {
-  if (id) localStorage.setItem(APP_SESSION_KEY, id);
-  else localStorage.removeItem(APP_SESSION_KEY);
+  if (id) sessionStorage.setItem(APP_SESSION_KEY, id);
+  else sessionStorage.removeItem(APP_SESSION_KEY);
+  // limpia restos viejos en localStorage
+  try { localStorage.removeItem(APP_SESSION_KEY); } catch (_) {}
 }
 
 function restoreSessionUser() {
@@ -1612,7 +1615,8 @@ function firstAllowedView() {
 
 function applyAccessControl() {
   const loggedIn = !!currentUser;
-  document.getElementById("app").classList.toggle("logged-out", !loggedIn);
+  const app = document.getElementById("app");
+  if (app) app.classList.toggle("logged-out", !loggedIn);
 
   const label = document.getElementById("sessionUserLabel");
   const btnOut = document.getElementById("btnLogoutUser");
@@ -1628,27 +1632,30 @@ function applyAccessControl() {
     }
   }
 
-  // Tabs
+  // Ocultar toda la barra inferior si no hay sesión
+  const tabbar = document.querySelector(".tabbar");
+  if (tabbar) tabbar.hidden = !loggedIn;
+
   document.querySelectorAll(".tabbar .tab").forEach((tab) => {
     const view = tab.dataset.view;
     const allowed = loggedIn && canAccessView(view);
     tab.hidden = !allowed;
+    tab.disabled = !allowed;
     if (!allowed) tab.classList.remove("active");
   });
 
-  // Home shortcuts
   document.querySelectorAll(".welcome-actions [data-go]").forEach((btn) => {
     const view = btn.dataset.go;
     btn.hidden = !(loggedIn && canAccessView(view));
   });
 
-  // Users admin card only for owner
   const usersCard = document.getElementById("usersAdminCard");
   if (usersCard) usersCard.hidden = !(currentUser && currentUser.role === "owner");
 
-  // Print button: available if logged in
   const printBtn = document.getElementById("btnPrintCurrent");
   if (printBtn) printBtn.hidden = !loggedIn;
+  const locateBtn = document.getElementById("btnLocateMe");
+  if (locateBtn) locateBtn.hidden = !loggedIn;
 }
 
 function requireLoginOrContinue() {
@@ -3504,9 +3511,9 @@ function bindMonorrielUi() {
 
 
 function switchView(viewId) {
-  if (viewId !== "loginView" && !currentUser) {
+  if (!currentUser) {
     viewId = "loginView";
-  } else if (viewId !== "loginView" && currentUser && !canAccessView(viewId)) {
+  } else if (viewId !== "loginView" && !canAccessView(viewId)) {
     toast("Tu usuario no tiene acceso a esa sección.");
     viewId = firstAllowedView();
   }
@@ -3515,6 +3522,7 @@ function switchView(viewId) {
     // detailView no tiene tab; no marcar ninguno extra
     t.classList.toggle("active", t.dataset.view === viewId);
   });
+  applyAccessControl();
   if (viewId !== "mapView") closeSheet();
   if (viewId === "mapView" && map) setTimeout(() => map.invalidateSize(), 80);
   if (viewId === "shiftsView") renderShifts();
@@ -4076,11 +4084,29 @@ function setupInstallPrompt() {
 
 function bindUi() {
   document.querySelectorAll(".tab").forEach((tab) => {
-    tab.addEventListener("click", () => switchView(tab.dataset.view));
+    tab.addEventListener("click", (e) => {
+      if (!currentUser) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast("Debes iniciar sesión con tu usuario y clave.");
+        switchView("loginView");
+        return;
+      }
+      switchView(tab.dataset.view);
+    });
   });
 
   document.querySelectorAll("[data-go]").forEach((btn) => {
-    btn.addEventListener("click", () => switchView(btn.dataset.go));
+    btn.addEventListener("click", (e) => {
+      if (!currentUser) {
+        e.preventDefault();
+        e.stopPropagation();
+        toast("Debes iniciar sesión con tu usuario y clave.");
+        switchView("loginView");
+        return;
+      }
+      switchView(btn.dataset.go);
+    });
   });
 
   document.getElementById("btnConfirmCancel").addEventListener("click", closeConfirmModal);
@@ -4212,6 +4238,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
   restoreSessionUser();
+  applyAccessControl();
+  if (!currentUser) {
+    // Forzar pantalla de login de inmediato (antes de que se usen las pestañas)
+    document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "loginView"));
+  }
 
   // 1) Intentar nube primero
   const cloud = await syncFromCloud();
@@ -4252,20 +4283,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderEmployees();
   renderLoans();
   renderMonorrielHome();
+  applyAccessControl();
+  requireLoginOrContinue();
 
-  if (cloud.usedCloud && !added) {
+  if (cloud.usedCloud && !added && currentUser) {
     toast("Datos sincronizados desde la nube.");
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=24").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=25").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v24").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v25").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
