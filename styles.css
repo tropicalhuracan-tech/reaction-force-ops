@@ -1176,4 +1176,66 @@ textarea { resize: vertical; }
 
 .login-card .form-card {
   box-shadow: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+#loginView.home-view {
+  display: none !important;
+}
+
+#loginView.home-view.active {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: auto !important;
+  min-height: 100%;
+  padding: 16px 14px !important;
+}
+
+#loginView .login-card {
+  width: min(100%, 360px);
+  margin: 0 auto;
+  padding: 18px 16px 16px;
+  text-align: center;
+}
+
+#loginView .welcome-logo-wrap {
+  width: 88px !important;
+  height: 88px !important;
+  max-width: 88px !important;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto 10px !important;
+  border-radius: 18px;
+  border: 2px solid var(--red);
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#loginView .welcome-logo {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  display: block;
+}
+
+#loginView .login-card h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+#loginView .welcome-sub {
+  margin: 0 0 14px;
+}
+
+#loginView .login-card .form-card label {
+  text-align: left;
 }
