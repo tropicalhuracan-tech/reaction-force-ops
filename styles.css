@@ -1514,3 +1514,17 @@ textarea { resize: vertical; }
 #radioAudio {
   display: none;
 }
+
+
+.radio-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+.radio-presets .btn {
+  width: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}

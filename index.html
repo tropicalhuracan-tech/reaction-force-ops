@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=30" />
+  <link rel="stylesheet" href="styles.css?v=31" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=30" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=31" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -53,7 +53,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=30" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=31" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -487,12 +487,17 @@
         <h2>Control del administrador</h2>
         <p class="muted">Solo el dueño/admin asigna la URL continua y decide Play/Pausa para todos.</p>
         <label>Nombre de la estación
-          <input id="radioStationName" type="text" placeholder="Ej. RFS Radio" maxlength="60" />
+          <input id="radioStationName" type="text" value="RFS Radio" placeholder="Ej. RFS Radio" maxlength="60" />
         </label>
         <label>URL del stream en vivo (continua)
-          <input id="radioStreamUrl" type="url" placeholder="https://ice1.somafm.com/groovesalad-128-mp3" />
+          <input id="radioStreamUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" value="https://ice1.somafm.com/groovesalad-128-mp3" placeholder="https://ice1.somafm.com/groovesalad-128-mp3" />
         </label>
-        <p class="muted tight">Ejemplo gratis: https://ice1.somafm.com/groovesalad-128-mp3 · Debe ser enlace directo de audio, no YouTube.</p>
+        <p class="muted tight">La URL ya viene colocada. Puedes cambiarla o usar un preset. Debe ser enlace directo de audio (no YouTube).</p>
+        <div class="radio-presets">
+          <button class="btn ghost" type="button" data-radio-preset="https://ice1.somafm.com/groovesalad-128-mp3" data-radio-name="SomaFM Groove Salad">Groove Salad</button>
+          <button class="btn ghost" type="button" data-radio-preset="https://ice1.somafm.com/dronezone-128-mp3" data-radio-name="SomaFM Drone Zone">Drone Zone</button>
+          <button class="btn ghost" type="button" data-radio-preset="https://stream.radioparadise.com/aac-128" data-radio-name="Radio Paradise">Radio Paradise</button>
+        </div>
         <div class="radio-admin-controls">
           <button id="btnRadioPlay" class="btn primary" type="button">▶ Play para todos</button>
           <button id="btnRadioPause" class="btn secondary" type="button">⏸ Pausa</button>
@@ -725,9 +730,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=30"></script>
-  <script src="monorriel-data.js?v=30"></script>
-  <script src="cloud.js?v=30"></script>
-  <script src="app.js?v=30"></script>
+  <script src="cloud-config.js?v=31"></script>
+  <script src="monorriel-data.js?v=31"></script>
+  <script src="cloud.js?v=31"></script>
+  <script src="app.js?v=31"></script>
 </body>
 </html>
