@@ -466,14 +466,14 @@ function renderEmployees() {
   }
 
   const addBtn = document.getElementById("btnAddEmployee");
-  if (addBtn) addBtn.hidden = employeeListFilter === "inactive";
+  if (addBtn) addBtn.hidden = !canWriteEmployees() || employeeListFilter === "inactive";
 
   if (!filtered.length) {
     list.innerHTML = pool.length
       ? `<p class="empty">Ningún empleado coincide con la búsqueda.</p>`
       : employeeListFilter === "inactive"
         ? `<p class="empty">Todavía no hay empleados eliminados.</p>`
-        : `<p class="empty">Todavía no hay personal activo. Agrega uno o guárdalo desde un servicio / Monorriel.</p>`;
+        : `<p class="empty">Todavía no hay personal activo.${canWriteEmployees() ? " Agrega uno o guárdalo desde un servicio / Monorriel." : ""}</p>`;
     return;
   }
 
@@ -516,6 +516,10 @@ function renderEmployees() {
 }
 
 function openNewEmployeeForm() {
+  if (!canWriteEmployees()) {
+    toast("No tienes permiso para crear empleados.");
+    return;
+  }
   creatingEmployee = true;
   document.getElementById("nName").value = "";
   document.getElementById("nMonorriel").checked = false;
@@ -527,6 +531,10 @@ function openNewEmployeeForm() {
 }
 
 function createEmployeeManual() {
+  if (!canWriteEmployees()) {
+    toast("No tienes permiso para crear empleados.");
+    return;
+  }
   let name = document.getElementById("nName").value.trim();
   if (!name) {
     toast("Escribe el nombre del empleado.");
@@ -580,6 +588,10 @@ function createEmployeeManual() {
 }
 
 function deactivateSelectedEmployee() {
+  if (!canWriteEmployees()) {
+    toast("No tienes permiso para eliminar empleados.");
+    return;
+  }
   if (!selectedEmployeeId) return;
   const idx = employees.findIndex((e) => e.id === selectedEmployeeId);
   if (idx < 0) return;
@@ -607,6 +619,10 @@ function deactivateSelectedEmployee() {
 }
 
 function reactivateSelectedEmployee() {
+  if (!canWriteEmployees()) {
+    toast("No tienes permiso para reactivar empleados.");
+    return;
+  }
   if (!selectedEmployeeId) return;
   const idx = employees.findIndex((e) => e.id === selectedEmployeeId);
   if (idx < 0) return;
@@ -908,6 +924,7 @@ function openEmployeeDetail(id) {
   renderEmpPhotoPreview();
   renderEmpDocPreview();
   switchView("employeeDetailView");
+  applyEmployeeWriteUi();
 }
 
 /** Rellena campos vacíos de vigilantes en servicios con la ficha del empleado */
@@ -930,6 +947,10 @@ function pushEmployeeIntoPosts(emp) {
 }
 
 function saveEmployeeDetail() {
+  if (!canWriteEmployees()) {
+    toast("No tienes permiso para editar empleados.");
+    return;
+  }
   if (!selectedEmployeeId) {
     toast("No hay empleado seleccionado.");
     return;
@@ -1591,9 +1612,19 @@ function renderAdminList() {
   }
 
   ensureClientNumbers(false);
+  const showMoney = canSeeClientMoney();
+  const writeCli = canWriteClients();
   list.innerHTML = sortPostsByClientNumber(posts)
     .map((p) => {
       const g = primaryGuard(p);
+      const moneyLine = showMoney
+        ? `<p>${serviceLabel(p.serviceType)} · ${money(p.priceMonth)} / mes · ${escapeHtml(p.hours || 0)} h</p>`
+        : `<p>${serviceLabel(p.serviceType)}</p>`;
+      const actions = writeCli
+        ? `<button class="btn secondary btn-open" type="button" data-id="${p.id}">Ver datos</button>
+          <button class="btn secondary btn-edit" type="button" data-id="${p.id}">Editar</button>
+          <button class="btn danger btn-delete" type="button" data-id="${p.id}">Eliminar</button>`
+        : `<button class="btn secondary btn-open" type="button" data-id="${p.id}">Ver datos</button>`;
       return `
       <article class="report-card admin-card" data-id="${p.id}">
         <div class="row">
@@ -1601,15 +1632,13 @@ function renderAdminList() {
             <h3><span class="client-num">#${escapeHtml(String(p.clientNumber || "—"))}</span> ${escapeHtml(p.site)}</h3>
             <p>${escapeHtml(guardsSummary(p))} · ${escapeHtml(p.guardCount)} vigilante(s)</p>
             <p>Supervisor: ${escapeHtml(p.supervisor || "—")} · Tel: ${escapeHtml(g.phone || "—")}</p>
-            <p>${serviceLabel(p.serviceType)} · ${money(p.priceMonth)} / mes · ${escapeHtml(p.hours || 0)} h</p>
+            ${moneyLine}
             <p>${Number.isFinite(p.lat) ? "📍 Con ubicación" : "⚠ Sin ubicación en mapa"} · ${escapeHtml(p.region || "")}</p>
           </div>
           <span class="status-pill ${statusClass(p.status)}">${STATUS_LABEL[p.status]}</span>
         </div>
         <div class="admin-actions">
-          <button class="btn secondary btn-open" type="button" data-id="${p.id}">Ver datos</button>
-          <button class="btn secondary btn-edit" type="button" data-id="${p.id}">Editar</button>
-          <button class="btn danger btn-delete" type="button" data-id="${p.id}">Eliminar</button>
+          ${actions}
         </div>
       </article>`;
     })
@@ -1681,15 +1710,20 @@ function openDetail(id) {
         .join("")
     : `<p class="empty">Sin cambios registrados todavía.</p>`;
 
+  const showMoney = canSeeClientMoney();
+  const moneyRows = showMoney
+    ? `<div><span>Horas</span><strong>${escapeHtml(post.hours || 0)}</strong></div>
+        <div><span>Precio / hora</span><strong>${money(post.hourlyRate)}</strong></div>
+        <div><span>Cobro mensual</span><strong>${money(post.priceMonth)}</strong></div>`
+    : "";
+
   document.getElementById("detailBody").innerHTML = `
     <article class="report-card">
       <h3>Datos del servicio</h3>
       <div class="detail-grid" style="margin-top:10px">
         <div><span>Inicio</span><strong>${escapeHtml(post.startDate || "—")}</strong></div>
         <div><span>Vigilantes</span><strong>${escapeHtml(post.guardCount)}</strong></div>
-        <div><span>Horas</span><strong>${escapeHtml(post.hours || 0)}</strong></div>
-        <div><span>Precio / hora</span><strong>${money(post.hourlyRate)}</strong></div>
-        <div><span>Cobro mensual</span><strong>${money(post.priceMonth)}</strong></div>
+        ${moneyRows}
         <div><span>Zona</span><strong>${escapeHtml(post.region || "—")}</strong></div>
         <div><span>Encargado cliente</span><strong>${escapeHtml(post.clientContact || "—")}</strong></div>
         <div><span>Tel. cliente</span><strong>${escapeHtml(post.clientPhone || "—")}</strong></div>
@@ -1705,6 +1739,7 @@ function openDetail(id) {
   `;
 
   switchView("detailView");
+  applyCapsUi();
 }
 
 function focusPost(id) {
@@ -1732,6 +1767,13 @@ const MODULE_DEFS = [
   { key: "messages", label: "Mensajes", view: "messagesView" },
   { key: "radio", label: "Radio", view: "radioView" },
   { key: "admin", label: "Admin", view: "adminView" },
+];
+
+/** Capacidades dentro de un módulo (no abren pestaña propia) */
+const CAP_DEFS = [
+  { key: "clientsMoney", label: "Ver dinero en Clientes" },
+  { key: "clientsWrite", label: "Crear / editar / eliminar clientes" },
+  { key: "employeesWrite", label: "Crear / editar / eliminar empleados" },
 ];
 
 const VIEW_TO_MODULE = {
@@ -1763,20 +1805,35 @@ function allModulesTrue() {
   MODULE_DEFS.forEach((m) => {
     mods[m.key] = true;
   });
+  CAP_DEFS.forEach((c) => {
+    mods[c.key] = true;
+  });
   return mods;
 }
 
 function normalizeUser(u = {}) {
-  const modules = { ...allModulesTrue(), ...(u.modules || {}) };
-  // ensure keys exist
+  const incoming = u.modules || {};
+  const modules = { ...allModulesTrue(), ...incoming };
   MODULE_DEFS.forEach((m) => {
     if (typeof modules[m.key] !== "boolean") modules[m.key] = !!modules[m.key];
+  });
+  // Capacidades: si el usuario ya existía sin la clave, mantener permiso (compatibilidad).
+  // Solo usuarios nuevos en el formulario nacen sin ellas.
+  CAP_DEFS.forEach((c) => {
+    if (!Object.prototype.hasOwnProperty.call(incoming, c.key)) {
+      modules[c.key] = true;
+    } else {
+      modules[c.key] = !!incoming[c.key];
+    }
   });
   const username = String(u.username || "").trim().toLowerCase();
   const role = u.role === "owner" || username === OWNER_USERNAME ? "owner" : "user";
   if (role === "owner") {
     MODULE_DEFS.forEach((m) => {
       modules[m.key] = true;
+    });
+    CAP_DEFS.forEach((c) => {
+      modules[c.key] = true;
     });
   }
   return {
@@ -1844,6 +1901,26 @@ function canAccessModule(moduleKey) {
   return !!(currentUser.modules && currentUser.modules[moduleKey]);
 }
 
+/** Capacidades: ver dinero, crear/editar clientes o empleados */
+function canCap(capKey) {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  if (!currentUser.modules || typeof currentUser.modules[capKey] === "undefined") return true;
+  return !!currentUser.modules[capKey];
+}
+
+function canSeeClientMoney() {
+  return canCap("clientsMoney");
+}
+
+function canWriteClients() {
+  return canCap("clientsWrite");
+}
+
+function canWriteEmployees() {
+  return canCap("employeesWrite");
+}
+
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   const mod = VIEW_TO_MODULE[viewId];
@@ -1902,6 +1979,70 @@ function applyAccessControl() {
   if (printBtn) printBtn.hidden = !loggedIn;
   const locateBtn = document.getElementById("btnLocateMe");
   if (locateBtn) locateBtn.hidden = !loggedIn;
+
+  applyCapsUi();
+}
+
+function applyCapsUi() {
+  const writeEmp = canWriteEmployees();
+  const writeCli = canWriteClients();
+
+  const addEmp = document.getElementById("btnAddEmployee");
+  if (addEmp) {
+    const inactiveTab = typeof employeeListFilter !== "undefined" && employeeListFilter === "inactive";
+    addEmp.hidden = !writeEmp || inactiveTab;
+  }
+
+  const adminForm = document.getElementById("adminFormCard");
+  if (adminForm) adminForm.hidden = !writeCli;
+
+  const detailEdit = document.getElementById("btnDetailEdit");
+  if (detailEdit) detailEdit.hidden = !writeCli;
+
+  applyEmployeeWriteUi();
+}
+
+function applyEmployeeWriteUi() {
+  const write = canWriteEmployees();
+  const empIds = [
+    "eName",
+    "eMonorriel",
+    "ePhone",
+    "eCedula",
+    "eEntry",
+    "eWeapons",
+    "eSerial",
+    "eNote",
+    "ePhotoFile",
+    "eDocFile",
+    "eInactiveReason",
+  ];
+  empIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !write;
+  });
+  const saveBtn = document.getElementById("btnSaveEmployee");
+  if (saveBtn) saveBtn.hidden = !write;
+  const clearPhoto = document.getElementById("btnClearEmpPhoto");
+  if (clearPhoto) clearPhoto.hidden = !write;
+  const clearDoc = document.getElementById("btnClearEmpDoc");
+  if (clearDoc) clearDoc.hidden = !write;
+  const photoUpload = document.getElementById("ePhotoUploadLabel");
+  if (photoUpload) photoUpload.hidden = !write;
+  const docUpload = document.getElementById("eDocUploadLabel");
+  if (docUpload) docUpload.hidden = !write;
+
+  const emp = selectedEmployeeId ? getEmployee(selectedEmployeeId) : null;
+  const deactBox = document.getElementById("empDeactivateBox");
+  const btnReact = document.getElementById("btnReactivateEmployee");
+  if (!write) {
+    if (deactBox) deactBox.hidden = true;
+    if (btnReact) btnReact.hidden = true;
+  } else if (emp) {
+    const active = isEmployeeActive(emp);
+    if (deactBox) deactBox.hidden = !active;
+    if (btnReact) btnReact.hidden = active;
+  }
 }
 
 function requireLoginOrContinue() {
@@ -1959,7 +2100,10 @@ function readUserFormModules() {
     const el = document.querySelector(`#uPermGrid [data-perm="${m.key}"]`);
     modules[m.key] = !!(el && el.checked);
   });
-  modules.home = true; // siempre puede volver al inicio si tiene algún acceso; still honor checkbox if unchecked
+  CAP_DEFS.forEach((c) => {
+    const el = document.querySelector(`#uCapGrid [data-cap="${c.key}"]`);
+    modules[c.key] = !!(el && el.checked);
+  });
   const homeEl = document.querySelector(`#uPermGrid [data-perm="home"]`);
   modules.home = !!(homeEl && homeEl.checked);
   return modules;
@@ -1969,6 +2113,10 @@ function fillUserFormModules(modules) {
   MODULE_DEFS.forEach((m) => {
     const el = document.querySelector(`#uPermGrid [data-perm="${m.key}"]`);
     if (el) el.checked = modules && typeof modules[m.key] === "boolean" ? modules[m.key] : true;
+  });
+  CAP_DEFS.forEach((c) => {
+    const el = document.querySelector(`#uCapGrid [data-cap="${c.key}"]`);
+    if (el) el.checked = modules && typeof modules[c.key] === "boolean" ? modules[c.key] : false;
   });
 }
 
@@ -1994,6 +2142,9 @@ function clearUserForm() {
     messages: true,
     radio: true,
     admin: false,
+    clientsMoney: false,
+    clientsWrite: false,
+    employeesWrite: false,
   });
   document.getElementById("btnCancelUserEdit").hidden = true;
   document.getElementById("btnSaveUser").textContent = "Guardar usuario";
@@ -2011,6 +2162,8 @@ function renderUsersAdmin() {
     .sort((a, b) => a.username.localeCompare(b.username))
     .map((u) => {
       const allowed = MODULE_DEFS.filter((m) => u.modules[m.key]).map((m) => m.label).join(", ");
+      const caps = CAP_DEFS.filter((c) => u.modules[c.key]).map((c) => c.label).join(", ");
+      const capsDenied = CAP_DEFS.filter((c) => !u.modules[c.key]).map((c) => c.label);
       const passText = u.password ? escapeHtml(u.password) : "(sin clave)";
       return `<article class="report-card">
         <div class="row">
@@ -2021,6 +2174,8 @@ function renderUsersAdmin() {
               <button class="btn ghost btn-copy-pass" type="button" data-id="${escapeHtml(u.id)}" style="width:auto;margin:0 0 0 6px;padding:4px 8px;font-size:12px">Copiar</button>
             </p>
             <p style="margin-top:6px">${escapeHtml(allowed || "Sin módulos")}</p>
+            <p style="margin-top:4px" class="muted">${caps ? `Extra: ${escapeHtml(caps)}` : "Sin dinero ni altas (solo consulta)"}</p>
+            ${capsDenied.length ? `<p style="margin-top:2px" class="muted">Bloqueado: ${escapeHtml(capsDenied.join(", "))}</p>` : ""}
           </div>
         </div>
         <div class="admin-actions">
@@ -2988,6 +3143,7 @@ function printLoanSheet(loanId) {
 
 function printClientsSheet() {
   ensureClientNumbers(false);
+  const showMoney = canSeeClientMoney();
   const rows = sortPostsByClientNumber(posts)
     .map((p) => {
       const g = primaryGuard(p);
@@ -2998,15 +3154,15 @@ function printClientsSheet() {
         <td>${escapeHtml(p.supervisor || "—")}</td>
         <td>${escapeHtml(g.phone || "—")}</td>
         <td>${escapeHtml(STATUS_LABEL[p.status] || p.status)}</td>
-        <td class="right">${money(p.priceMonth)}</td>
+        ${showMoney ? `<td class="right">${money(p.priceMonth)}</td>` : ""}
       </tr>`;
     })
     .join("");
   openPrintWindow("Listado de clientes", `
     <h2>Clientes activos: ${posts.length}</h2>
     <table>
-      <thead><tr><th>No.</th><th>Cliente / Sitio</th><th>Vigilantes</th><th>Supervisor</th><th>Tel.</th><th>Estado</th><th class="right">Mes</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="7">Sin clientes</td></tr>`}</tbody>
+      <thead><tr><th>No.</th><th>Cliente / Sitio</th><th>Vigilantes</th><th>Supervisor</th><th>Tel.</th><th>Estado</th>${showMoney ? `<th class="right">Mes</th>` : ""}</tr></thead>
+      <tbody>${rows || `<tr><td colspan="${showMoney ? 7 : 6}">Sin clientes</td></tr>`}</tbody>
     </table>`);
 }
 
@@ -3137,6 +3293,9 @@ function printCurrentView() {
     const post = getPost(selectedId);
     if (!post) return toast("No hay ficha para imprimir.");
     ensureClientNumbers(false);
+    const moneyBlock = canSeeClientMoney()
+      ? `<div><strong>Mes:</strong><br/>${money(post.priceMonth)}</div>`
+      : "";
     return openPrintWindow(`Cliente #${post.clientNumber || "—"} ${post.site}`, `
       <h2>#${escapeHtml(String(post.clientNumber || "—"))} ${escapeHtml(post.site)}</h2>
       <div class="meta">
@@ -3144,7 +3303,7 @@ function printCurrentView() {
         <div><strong>Horario:</strong><br/>${escapeHtml(post.shift || "—")}</div>
         <div><strong>Servicio:</strong><br/>${escapeHtml(serviceLabel(post.serviceType))}</div>
         <div><strong>Estado:</strong><br/>${escapeHtml(STATUS_LABEL[post.status] || post.status)}</div>
-        <div><strong>Mes:</strong><br/>${money(post.priceMonth)}</div>
+        ${moneyBlock}
       </div>
       <p><strong>Vigilantes:</strong> ${escapeHtml(guardsSummary(post))}</p>
       <p><strong>Nota:</strong> ${escapeHtml(post.note || "—")}</p>`);
@@ -4121,6 +4280,10 @@ function removeLvaPost(postId) {
 }
 
 function addLvaStaff() {
+  if (!canWriteEmployees()) {
+    toast("No tienes permiso para crear empleados.");
+    return;
+  }
   const name = document.getElementById("lvaStaffName").value.trim();
   const postId = document.getElementById("lvaStaffPost").value;
   const phone = document.getElementById("lvaStaffPhone").value.trim();
@@ -5175,6 +5338,10 @@ function clearAdminForm() {
 }
 
 function loadPostIntoForm(id) {
+  if (!canWriteClients()) {
+    toast("No tienes permiso para editar clientes.");
+    return;
+  }
   const post = getPost(id);
   if (!post) return;
   editingId = id;
@@ -5265,6 +5432,10 @@ function pushHistory(post, title, note) {
 }
 
 function saveAdminPost() {
+  if (!canWriteClients()) {
+    toast("No tienes permiso para crear o editar clientes.");
+    return;
+  }
   const data = readFormPost();
   if (!data) return;
   const historyNote = document.getElementById("fHistoryNote").value.trim();
@@ -5308,6 +5479,10 @@ function saveAdminPost() {
 let pendingDeleteId = null;
 
 function askDeletePost(id) {
+  if (!canWriteClients()) {
+    toast("No tienes permiso para eliminar clientes.");
+    return;
+  }
   const post = getPost(id);
   if (!post) return;
   pendingDeleteId = id;
@@ -5772,6 +5947,10 @@ function bindUi() {
   document.getElementById("btnDetailShare").addEventListener("click", shareLocation);
   document.getElementById("btnDetailWhatsApp").addEventListener("click", shareWhatsApp);
   document.getElementById("btnDetailEdit").addEventListener("click", () => {
+    if (!canWriteClients()) {
+      toast("No tienes permiso para editar clientes.");
+      return;
+    }
     switchView("adminView");
     if (isAdminUnlocked()) loadPostIntoForm(selectedId);
   });
