@@ -1528,3 +1528,28 @@ textarea { resize: vertical; }
   padding: 8px 10px;
   font-size: 12px;
 }
+
+
+.pass-field-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.pass-field-row .btn {
+  width: auto;
+  margin: 0;
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+.user-pass-line {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.user-pass-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+}

@@ -1764,7 +1764,10 @@ function clearUserForm() {
   document.getElementById("uDisplayName").value = "";
   document.getElementById("uUsername").value = "";
   document.getElementById("uPassword").value = "";
+  document.getElementById("uPassword").type = "text";
   document.getElementById("uUsername").disabled = false;
+  const toggle = document.getElementById("btnToggleUserPass");
+  if (toggle) toggle.textContent = "Ocultar";
   fillUserFormModules({
     home: true,
     map: true,
@@ -1794,18 +1797,22 @@ function renderUsersAdmin() {
     .sort((a, b) => a.username.localeCompare(b.username))
     .map((u) => {
       const allowed = MODULE_DEFS.filter((m) => u.modules[m.key]).map((m) => m.label).join(", ");
+      const passText = u.password ? escapeHtml(u.password) : "(sin clave)";
       return `<article class="report-card">
         <div class="row">
           <div>
             <h3>${escapeHtml(u.displayName || u.username)} ${u.role === "owner" ? "(Dueño)" : ""}</h3>
             <p>Usuario: <strong>${escapeHtml(u.username)}</strong> · ${u.active ? "Activo" : "Inactivo"}</p>
+            <p class="user-pass-line">Clave: <strong class="user-pass-value">${passText}</strong>
+              <button class="btn ghost btn-copy-pass" type="button" data-id="${escapeHtml(u.id)}" style="width:auto;margin:0 0 0 6px;padding:4px 8px;font-size:12px">Copiar</button>
+            </p>
             <p style="margin-top:6px">${escapeHtml(allowed || "Sin módulos")}</p>
           </div>
         </div>
         <div class="admin-actions">
           ${
             u.role === "owner"
-              ? ""
+              ? `<button class="btn secondary btn-edit-user" type="button" data-id="${escapeHtml(u.id)}">Ver / editar</button>`
               : `<button class="btn secondary btn-edit-user" type="button" data-id="${escapeHtml(u.id)}">Editar</button>
                  <button class="btn danger btn-del-user" type="button" data-id="${escapeHtml(u.id)}">Eliminar</button>`
           }
@@ -1820,21 +1827,45 @@ function renderUsersAdmin() {
   list.querySelectorAll(".btn-del-user").forEach((btn) => {
     btn.addEventListener("click", () => deleteUser(btn.dataset.id));
   });
+  list.querySelectorAll(".btn-copy-pass").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const u = appUsers.find((x) => x.id === btn.dataset.id);
+      const pass = u && u.password ? String(u.password) : "";
+      if (!pass) {
+        toast("Este usuario no tiene clave guardada.");
+        return;
+      }
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(pass);
+        } else {
+          window.prompt("Copia la clave:", pass);
+        }
+        toast("Clave copiada.");
+      } catch (_) {
+        window.prompt("Copia la clave:", pass);
+      }
+    });
+  });
 }
 
 function editUser(id) {
   const u = appUsers.find((x) => x.id === id);
-  if (!u || u.role === "owner") return;
+  if (!u) return;
   document.getElementById("uEditingId").value = u.id;
   document.getElementById("uDisplayName").value = u.displayName || "";
   document.getElementById("uUsername").value = u.username;
-  document.getElementById("uUsername").disabled = true;
-  document.getElementById("uPassword").value = "";
-  document.getElementById("uPassword").placeholder = "Dejar vacío para no cambiar";
+  document.getElementById("uUsername").disabled = u.role === "owner";
+  // Mostrar la clave actual al administrador para recordarla o cambiarla
+  document.getElementById("uPassword").value = u.password || "";
+  document.getElementById("uPassword").placeholder = "Clave del usuario";
+  document.getElementById("uPassword").type = "text";
+  const toggle = document.getElementById("btnToggleUserPass");
+  if (toggle) toggle.textContent = "Ocultar";
   fillUserFormModules(u.modules);
   document.getElementById("btnCancelUserEdit").hidden = false;
-  document.getElementById("btnSaveUser").textContent = "Actualizar usuario";
-  toast("Editando usuario. Cambia permisos y guarda.");
+  document.getElementById("btnSaveUser").textContent = u.role === "owner" ? "Actualizar dueño" : "Actualizar usuario";
+  toast("Clave visible abajo. Puedes copiarla o cambiarla y guardar.");
 }
 
 function deleteUser(id) {
@@ -1863,7 +1894,7 @@ function saveUserFromForm() {
     toast("Escribe el usuario.");
     return;
   }
-  if (username === OWNER_USERNAME) {
+  if (!editingId && username === OWNER_USERNAME) {
     toast("Ese usuario está reservado para el dueño.");
     return;
   }
@@ -1881,15 +1912,20 @@ function saveUserFromForm() {
     const idx = appUsers.findIndex((u) => u.id === editingId);
     if (idx < 0) return;
     const prev = appUsers[idx];
+    if (!password) {
+      toast("La clave no puede quedar vacía.");
+      return;
+    }
     appUsers[idx] = normalizeUser({
       ...prev,
       displayName: displayName || prev.displayName,
-      password: password || prev.password,
-      modules,
-      role: "user",
+      password,
+      modules: prev.role === "owner" ? allModulesTrue() : modules,
+      role: prev.role === "owner" ? "owner" : "user",
+      username: prev.role === "owner" ? OWNER_USERNAME : prev.username,
       updatedAt: new Date().toISOString(),
     });
-    toast("Usuario actualizado.");
+    toast("Usuario actualizado. Clave: " + password);
   } else {
     if (appUsers.some((u) => u.username === username)) {
       toast("Ese usuario ya existe.");
@@ -1904,11 +1940,14 @@ function saveUserFromForm() {
         role: "user",
       })
     );
-    toast("Usuario creado.");
+    toast("Usuario creado. Clave: " + password);
   }
   saveUsers();
   clearUserForm();
   document.getElementById("uPassword").placeholder = "Clave del usuario";
+  document.getElementById("uPassword").type = "text";
+  const toggle = document.getElementById("btnToggleUserPass");
+  if (toggle) toggle.textContent = "Ocultar";
   renderUsersAdmin();
 }
 /* ==== FIN USUARIOS ==== */
@@ -5133,6 +5172,14 @@ function bindUi() {
   document.getElementById("btnLogoutUser").addEventListener("click", logoutAppUser);
   document.getElementById("btnSaveUser").addEventListener("click", saveUserFromForm);
   document.getElementById("btnCancelUserEdit").addEventListener("click", clearUserForm);
+  document.getElementById("btnToggleUserPass")?.addEventListener("click", () => {
+    const input = document.getElementById("uPassword");
+    const btn = document.getElementById("btnToggleUserPass");
+    if (!input || !btn) return;
+    const hide = input.type === "text";
+    input.type = hide ? "password" : "text";
+    btn.textContent = hide ? "Mostrar" : "Ocultar";
+  });
 }
 
 async function mergeImportedPosts() {
@@ -5241,14 +5288,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=31").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=32").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v31").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v32").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=31" />
+  <link rel="stylesheet" href="styles.css?v=32" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=31" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=32" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -53,7 +53,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=31" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=32" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -623,10 +623,15 @@
 
         <div class="form-card" style="margin-top:12px" id="usersAdminCard">
           <h2>Usuarios y permisos</h2>
-          <p class="muted">Crea usuarios con su clave y marca qué módulos pueden ver. Solo el dueño administra usuarios.</p>
+          <p class="muted">Crea usuarios con su clave y marca qué módulos pueden ver. Solo el dueño administra usuarios. Las claves se muestran en la lista para que puedas recordárselas.</p>
           <label>Nombre para mostrar<input id="uDisplayName" type="text" placeholder="Ej. Supervisor Norte" /></label>
           <label>Usuario (para entrar)<input id="uUsername" type="text" placeholder="ej. supervisor1" autocomplete="off" /></label>
-          <label>Clave<input id="uPassword" type="password" placeholder="Clave del usuario" autocomplete="new-password" /></label>
+          <label>Clave
+            <div class="pass-field-row">
+              <input id="uPassword" type="text" placeholder="Clave del usuario" autocomplete="off" />
+              <button id="btnToggleUserPass" class="btn secondary" type="button">Ocultar</button>
+            </div>
+          </label>
           <p class="muted tight">Módulos permitidos:</p>
           <div class="perm-grid" id="uPermGrid">
             <label class="check-row"><input type="checkbox" data-perm="home" checked /><span>Inicio</span></label>
@@ -730,9 +735,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=31"></script>
-  <script src="monorriel-data.js?v=31"></script>
-  <script src="cloud.js?v=31"></script>
-  <script src="app.js?v=31"></script>
+  <script src="cloud-config.js?v=32"></script>
+  <script src="monorriel-data.js?v=32"></script>
+  <script src="cloud.js?v=32"></script>
+  <script src="app.js?v=32"></script>
 </body>
 </html>
