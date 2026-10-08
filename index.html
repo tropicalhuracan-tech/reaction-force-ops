@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=32" />
+  <link rel="stylesheet" href="styles.css?v=33" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=32" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=33" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -53,7 +53,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=32" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=33" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -155,6 +155,7 @@
       </div>
       <div class="form-card">
         <label>Nombre completo<input id="eName" type="text" /></label>
+        <p id="eNameDupHint" class="dup-hint" hidden></p>
         <label class="check-row">
           <input id="eMonorriel" type="checkbox" />
           <span>Es del Monorriel</span>
@@ -221,6 +222,7 @@
       </div>
       <div class="form-card">
         <label>Nombre completo<input id="nName" type="text" placeholder="Nombre y apellido" /></label>
+        <p id="nNameDupHint" class="dup-hint" hidden></p>
         <label class="check-row">
           <input id="nMonorriel" type="checkbox" />
           <span>Es del Monorriel</span>
@@ -621,6 +623,17 @@
         </div>
 
 
+        <div class="form-card" style="margin-top:12px" id="activityAdminCard">
+          <h2>Registro de actividad</h2>
+          <p class="muted">Entradas al sistema y cambios importantes hechos por los usuarios.</p>
+          <div class="activity-filters">
+            <button class="btn secondary activity-filter active" type="button" data-activity-filter="all">Todo</button>
+            <button class="btn ghost activity-filter" type="button" data-activity-filter="login">Entradas</button>
+            <button class="btn ghost activity-filter" type="button" data-activity-filter="change">Cambios</button>
+          </div>
+          <div id="activityLogList" class="card-list activity-log-list"></div>
+        </div>
+
         <div class="form-card" style="margin-top:12px" id="usersAdminCard">
           <h2>Usuarios y permisos</h2>
           <p class="muted">Crea usuarios con su clave y marca qué módulos pueden ver. Solo el dueño administra usuarios. Las claves se muestran en la lista para que puedas recordárselas.</p>
@@ -735,9 +748,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=32"></script>
-  <script src="monorriel-data.js?v=32"></script>
-  <script src="cloud.js?v=32"></script>
-  <script src="app.js?v=32"></script>
+  <script src="cloud-config.js?v=33"></script>
+  <script src="monorriel-data.js?v=33"></script>
+  <script src="cloud.js?v=33"></script>
+  <script src="app.js?v=33"></script>
 </body>
 </html>

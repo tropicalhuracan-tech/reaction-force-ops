@@ -3,6 +3,7 @@ const POSTS_KEY = "rfs-ops-posts";
 const REPORTS_KEY = "rfs-ops-reports";
 const EMPLOYEES_KEY = "rfs-ops-employees";
 const USERS_KEY = "rfs-ops-users";
+const ACTIVITY_KEY = "rfs-ops-activity";
 const APP_SESSION_KEY = "rfs-app-session-user";
 const ADMIN_SESSION_KEY = "rfs-admin-unlocked";
 const ADMIN_PASSWORD = "mitesoro01";
@@ -36,6 +37,8 @@ let employees = [];
 let appUsers = [];
 let currentUser = null;
 let chatMessages = [];
+let activityLog = [];
+let activityFilter = "all"; // all | login | change
 let selectedEmployeeId = null;
 let employeeListFilter = "active"; // active | inactive
 let creatingEmployee = false;
@@ -121,6 +124,178 @@ function employeeKey(name) {
     .trim()
     .toUpperCase();
 }
+
+const MAX_ACTIVITY = 250;
+
+function levRatio(a, b) {
+  const s = String(a || "");
+  const t = String(b || "");
+  if (!s && !t) return 1;
+  if (!s || !t) return 0;
+  if (s === t) return 1;
+  const m = s.length;
+  const n = t.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= n; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    for (let j = 1; j <= n; j += 1) {
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return 1 - dp[m][n] / Math.max(m, n);
+}
+
+function tokenOverlap(a, b) {
+  const ta = new Set(String(a || "").split(" ").filter((x) => x.length > 1));
+  const tb = new Set(String(b || "").split(" ").filter((x) => x.length > 1));
+  if (!ta.size || !tb.size) return 0;
+  let inter = 0;
+  ta.forEach((x) => {
+    if (tb.has(x)) inter += 1;
+  });
+  return inter / Math.max(ta.size, tb.size);
+}
+
+function nameSimilarity(aName, bName) {
+  const a = employeeKey(monoBaseName(aName) || aName);
+  const b = employeeKey(monoBaseName(bName) || bName);
+  if (!a || !b) return { score: 0, exact: false };
+  if (a === b) return { score: 1, exact: true };
+  let score = Math.max(levRatio(a, b), tokenOverlap(a, b));
+  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) {
+    score = Math.max(score, 0.9);
+  }
+  return { score, exact: false };
+}
+
+function findSimilarEmployees(name, excludeId = null) {
+  const raw = String(name || "").trim();
+  if (raw.length < 3) return [];
+  return employees
+    .filter((e) => e && e.name && e.id !== excludeId)
+    .map((e) => {
+      const sim = nameSimilarity(raw, e.name);
+      return { emp: e, score: sim.score, exact: sim.exact };
+    })
+    .filter((x) => x.score >= 0.72)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
+function formatDupHint(matches) {
+  if (!matches.length) return "";
+  return matches
+    .map((m) => {
+      const pct = Math.round(m.score * 100);
+      const tag = m.exact ? "ya existe" : `parecido ${pct}%`;
+      const st = isEmployeeActive(m.emp) ? "activo" : "inactivo";
+      return `• ${m.emp.name} (${tag}, ${st})`;
+    })
+    .join("\n");
+}
+
+function updateEmployeeNameDupHint(inputId, hintId, excludeId = null) {
+  const input = document.getElementById(inputId);
+  const hint = document.getElementById(hintId);
+  if (!input || !hint) return [];
+  const matches = findSimilarEmployees(input.value, excludeId);
+  if (!matches.length) {
+    hint.hidden = true;
+    hint.textContent = "";
+    hint.classList.remove("dup-exact");
+    return [];
+  }
+  const exact = matches.some((m) => m.exact);
+  hint.hidden = false;
+  hint.classList.toggle("dup-exact", exact);
+  hint.textContent = (exact ? "⚠ Posible duplicado exacto:\n" : "⚠ Nombres parecidos:\n") + formatDupHint(matches);
+  return matches;
+}
+
+function normalizeActivity(entry = {}) {
+  const type = entry.type === "login" || entry.type === "logout" ? entry.type : "change";
+  return {
+    id: entry.id || `act-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    at: entry.at || new Date().toISOString(),
+    type,
+    action: String(entry.action || type),
+    userId: entry.userId || "",
+    userName: entry.userName || "",
+    detail: String(entry.detail || "").slice(0, 240),
+  };
+}
+
+function pruneActivity(list = activityLog) {
+  return [...list]
+    .map(normalizeActivity)
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .slice(0, MAX_ACTIVITY);
+}
+
+function mergeActivity(localList, remoteList) {
+  const map = new Map();
+  [...(localList || []), ...(remoteList || [])].map(normalizeActivity).forEach((e) => {
+    if (!e.id) return;
+    if (!map.has(e.id)) map.set(e.id, e);
+  });
+  return pruneActivity([...map.values()]);
+}
+
+function logActivity(action, detail, type = "change") {
+  const entry = normalizeActivity({
+    action,
+    detail,
+    type: action === "login" || action === "logout" ? action : type,
+    userId: currentUser ? currentUser.id : "",
+    userName: currentUser ? currentUser.displayName || currentUser.username : "sistema",
+  });
+  activityLog = pruneActivity([entry, ...activityLog]);
+  localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
+  queueCloudSave();
+  if (document.getElementById("activityLogList")) renderActivityLog();
+  return entry;
+}
+
+function renderActivityLog() {
+  const list = document.getElementById("activityLogList");
+  if (!list) return;
+  const filtered = activityLog.filter((e) => {
+    if (activityFilter === "login") return e.type === "login" || e.type === "logout" || e.action === "login" || e.action === "logout";
+    if (activityFilter === "change") return e.type === "change";
+    return true;
+  });
+  list.innerHTML = filtered.length
+    ? filtered
+        .map((e) => {
+          const when = (e.at || "").replace("T", " ").slice(0, 16);
+          const kind =
+            e.action === "login"
+              ? "Entrada"
+              : e.action === "logout"
+                ? "Salida"
+                : "Cambio";
+          return `<article class="report-card activity-item">
+            <div class="row">
+              <div>
+                <h3>${escapeHtml(kind)} · ${escapeHtml(e.userName || "Usuario")}</h3>
+                <p class="muted tight">${escapeHtml(when)}</p>
+                <p style="margin-top:6px">${escapeHtml(e.detail || e.action)}</p>
+              </div>
+            </div>
+          </article>`;
+        })
+        .join("")
+    : `<p class="empty">Sin registros todavía.</p>`;
+  document.querySelectorAll(".activity-filter").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.activityFilter === activityFilter);
+    btn.classList.toggle("ghost", btn.dataset.activityFilter !== activityFilter);
+    btn.classList.toggle("secondary", btn.dataset.activityFilter === activityFilter);
+  });
+}
+
+
 
 function normalizeEmployee(e = {}) {
   const name = (e.name || "").trim();
@@ -375,6 +550,14 @@ function createEmployeeManual() {
     openEmployeeDetail(exists.id);
     return;
   }
+  const similar = findSimilarEmployees(name);
+  if (similar.length) {
+    const msg = "Hay nombres parecidos:\n" + formatDupHint(similar) + "\n\n¿Crear de todos modos?";
+    if (!window.confirm(msg)) {
+      toast("Creación cancelada para evitar duplicado.");
+      return;
+    }
+  }
   const emp = normalizeEmployee({
     name,
     phone: document.getElementById("nPhone").value.trim(),
@@ -388,6 +571,7 @@ function createEmployeeManual() {
   employees.unshift(emp);
   employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
   saveEmployees();
+  logActivity("employee_create", `Alta de empleado: ${emp.name}`);
   creatingEmployee = false;
   employeeListFilter = "active";
   renderEmployees();
@@ -418,6 +602,7 @@ function deactivateSelectedEmployee() {
   employeeListFilter = "inactive";
   renderEmployees();
   openEmployeeDetail(selectedEmployeeId);
+  logActivity("employee_deactivate", `Inactivó empleado: ${employees[idx].name}. Causa: ${reason}`);
   toast("Empleado pasado a inactivos.");
 }
 
@@ -437,6 +622,7 @@ function reactivateSelectedEmployee() {
   employeeListFilter = "active";
   renderEmployees();
   openEmployeeDetail(selectedEmployeeId);
+  logActivity("employee_reactivate", `Reactivó empleado: ${employees[idx].name}`);
   toast("Empleado reactivado.");
 }
 
@@ -759,6 +945,16 @@ function saveEmployeeDetail() {
     return;
   }
   const current = employees[idx];
+  const similar = findSimilarEmployees(name, current.id);
+  if (similar.some((m) => m.exact)) {
+    toast("Ese nombre ya pertenece a otro empleado.");
+    updateEmployeeNameDupHint("eName", "eNameDupHint", current.id);
+    return;
+  }
+  if (similar.length && employeeKey(name) !== employeeKey(current.name)) {
+    const msg = "El nuevo nombre se parece a:\n" + formatDupHint(similar) + "\n\n¿Guardar de todos modos?";
+    if (!window.confirm(msg)) return;
+  }
   const photo = currentEmpPhoto();
   const doc = currentEmpDoc();
   const isMono = document.getElementById("eMonorriel").checked;
@@ -799,6 +995,7 @@ function saveEmployeeDetail() {
   }
   renderEmployees();
   openEmployeeDetail(selectedEmployeeId);
+  logActivity("employee_update", `Actualizó empleado: ${updated.name}`);
   toast("Empleado guardado. Los datos vacíos seguirán llenándose desde los servicios.");
 }
 
@@ -954,7 +1151,7 @@ async function pushToCloud() {
   cloudSavePending = false;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState, activityLog);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -988,13 +1185,14 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState, activityLog);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
       localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
+      localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -1021,6 +1219,9 @@ async function syncFromCloud() {
     if (remote.radio && typeof remote.radio === "object") {
       applyRemoteRadio(remote.radio);
     }
+    if (Array.isArray(remote.activity)) {
+      activityLog = mergeActivity(activityLog, remote.activity);
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1031,6 +1232,7 @@ async function syncFromCloud() {
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
     localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
+    localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -1726,12 +1928,16 @@ function tryAppLogin() {
   // Owner auto-unlock admin tools
   if (found.role === "owner" || found.modules.admin) setAdminUnlocked(true);
   else setAdminUnlocked(false);
+  logActivity("login", `Entró al sistema: ${found.displayName || found.username}`, "login");
   applyAccessControl();
   switchView(firstAllowedView());
   toast(`Bienvenido, ${found.displayName || found.username}`);
 }
 
 function logoutAppUser() {
+  if (currentUser) {
+    logActivity("logout", `Salió del sistema: ${currentUser.displayName || currentUser.username}`, "logout");
+  }
   currentUser = null;
   setSessionUserId("");
   setAdminUnlocked(false);
@@ -1873,8 +2079,10 @@ function deleteUser(id) {
   if (!u || u.role === "owner") return;
   const ok = window.confirm(`¿Eliminar el usuario "${u.username}"?`);
   if (!ok) return;
+  const uname = u.username;
   appUsers = appUsers.filter((x) => x.id !== id);
   saveUsers();
+  logActivity("user_delete", `Eliminó usuario: ${uname}`);
   renderUsersAdmin();
   toast("Usuario eliminado.");
 }
@@ -1925,6 +2133,7 @@ function saveUserFromForm() {
       username: prev.role === "owner" ? OWNER_USERNAME : prev.username,
       updatedAt: new Date().toISOString(),
     });
+    logActivity("user_update", `Actualizó usuario: ${prev.username}`);
     toast("Usuario actualizado. Clave: " + password);
   } else {
     if (appUsers.some((u) => u.username === username)) {
@@ -1940,6 +2149,7 @@ function saveUserFromForm() {
         role: "user",
       })
     );
+    logActivity("user_create", `Creó usuario: ${username}`);
     toast("Usuario creado. Clave: " + password);
   }
   saveUsers();
@@ -1978,6 +2188,7 @@ function updateAdminGate() {
   document.getElementById("adminContent").hidden = false;
   renderAdminList();
   renderUsersAdmin();
+  renderActivityLog();
 }
 
 function tryAdminLogin() {
@@ -4665,10 +4876,12 @@ function saveAdminPost() {
       }
       posts[idx] = data;
     }
+    logActivity("post_update", `Actualizó puesto: ${data.site || data.id}`);
     toast("Puesto actualizado.");
   } else {
     pushHistory(data, "Servicio creado", historyNote || `Alta del servicio con ${data.guardCount} vigilante(s).`);
     posts.unshift(data);
+    logActivity("post_create", `Creó puesto: ${data.site || data.id}`);
     toast("Puesto guardado.");
   }
 
@@ -4725,6 +4938,7 @@ function confirmDeletePost() {
   renderReports();
   renderFinance();
   renderAdminList();
+  logActivity("post_delete", `Eliminó puesto: ${post.site || id}`);
   toast("Puesto eliminado.");
 }
 
@@ -4856,6 +5070,7 @@ function exportBackup() {
     users: appUsers,
     messages: chatMessages,
     radio: radioState,
+    activity: activityLog,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -4962,6 +5177,10 @@ function restoreBackupMerge() {
         applyRemoteRadio(data.radio);
         saveRadioState(true);
       }
+      if (Array.isArray(data.activity)) {
+        activityLog = mergeActivity(activityLog, data.activity);
+        localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -5007,6 +5226,10 @@ function restoreBackupReplace() {
       }
       if (data.radio && typeof data.radio === "object") {
         radioState = normalizeRadioState(data.radio);
+      }
+      if (Array.isArray(data.activity)) {
+        activityLog = pruneActivity(data.activity.map(normalizeActivity));
+        localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
       }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
@@ -5142,6 +5365,14 @@ function bindUi() {
   document.getElementById("btnBackEmployeesFromNew").addEventListener("click", () => switchView("employeesView"));
   document.getElementById("btnAddEmployee").addEventListener("click", openNewEmployeeForm);
   document.getElementById("btnCreateEmployee").addEventListener("click", createEmployeeManual);
+  document.getElementById("nName")?.addEventListener("input", () => updateEmployeeNameDupHint("nName", "nNameDupHint"));
+  document.getElementById("eName")?.addEventListener("input", () => updateEmployeeNameDupHint("eName", "eNameDupHint", selectedEmployeeId));
+  document.querySelectorAll(".activity-filter").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activityFilter = btn.dataset.activityFilter || "all";
+      renderActivityLog();
+    });
+  });
   document.getElementById("btnSaveEmployee").addEventListener("click", saveEmployeeDetail);
   document.getElementById("btnDeactivateEmployee").addEventListener("click", deactivateSelectedEmployee);
   document.getElementById("btnReactivateEmployee").addEventListener("click", reactivateSelectedEmployee);
@@ -5222,11 +5453,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
   chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);
+  activityLog = pruneActivity(loadJson(ACTIVITY_KEY, []));
   radioState = normalizeRadioState(loadJsonObject(RADIO_KEY, emptyRadioState()));
   if (!radioState.streamUrl) radioState.streamUrl = DEFAULT_RADIO_STREAM;
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+  localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
   localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
@@ -5288,14 +5521,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=32").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=33").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v32").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v33").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

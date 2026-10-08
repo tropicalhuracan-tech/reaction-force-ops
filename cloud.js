@@ -8,7 +8,7 @@
     return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${docPath}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio) {
+  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity) {
     return {
       fields: {
         postsJson: { stringValue: JSON.stringify(posts || []) },
@@ -19,6 +19,7 @@
         usersJson: { stringValue: JSON.stringify(users || []) },
         messagesJson: { stringValue: JSON.stringify(messages || []) },
         radioJson: { stringValue: JSON.stringify(radio || {}) },
+        activityJson: { stringValue: JSON.stringify(activity || []) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -58,6 +59,7 @@
       users: parseJsonField(fields, "usersJson"),
       messages: parseJsonField(fields, "messagesJson"),
       radio: parseObjectField(fields, "radioJson"),
+      activity: parseJsonField(fields, "activityJson"),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
     };
   }
@@ -75,6 +77,7 @@
         users: [],
         messages: [],
         radio: {},
+        activity: [],
         updatedAt: null,
         empty: true,
       };
@@ -84,9 +87,9 @@
     return { ...decodeDoc(doc), empty: false };
   }
 
-  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages, radio) {
+  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
-    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio);
+    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity);
     const res = await fetch(docUrl(), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
