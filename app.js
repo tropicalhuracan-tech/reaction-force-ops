@@ -2170,6 +2170,286 @@ function deleteSelectedLoan() {
   toast("Préstamo eliminado.");
 }
 
+
+/* ==== IMPRESIÓN ==== */
+function openPrintWindow(title, bodyHtml) {
+  const win = window.open("", "_blank");
+  if (!win) {
+    toast("Permite ventanas emergentes para imprimir, o elige una impresora en el diálogo del sistema.");
+    return null;
+  }
+  win.document.write(`<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8" />
+<title>${escapeHtml(title)}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;max-width:900px;margin:0 auto;font-size:12px;line-height:1.35}
+  h1{font-size:18px;margin:0 0 4px}
+  h2{font-size:14px;margin:0 0 14px;font-weight:normal;color:#444}
+  .meta{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+  .meta div{min-width:140px}
+  table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{border:1px solid #333;padding:6px 8px;text-align:left}
+  th{background:#eee}
+  .right{text-align:right}
+  .sign-box{margin-top:36px;display:grid;grid-template-columns:1fr 1fr;gap:28px}
+  .sign-line{border-top:1px solid #111;margin-top:56px;padding-top:6px;text-align:center}
+  .footer{margin-top:18px;font-size:11px;color:#555}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .brand img{width:54px;height:54px;object-fit:contain;border:1px solid #ccc;border-radius:10px}
+  @media print{body{padding:0} .no-print{display:none}}
+</style></head><body>
+  <div class="brand">
+    <img src="logo.jpg" alt="RFS" />
+    <div>
+      <h1>Reaction Force Security</h1>
+      <div>${escapeHtml(title)}</div>
+    </div>
+  </div>
+  ${bodyHtml}
+  <p class="footer">Impreso: ${escapeHtml(new Date().toLocaleString("es"))} · Uso interno</p>
+  <p class="no-print" style="margin-top:16px">
+    <button onclick="window.print()" style="padding:10px 14px;font-weight:700">Imprimir ahora</button>
+    — Elige tu impresora en el cuadro del sistema (USB, Wi‑Fi o PDF).
+  </p>
+  <script>setTimeout(function(){ try{ window.focus(); window.print(); }catch(e){} }, 350);</script>
+</body></html>`);
+  win.document.close();
+  return win;
+}
+
+function printLoanSheet(loanId) {
+  const loan = getLoan(loanId || selectedLoanId);
+  if (!loan) {
+    toast("Abre un préstamo para imprimir su cuadro.");
+    return;
+  }
+  const rows = (loan.schedule || [])
+    .map(
+      (s) => `<tr>
+        <td>${s.n}</td>
+        <td>${escapeHtml(s.dueDate || "—")}</td>
+        <td class="right">${money(s.principal)}</td>
+        <td class="right">${money(s.interest)}</td>
+        <td class="right"><strong>${money(s.payment)}</strong></td>
+        <td class="right">${money(s.balance)}</td>
+        <td>${s.paid ? "Pagada" : "Pendiente"}</td>
+      </tr>`
+    )
+    .join("");
+  const body = `
+    <h2>Cuadro de ${escapeHtml(loanTypeLabel(loan.type))} · ${escapeHtml(loanStatusLabel(loan.status))}</h2>
+    <div class="meta">
+      <div><strong>Empleado:</strong><br/>${escapeHtml(loan.employeeName || "—")}</div>
+      <div><strong>Capital:</strong><br/>${money(loan.principal)}</div>
+      <div><strong>Total a cobrar:</strong><br/>${money(loan.dueTotal)}</div>
+      <div><strong>Pendiente:</strong><br/>${money(loan.remaining)}</div>
+      <div><strong>Inicio:</strong><br/>${escapeHtml(loan.startDate || "—")}</div>
+      <div><strong>Cuotas:</strong><br/>${loan.periods}${loan.type === "amortized" ? ` · ${(loan.rate * 100).toFixed(1)}% / quincena` : ""}</div>
+    </div>
+    ${loan.note ? `<p><strong>Nota:</strong> ${escapeHtml(loan.note)}</p>` : ""}
+    <table>
+      <thead><tr><th>#</th><th>Vence</th><th class="right">Capital</th><th class="right">Interés</th><th class="right">Cuota</th><th class="right">Saldo</th><th>Estado</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p style="margin-top:14px">Declaro haber recibido el monto indicado y acepto el plan de pagos detallado en este cuadro.</p>
+    <div class="sign-box">
+      <div>
+        <div class="sign-line">Firma del empleado / deudor<br/>${escapeHtml(loan.employeeName || "")}</div>
+      </div>
+      <div>
+        <div class="sign-line">Firma autorizado RFS<br/>Fecha: _______________</div>
+      </div>
+    </div>
+  `;
+  openPrintWindow(`Préstamo — ${loan.employeeName || ""}`, body);
+}
+
+function printClientsSheet() {
+  ensureClientNumbers(false);
+  const rows = sortPostsByClientNumber(posts)
+    .map((p) => {
+      const g = primaryGuard(p);
+      return `<tr>
+        <td>#${escapeHtml(String(p.clientNumber || "—"))}</td>
+        <td>${escapeHtml(p.site)}</td>
+        <td>${escapeHtml(guardsSummary(p))}</td>
+        <td>${escapeHtml(p.supervisor || "—")}</td>
+        <td>${escapeHtml(g.phone || "—")}</td>
+        <td>${escapeHtml(STATUS_LABEL[p.status] || p.status)}</td>
+        <td class="right">${money(p.priceMonth)}</td>
+      </tr>`;
+    })
+    .join("");
+  openPrintWindow("Listado de clientes", `
+    <h2>Clientes activos: ${posts.length}</h2>
+    <table>
+      <thead><tr><th>No.</th><th>Cliente / Sitio</th><th>Vigilantes</th><th>Supervisor</th><th>Tel.</th><th>Estado</th><th class="right">Mes</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="7">Sin clientes</td></tr>`}</tbody>
+    </table>`);
+}
+
+function printEmployeesSheet() {
+  const pool = employees.filter((e) => (employeeListFilter === "inactive" ? !isEmployeeActive(e) : isEmployeeActive(e)));
+  const rows = pool
+    .map((e) => `<tr>
+      <td>${escapeHtml(e.name)}</td>
+      <td>${escapeHtml(e.phone || "—")}</td>
+      <td>${escapeHtml(e.cedula || "—")}</td>
+      <td>${escapeHtml((e.sites || []).join(", ") || "—")}</td>
+      <td>${isEmployeeActive(e) ? "Activo" : "Inactivo"}</td>
+      <td>${escapeHtml(e.inactiveReason || "—")}</td>
+    </tr>`)
+    .join("");
+  openPrintWindow(
+    employeeListFilter === "inactive" ? "Empleados inactivos" : "Empleados activos",
+    `<h2>Total: ${pool.length}</h2>
+    <table>
+      <thead><tr><th>Nombre</th><th>Teléfono</th><th>Cédula</th><th>Servicios</th><th>Estado</th><th>Causa baja</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6">Sin registros</td></tr>`}</tbody>
+    </table>`
+  );
+}
+
+function printEmployeeDetailSheet() {
+  const emp = getEmployee(selectedEmployeeId);
+  if (!emp) {
+    toast("Abre un empleado para imprimir su ficha.");
+    return;
+  }
+  openPrintWindow(`Ficha — ${emp.name}`, `
+    <h2>${escapeHtml(emp.name)}</h2>
+    <div class="meta">
+      <div><strong>Teléfono:</strong><br/>${escapeHtml(emp.phone || "—")}</div>
+      <div><strong>Cédula:</strong><br/>${escapeHtml(emp.cedula || "—")}</div>
+      <div><strong>Entrada:</strong><br/>${escapeHtml(emp.companyEntryDate || "—")}</div>
+      <div><strong>Arma:</strong><br/>${escapeHtml(emp.weapons || "—")}</div>
+      <div><strong>Serie:</strong><br/>${escapeHtml(emp.serial || "—")}</div>
+      <div><strong>Estado:</strong><br/>${isEmployeeActive(emp) ? "Activo" : "Inactivo"}</div>
+    </div>
+    <p><strong>Servicios:</strong> ${escapeHtml((emp.sites || []).join(", ") || "—")}</p>
+    <p><strong>Notas:</strong> ${escapeHtml(emp.note || "—")}</p>
+    ${!isEmployeeActive(emp) ? `<p><strong>Causa baja:</strong> ${escapeHtml(emp.inactiveReason || "—")}</p>` : ""}
+    <div class="sign-box">
+      <div><div class="sign-line">Firma del empleado</div></div>
+      <div><div class="sign-line">Firma RFS</div></div>
+    </div>`);
+}
+
+function printLoansListSheet() {
+  const rows = loans
+    .map((l) => `<tr>
+      <td>${escapeHtml(l.employeeName || "—")}</td>
+      <td>${escapeHtml(loanTypeLabel(l.type))}</td>
+      <td class="right">${money(l.principal)}</td>
+      <td class="right">${money(l.remaining)}</td>
+      <td class="right">${money(l.paidTotal)}</td>
+      <td>${escapeHtml(loanStatusLabel(l.status))}</td>
+    </tr>`)
+    .join("");
+  const s = loansSummaryStats();
+  openPrintWindow("Resumen de préstamos", `
+    <h2>Activos: ${s.active} · Saldados: ${s.paid} · Vencidos: ${s.overdue}</h2>
+    <div class="meta">
+      <div><strong>Por cobrar:</strong><br/>${money(s.toCollect)}</div>
+      <div><strong>Cobrado:</strong><br/>${money(s.collected)}</div>
+      <div><strong>Ganancia cobrada:</strong><br/>${money(s.profitCollected)}</div>
+      <div><strong>Esta quincena:</strong><br/>${money(s.quincenaDue)}</div>
+    </div>
+    <table>
+      <thead><tr><th>Empleado</th><th>Tipo</th><th class="right">Capital</th><th class="right">Pendiente</th><th class="right">Cobrado</th><th>Estado</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6">Sin préstamos</td></tr>`}</tbody>
+    </table>`);
+}
+
+function printFinanceSheet() {
+  const rows = sortPostsByClientNumber(posts)
+    .map((p) => `<tr>
+      <td>#${escapeHtml(String(p.clientNumber || "—"))}</td>
+      <td>${escapeHtml(p.site)}</td>
+      <td>${escapeHtml(String(p.guardCount || 0))}</td>
+      <td class="right">${escapeHtml(String(p.hours || 0))}</td>
+      <td class="right">${money(p.hourlyRate)}</td>
+      <td class="right">${money(p.priceMonth)}</td>
+    </tr>`)
+    .join("");
+  const total = posts.reduce((a, p) => a + (Number(p.priceMonth) || 0), 0);
+  openPrintWindow("Resumen financiero", `
+    <h2>Total mensual: ${money(total)} · Clientes: ${posts.length}</h2>
+    <table>
+      <thead><tr><th>No.</th><th>Cliente</th><th>Vigilantes</th><th class="right">Horas</th><th class="right">Tarifa</th><th class="right">Mes</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6">Sin datos</td></tr>`}</tbody>
+    </table>`);
+}
+
+function printMonorrielIndexSheet() {
+  const rows = monorrielReports
+    .map((r) => `<tr>
+      <td>${escapeHtml(r.date)}</td>
+      <td>${escapeHtml(monoShiftLabel(r.shift))}</td>
+      <td>${r.covered}</td>
+      <td>${r.vacant}</td>
+      <td>${escapeHtml(r.supervisor || "—")}</td>
+    </tr>`)
+    .join("");
+  openPrintWindow("Historial Reportes Monorriel", `
+    <h2>${monorrielReports.length} reportes · ${getMonorrielEmployees(true).length} personal Monorriel</h2>
+    <table>
+      <thead><tr><th>Fecha</th><th>Turno</th><th>Cubiertos</th><th>Vacantes</th><th>Supervisor</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5">Sin reportes</td></tr>`}</tbody>
+    </table>
+    <p class="footer">Para imprimir un reporte completo, ábrelo y usa Imprimir en su detalle.</p>`);
+}
+
+function printCurrentView() {
+  const active = document.querySelector(".view.active");
+  const id = active && active.id;
+  if (id === "loanDetailView") return printLoanSheet();
+  if (id === "loansView" || id === "loanNewView") return printLoansListSheet();
+  if (id === "shiftsView") return printClientsSheet();
+  if (id === "employeesView") return printEmployeesSheet();
+  if (id === "employeeDetailView") return printEmployeeDetailSheet();
+  if (id === "financeView") return printFinanceSheet();
+  if (id === "monoReportDetailView") return printMonoReport();
+  if (id === "monorrielView" || id === "monoStaffView") return printMonorrielIndexSheet();
+  if (id === "detailView") {
+    const post = getPost(selectedId);
+    if (!post) return toast("No hay ficha para imprimir.");
+    ensureClientNumbers(false);
+    return openPrintWindow(`Cliente #${post.clientNumber || "—"} ${post.site}`, `
+      <h2>#${escapeHtml(String(post.clientNumber || "—"))} ${escapeHtml(post.site)}</h2>
+      <div class="meta">
+        <div><strong>Supervisor:</strong><br/>${escapeHtml(post.supervisor || "—")}</div>
+        <div><strong>Horario:</strong><br/>${escapeHtml(post.shift || "—")}</div>
+        <div><strong>Servicio:</strong><br/>${escapeHtml(serviceLabel(post.serviceType))}</div>
+        <div><strong>Estado:</strong><br/>${escapeHtml(STATUS_LABEL[post.status] || post.status)}</div>
+        <div><strong>Mes:</strong><br/>${money(post.priceMonth)}</div>
+      </div>
+      <p><strong>Vigilantes:</strong> ${escapeHtml(guardsSummary(post))}</p>
+      <p><strong>Nota:</strong> ${escapeHtml(post.note || "—")}</p>`);
+  }
+  toast("Abre Clientes, Empleados, Préstamos, Finanzas o Monorriel para imprimir.");
+}
+
+function bindPrintUi() {
+  const map = [
+    ["btnPrintCurrent", printCurrentView],
+    ["btnPrintClients", printClientsSheet],
+    ["btnPrintEmployees", printEmployeesSheet],
+    ["btnPrintEmployeeDetail", printEmployeeDetailSheet],
+    ["btnPrintLoansList", printLoansListSheet],
+    ["btnPrintLoanDetail", () => printLoanSheet()],
+    ["btnPrintLoanSheet", () => printLoanSheet()],
+    ["btnPrintFinance", printFinanceSheet],
+    ["btnPrintMonorrielList", printMonorrielIndexSheet],
+  ];
+  map.forEach(([id, fn]) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", fn);
+  });
+}
+/* ==== FIN IMPRESIÓN ==== */
+
+
 function bindLoansUi() {
   const btnNew = document.getElementById("btnNewLoan");
   if (!btnNew) return;
@@ -3432,6 +3712,7 @@ function bindUi() {
   document.getElementById("btnOpenEmpDoc").addEventListener("click", openEmpDocument);
   bindLoansUi();
   bindMonorrielUi();
+  bindPrintUi();
 }
 
 async function mergeImportedPosts() {
@@ -3518,14 +3799,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=19").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=22").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v19").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v22").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

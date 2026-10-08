@@ -1105,3 +1105,48 @@ textarea { resize: vertical; }
   color: #fca5a5;
   font-weight: 800;
 }
+
+
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.section-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.print-icon-btn {
+  flex-shrink: 0;
+  font-size: 18px;
+  line-height: 1;
+}
+
+@media print {
+  .topbar,
+  .tabbar,
+  .sheet,
+  .modal,
+  .print-icon-btn,
+  #btnLocateMe,
+  #btnPrintCurrent,
+  .icon-btn {
+    display: none !important;
+  }
+  #app {
+    display: block !important;
+    height: auto !important;
+  }
+  .view {
+    display: none !important;
+  }
+  .view.active {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+}

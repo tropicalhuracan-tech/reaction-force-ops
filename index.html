@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=21" />
+  <link rel="stylesheet" href="styles.css?v=22" />
 </head>
 <body>
   <div id="app">
@@ -24,13 +24,16 @@
           <span>Operaciones</span>
         </div>
       </div>
-      <button id="btnLocateMe" class="icon-btn" type="button" aria-label="Mi ubicación">◎</button>
+      <div class="topbar-actions">
+        <button id="btnPrintCurrent" class="icon-btn" type="button" aria-label="Imprimir" title="Imprimir hoja actual">⎙</button>
+        <button id="btnLocateMe" class="icon-btn" type="button" aria-label="Mi ubicación">◎</button>
+      </div>
     </header>
 
     <section id="homeView" class="view active scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=21" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=22" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -62,9 +65,12 @@
     </main>
 
     <section id="shiftsView" class="view scroll-view">
-      <div class="section-head">
-        <h1>Clientes</h1>
-        <p id="shiftsSummary">Cargando…</p>
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Clientes</h1>
+          <p id="shiftsSummary">Cargando…</p>
+        </div>
+        <button id="btnPrintClients" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir clientes" title="Imprimir">⎙</button>
       </div>
       <div id="shiftsList" class="card-list"></div>
     </section>
@@ -97,9 +103,12 @@
     </section>
 
     <section id="employeesView" class="view scroll-view">
-      <div class="section-head">
-        <h1>Empleados</h1>
-        <p id="employeesSummary">Listado único de todo el personal.</p>
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Empleados</h1>
+          <p id="employeesSummary">Listado único de todo el personal.</p>
+        </div>
+        <button id="btnPrintEmployees" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir empleados" title="Imprimir">⎙</button>
       </div>
       <div class="emp-tabs" role="tablist">
         <button class="emp-tab active" type="button" data-emp-filter="active">Activos</button>
@@ -115,7 +124,10 @@
 
     <section id="employeeDetailView" class="view scroll-view">
       <div class="section-head">
-        <button id="btnBackEmployees" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <div class="section-head-row" style="margin-bottom:10px">
+          <button id="btnBackEmployees" class="btn ghost" type="button" style="width:auto;margin:0;padding:8px 12px">← Volver</button>
+          <button id="btnPrintEmployeeDetail" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir ficha" title="Imprimir ficha">⎙</button>
+        </div>
         <h1 id="employeeDetailTitle">Empleado</h1>
         <p class="muted">Los campos vacíos se irán completando al editar servicios.</p>
       </div>
@@ -203,9 +215,12 @@
 
 
     <section id="loansView" class="view scroll-view">
-      <div class="section-head">
-        <h1>Préstamos</h1>
-        <p id="loansSummary">Avances de efectivo y préstamos con amortización.</p>
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Préstamos</h1>
+          <p id="loansSummary">Avances de efectivo y préstamos con amortización.</p>
+        </div>
+        <button id="btnPrintLoansList" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir préstamos" title="Imprimir">⎙</button>
       </div>
       <div id="loansStats" class="form-card stats-grid loans-stats"></div>
       <div class="loan-toolbar">
@@ -285,21 +300,28 @@
 
     <section id="loanDetailView" class="view scroll-view">
       <div class="section-head">
-        <button id="btnBackLoansFromDetail" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
+        <div class="section-head-row" style="margin-bottom:10px">
+          <button id="btnBackLoansFromDetail" class="btn ghost" type="button" style="width:auto;margin:0;padding:8px 12px">← Volver</button>
+          <button id="btnPrintLoanDetail" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir cuadro" title="Imprimir cuadro de amortización">⎙</button>
+        </div>
         <h1 id="loanDetailTitle">Préstamo</h1>
         <p id="loanDetailSub" class="muted"></p>
       </div>
       <div id="loanDetailStats" class="form-card"></div>
       <div class="section-head tight"><h2>Cuadro de amortización / cuotas</h2></div>
       <div id="loanScheduleBox" class="form-card schedule-wrap"></div>
+      <button id="btnPrintLoanSheet" class="btn primary" type="button">Imprimir cuadro para firma</button>
       <button id="btnDeleteLoan" class="btn danger" type="button">Eliminar préstamo</button>
     </section>
 
 
     <section id="monorrielView" class="view scroll-view">
-      <div class="section-head">
-        <h1>Monorriel</h1>
-        <p id="monorrielSummary">Servicio especial · 28 puestos · turnos AM y PM.</p>
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Monorriel</h1>
+          <p id="monorrielSummary">Servicio especial · 28 puestos · turnos AM y PM.</p>
+        </div>
+        <button id="btnPrintMonorrielList" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir monorriel" title="Imprimir">⎙</button>
       </div>
       <div class="form-card">
         <p class="muted">Reportes diarios de quién cubrió cada puesto. El personal Monorriel también aparece en Empleados y Préstamos.</p>
@@ -370,9 +392,12 @@
     </section>
 
     <section id="financeView" class="view scroll-view">
-      <div class="section-head">
-        <h1>Finanzas</h1>
-        <p>Resumen de servicios, vigilantes y cobros mensuales.</p>
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Finanzas</h1>
+          <p>Resumen de servicios, vigilantes y cobros mensuales.</p>
+        </div>
+        <button id="btnPrintFinance" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir finanzas" title="Imprimir">⎙</button>
       </div>
       <div class="finance-total form-card">
         <div class="stats-grid">
@@ -561,9 +586,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=21"></script>
-  <script src="monorriel-data.js?v=21"></script>
-  <script src="cloud.js?v=21"></script>
-  <script src="app.js?v=21"></script>
+  <script src="cloud-config.js?v=22"></script>
+  <script src="monorriel-data.js?v=22"></script>
+  <script src="cloud.js?v=22"></script>
+  <script src="app.js?v=22"></script>
 </body>
 </html>
