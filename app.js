@@ -62,6 +62,17 @@ function loadJson(key, fallback) {
   }
 }
 
+function loadJsonObject(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
 
 /** Carga la data más reciente sin borrar versiones anteriores */
 function loadPreservingUserData(primaryKey, legacyKeys) {
@@ -936,7 +947,7 @@ async function pushToCloud() {
   cloudSaving = true;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -966,12 +977,13 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+      localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -995,6 +1007,9 @@ async function syncFromCloud() {
     }
     const remoteMsgs = Array.isArray(remote.messages) ? remote.messages.map(normalizeChatMessage) : [];
     chatMessages = mergeChatMessages(chatMessages, remoteMsgs);
+    if (remote.radio && typeof remote.radio === "object") {
+      applyRemoteRadio(remote.radio);
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1004,6 +1019,7 @@ async function syncFromCloud() {
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -1495,6 +1511,7 @@ const MODULE_DEFS = [
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "reports", label: "Reportes", view: "reportsView" },
   { key: "messages", label: "Mensajes", view: "messagesView" },
+  { key: "radio", label: "Radio", view: "radioView" },
   { key: "admin", label: "Admin", view: "adminView" },
 ];
 
@@ -1515,6 +1532,7 @@ const VIEW_TO_MODULE = {
   financeView: "finance",
   reportsView: "reports",
   messagesView: "messages",
+  radioView: "radio",
   adminView: "admin",
   detailView: "clients",
   loginView: null,
@@ -1614,7 +1632,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "loansView", "monorrielView", "financeView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "financeView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -1746,6 +1764,7 @@ function clearUserForm() {
     finance: false,
     reports: true,
     messages: true,
+    radio: true,
     admin: false,
   });
   document.getElementById("btnCancelUserEdit").hidden = true;
@@ -4004,6 +4023,325 @@ function bindMessagesUi() {
 }
 /* ==== FIN MENSAJERÍA ==== */
 
+/* ==== RADIO EN VIVO ==== */
+const RADIO_KEY = "rfs-ops-radio";
+const RADIO_VOL_KEY = "rfs-ops-radio-volume";
+
+let radioState = {
+  stationName: "RFS Radio",
+  streamUrl: "",
+  enabled: true,
+  playing: false,
+  updatedAt: null,
+  updatedBy: "",
+};
+
+let radioListening = false;
+let radioPollTimer = null;
+let radioSyncLock = false;
+
+function emptyRadioState() {
+  return {
+    stationName: "RFS Radio",
+    streamUrl: "",
+    enabled: true,
+    playing: false,
+    updatedAt: null,
+    updatedBy: "",
+  };
+}
+
+function normalizeRadioState(r = {}) {
+  return {
+    stationName: String(r.stationName || "RFS Radio").trim() || "RFS Radio",
+    streamUrl: String(r.streamUrl || "").trim(),
+    enabled: r.enabled === false ? false : true,
+    playing: !!r.playing,
+    updatedAt: r.updatedAt || null,
+    updatedBy: r.updatedBy || "",
+  };
+}
+
+function radioSignature(state = radioState) {
+  return [state.playing ? "1" : "0", state.streamUrl || "", state.stationName || ""].join("|");
+}
+
+function canControlRadio() {
+  return !!(currentUser && (currentUser.role === "owner" || canAccessModule("admin")));
+}
+
+function saveRadioState(push = true) {
+  radioState = normalizeRadioState(radioState);
+  radioState.updatedAt = new Date().toISOString();
+  radioState.updatedBy = currentUser ? currentUser.username || currentUser.displayName : "";
+  localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
+  if (push) queueCloudSave();
+}
+
+function applyRemoteRadio(remoteRadio) {
+  if (!remoteRadio || typeof remoteRadio !== "object") return false;
+  const next = normalizeRadioState(remoteRadio);
+  const prevSig = radioSignature(radioState);
+  const nextSig = radioSignature(next);
+  radioState = next;
+  localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
+  return prevSig !== nextSig;
+}
+
+function getRadioAudio() {
+  return document.getElementById("radioAudio");
+}
+
+function setRadioEq(on) {
+  const eq = document.getElementById("radioEq");
+  if (eq) eq.classList.toggle("on", !!on);
+}
+
+async function syncRadioPlayback(forceReload = false) {
+  const audio = getRadioAudio();
+  if (!audio || radioSyncLock) return;
+  radioSyncLock = true;
+  try {
+    const title = document.getElementById("radioNowTitle");
+    const meta = document.getElementById("radioNowMeta");
+    const station = document.getElementById("radioStationLabel");
+    if (station) station.textContent = radioState.stationName || "RFS Radio";
+
+    if (!radioState.streamUrl || !radioState.enabled) {
+      if (title) title.textContent = "Sin stream asignado";
+      if (meta) meta.textContent = "El administrador aún no ha puesto una URL continua.";
+      setRadioEq(false);
+      if (radioListening) audio.pause();
+      return;
+    }
+
+    if (title) title.textContent = radioState.stationName || "Stream en vivo";
+    if (meta) {
+      meta.textContent = radioState.playing
+        ? `En el aire · stream continuo${radioState.updatedBy ? ` · por @${radioState.updatedBy}` : ""}`
+        : "En pausa (el admin detuvo la radio)";
+    }
+
+    const urlChanged = audio.getAttribute("data-url") !== radioState.streamUrl;
+    if (urlChanged || forceReload) {
+      audio.setAttribute("data-url", radioState.streamUrl);
+      audio.src = radioState.streamUrl;
+      try {
+        audio.load();
+      } catch (_) {}
+    }
+
+    const volEl = document.getElementById("radioVolume");
+    const vol = volEl ? Number(volEl.value) / 100 : 0.8;
+    audio.volume = Math.min(1, Math.max(0, vol));
+
+    if (!radioListening) {
+      setRadioEq(false);
+      return;
+    }
+
+    if (!radioState.playing) {
+      audio.pause();
+      setRadioEq(false);
+      return;
+    }
+
+    try {
+      await audio.play();
+      setRadioEq(true);
+    } catch (_) {
+      setRadioEq(false);
+      radioListening = false;
+      updateRadioListenButtons();
+      toast("Pulsa “Unirme a la radio” para escuchar (el navegador lo pide).");
+    }
+  } finally {
+    radioSyncLock = false;
+  }
+}
+
+function updateRadioListenButtons() {
+  const join = document.getElementById("btnRadioJoin");
+  const leave = document.getElementById("btnRadioLeave");
+  if (join) join.hidden = radioListening;
+  if (leave) leave.hidden = !radioListening;
+}
+
+function renderRadioStreamInfo() {
+  const list = document.getElementById("radioStreamInfo");
+  if (!list) return;
+  if (!radioState.streamUrl) {
+    list.innerHTML = `<p class="empty">No hay URL de stream configurada.</p>`;
+    return;
+  }
+  list.innerHTML = `<article class="radio-track-row ${radioState.playing ? "on-air" : ""}">
+    <div>
+      <strong>${escapeHtml(radioState.stationName || "RFS Radio")}</strong>
+      <div class="meta">${radioState.playing ? "● En el aire" : "En pausa"} · ${escapeHtml(radioState.streamUrl)}</div>
+    </div>
+  </article>`;
+}
+
+function renderRadioAdminPanel() {
+  const card = document.getElementById("radioAdminCard");
+  if (!card) return;
+  const show = canControlRadio();
+  card.hidden = !show;
+  if (!show) return;
+  const nameEl = document.getElementById("radioStationName");
+  const urlEl = document.getElementById("radioStreamUrl");
+  if (nameEl) nameEl.value = radioState.stationName || "";
+  if (urlEl) urlEl.value = radioState.streamUrl || "";
+}
+
+function renderRadioModule() {
+  if (!canAccessModule("radio")) return;
+  const summary = document.getElementById("radioSummary");
+  if (summary) {
+    summary.textContent = radioState.playing && radioState.streamUrl
+      ? `En vivo: ${radioState.stationName || "RFS Radio"}`
+      : "Todos escuchan el mismo stream asignado por el administrador.";
+  }
+  renderRadioStreamInfo();
+  renderRadioAdminPanel();
+  updateRadioListenButtons();
+  syncRadioPlayback(false).catch(() => {});
+}
+
+function adminCaptureMetaFromForm() {
+  const name = document.getElementById("radioStationName")?.value?.trim();
+  const streamUrl = document.getElementById("radioStreamUrl")?.value?.trim() || "";
+  if (name) radioState.stationName = name;
+  radioState.streamUrl = streamUrl;
+}
+
+function adminRadioSaveMeta() {
+  if (!canControlRadio()) return;
+  adminCaptureMetaFromForm();
+  if (radioState.streamUrl && !/^https?:\/\//i.test(radioState.streamUrl)) {
+    toast("La URL debe empezar con http:// o https://");
+    return;
+  }
+  saveRadioState(true);
+  renderRadioModule();
+  syncRadioPlayback(true).catch(() => {});
+  toast("Estación guardada.");
+}
+
+function adminRadioPlay() {
+  if (!canControlRadio()) return;
+  adminCaptureMetaFromForm();
+  if (!radioState.streamUrl) {
+    toast("Pega primero la URL continua del stream.");
+    return;
+  }
+  if (!/^https?:\/\//i.test(radioState.streamUrl)) {
+    toast("La URL debe empezar con http:// o https://");
+    return;
+  }
+  radioState.playing = true;
+  saveRadioState(true);
+  renderRadioModule();
+  syncRadioPlayback(true).catch(() => {});
+  toast("Radio en vivo para todos.");
+}
+
+function adminRadioPause() {
+  if (!canControlRadio()) return;
+  radioState.playing = false;
+  saveRadioState(true);
+  renderRadioModule();
+  syncRadioPlayback(false).catch(() => {});
+  toast("Radio en pausa.");
+}
+
+function joinRadio() {
+  if (!currentUser) {
+    toast("Inicia sesión para escuchar.");
+    return;
+  }
+  radioListening = true;
+  updateRadioListenButtons();
+  syncRadioPlayback(true).catch(() => {});
+  toast("Te uniste a la radio.");
+}
+
+function leaveRadio() {
+  radioListening = false;
+  const audio = getRadioAudio();
+  if (audio) audio.pause();
+  setRadioEq(false);
+  updateRadioListenButtons();
+}
+
+function startRadioPolling() {
+  stopRadioPolling();
+  radioPollTimer = setInterval(() => {
+    if (!currentUser || !canAccessModule("radio")) return;
+    if (!window.RFSCloudApi) return;
+    window.RFSCloudApi
+      .loadCloud()
+      .then((remote) => {
+        if (!remote || remote.empty) return;
+        const changed = applyRemoteRadio(remote.radio);
+        if (changed) {
+          renderRadioModule();
+          syncRadioPlayback(true).catch(() => {});
+        } else if (radioListening && radioState.playing) {
+          syncRadioPlayback(false).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, 8000);
+}
+
+function stopRadioPolling() {
+  if (radioPollTimer) {
+    clearInterval(radioPollTimer);
+    radioPollTimer = null;
+  }
+}
+
+function bindRadioUi() {
+  if (!document.getElementById("radioView")) return;
+  document.getElementById("btnRadioJoin")?.addEventListener("click", joinRadio);
+  document.getElementById("btnRadioLeave")?.addEventListener("click", leaveRadio);
+  document.getElementById("btnRefreshRadio")?.addEventListener("click", () => {
+    if (!window.RFSCloudApi) {
+      renderRadioModule();
+      return;
+    }
+    window.RFSCloudApi
+      .loadCloud()
+      .then((remote) => {
+        if (remote && remote.radio) applyRemoteRadio(remote.radio);
+        renderRadioModule();
+        syncRadioPlayback(true).catch(() => {});
+        toast("Radio actualizada.");
+      })
+      .catch(() => {
+        renderRadioModule();
+        toast("Sin conexión. Mostrando radio local.");
+      });
+  });
+  document.getElementById("radioVolume")?.addEventListener("input", (e) => {
+    const v = Number(e.target.value) || 0;
+    localStorage.setItem(RADIO_VOL_KEY, String(v));
+    const audio = getRadioAudio();
+    if (audio) audio.volume = Math.min(1, Math.max(0, v / 100));
+  });
+  document.getElementById("btnRadioPlay")?.addEventListener("click", adminRadioPlay);
+  document.getElementById("btnRadioPause")?.addEventListener("click", adminRadioPause);
+  document.getElementById("btnRadioSaveMeta")?.addEventListener("click", adminRadioSaveMeta);
+  const savedVol = Number(localStorage.getItem(RADIO_VOL_KEY));
+  const volEl = document.getElementById("radioVolume");
+  if (volEl && Number.isFinite(savedVol)) volEl.value = String(Math.min(100, Math.max(0, savedVol)));
+  startRadioPolling();
+}
+/* ==== FIN RADIO ==== */
+
+
+
 
 
 
@@ -4040,6 +4378,7 @@ function switchView(viewId) {
   if (viewId === "monoReportEditView") renderMonoPostsEditor();
   if (viewId === "monoStaffView") renderMonoStaffList();
   if (viewId === "messagesView") renderMessagesModule();
+  if (viewId === "radioView") renderRadioModule();
   if (viewId === "adminView") updateAdminGate();
 }
 
@@ -4394,6 +4733,7 @@ function exportBackup() {
     monorrielReports,
     users: appUsers,
     messages: chatMessages,
+    radio: radioState,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -4496,6 +4836,10 @@ function restoreBackupMerge() {
         chatMessages = mergeChatMessages(chatMessages, data.messages.map(normalizeChatMessage));
         saveChatMessages();
       }
+      if (data.radio && typeof data.radio === "object") {
+        applyRemoteRadio(data.radio);
+        saveRadioState(true);
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -4539,6 +4883,9 @@ function restoreBackupReplace() {
       if (Array.isArray(data.messages)) {
         chatMessages = pruneChatMessages(data.messages.map(normalizeChatMessage));
       }
+      if (data.radio && typeof data.radio === "object") {
+        radioState = normalizeRadioState(data.radio);
+      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -4548,6 +4895,7 @@ function restoreBackupReplace() {
       saveMonorrielReports();
       saveUsers();
       saveChatMessages();
+      saveRadioState(true);
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -4690,6 +5038,7 @@ function bindUi() {
   bindMonorrielUi();
   bindPrintUi();
   bindMessagesUi();
+  bindRadioUi();
 
   document.getElementById("btnAppLogin").addEventListener("click", tryAppLogin);
   document.getElementById("loginPassword").addEventListener("keydown", (e) => {
@@ -4743,9 +5092,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
   chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);
+  radioState = normalizeRadioState(loadJsonObject(RADIO_KEY, emptyRadioState()));
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+  localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
   restoreSessionUser();
@@ -4768,6 +5119,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
     await pushToCloud();
     toast(`Se importaron ${added} servicios y se subieron a la nube.`);
   } else {
@@ -4778,8 +5130,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
     // Sube el listado consolidado a la nube (sin borrar servicios)
-    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length || chatMessages.length)) await pushToCloud();
+    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length || chatMessages.length || radioState.streamUrl)) await pushToCloud();
   }
 
   bindUi();
@@ -4804,14 +5157,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=29").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=30").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v29").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v30").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
