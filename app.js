@@ -800,8 +800,10 @@ function normalizePost(p = {}) {
   }
   if (!guards.length) guards = [emptyGuard()];
 
+  const clientNumber = Number(p.clientNumber);
   return {
     id: p.id || `p-${Date.now()}`,
+    clientNumber: Number.isFinite(clientNumber) && clientNumber >= 101 ? Math.floor(clientNumber) : null,
     site: p.site || "",
     supervisor: p.supervisor || "",
     serviceType: p.serviceType === "24" ? "24" : "12",
@@ -823,6 +825,48 @@ function normalizePost(p = {}) {
     lng: p.lng === null || p.lng === undefined || p.lng === "" ? null : Number(p.lng),
     history: Array.isArray(p.history) ? p.history : [],
   };
+}
+
+/** Asigna números de cliente estables desde 101 sin reusar ni reordenar los ya asignados */
+function ensureClientNumbers(shouldSave = false) {
+  let maxNum = 100;
+  posts.forEach((p) => {
+    const n = Number(p.clientNumber);
+    if (Number.isFinite(n) && n >= 101) maxNum = Math.max(maxNum, Math.floor(n));
+  });
+  let changed = false;
+  // Asignar en orden actual a los que no tienen número
+  posts.forEach((p) => {
+    const n = Number(p.clientNumber);
+    if (Number.isFinite(n) && n >= 101) return;
+    maxNum += 1;
+    p.clientNumber = maxNum;
+    changed = true;
+  });
+  if (changed && shouldSave) {
+    localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    queueCloudSave();
+  }
+  return changed;
+}
+
+function nextClientNumber() {
+  ensureClientNumbers(false);
+  let maxNum = 100;
+  posts.forEach((p) => {
+    const n = Number(p.clientNumber);
+    if (Number.isFinite(n) && n >= 101) maxNum = Math.max(maxNum, Math.floor(n));
+  });
+  return maxNum + 1;
+}
+
+function sortPostsByClientNumber(list) {
+  return [...list].sort((a, b) => {
+    const an = Number(a.clientNumber) || 999999;
+    const bn = Number(b.clientNumber) || 999999;
+    if (an !== bn) return an - bn;
+    return String(a.site || "").localeCompare(String(b.site || ""), "es");
+  });
 }
 
 function calcMonthly(hours, hourlyRate, fallbackMonth, fallbackNow) {
@@ -1100,29 +1144,33 @@ function fitAll() {
 function renderShifts() {
   const list = document.getElementById("shiftsList");
   const summary = document.getElementById("shiftsSummary");
+  ensureClientNumbers(true);
+  const activeClients = posts.length;
   const counts = { ok: 0, warn: 0, alert: 0 };
   posts.forEach((p) => {
     counts[p.status] = (counts[p.status] || 0) + 1;
   });
-  summary.textContent = posts.length
-    ? `${todayLabel()} · ${counts.ok || 0} en puesto · ${counts.warn || 0} pendientes · ${counts.alert || 0} incidentes`
-    : `${todayLabel()} · Sin puestos todavía`;
+  summary.textContent = activeClients
+    ? `Clientes activos: ${activeClients} · ${counts.ok || 0} en puesto · ${counts.warn || 0} pendientes · ${counts.alert || 0} incidentes`
+    : "Clientes activos: 0 · Sin clientes todavía";
 
   if (!posts.length) {
-    list.innerHTML = `<p class="empty">No hay puestos. Entra a Admin con la clave y crea el primero.</p>`;
+    list.innerHTML = `<p class="empty">No hay clientes. Entra a Admin con la clave y crea el primero (se numera desde 101).</p>`;
     return;
   }
 
-  list.innerHTML = posts
+  const ordered = sortPostsByClientNumber(posts);
+  list.innerHTML = ordered
     .map((p) => {
       const g = primaryGuard(p);
+      const num = p.clientNumber || "—";
       return `
       <button class="shift-card" type="button" data-id="${p.id}">
         <div class="row">
           <div>
-            <h3>${escapeHtml(p.site)}</h3>
+            <h3><span class="client-num">#${escapeHtml(String(num))}</span> ${escapeHtml(p.site)}</h3>
             <p>${escapeHtml(guardsSummary(p))} · ${escapeHtml(p.guardCount)} vigilante(s)</p>
-            <p style="margin-top:6px">Turno: <strong style="color:#fff">${escapeHtml(p.shift || "—")}</strong> · ${serviceLabel(p.serviceType)}</p>
+            <p style="margin-top:6px">Horario: <strong style="color:#fff">${escapeHtml(p.shift || "—")}</strong> · ${serviceLabel(p.serviceType)}</p>
             <p>Supervisor: ${escapeHtml(p.supervisor || "—")} · Tel: ${escapeHtml(g.phone || "—")}</p>
           </div>
           <span class="status-pill ${statusClass(p.status)}">${STATUS_LABEL[p.status]}</span>
@@ -1138,8 +1186,8 @@ function renderShifts() {
 
 function fillReportPostSelect(preferredId) {
   const select = document.getElementById("reportPost");
-  select.innerHTML = posts
-    .map((p) => `<option value="${p.id}">${escapeHtml(p.site)} — ${escapeHtml(guardsSummary(p))}</option>`)
+  select.innerHTML = sortPostsByClientNumber(posts)
+    .map((p) => `<option value="${p.id}">#${escapeHtml(String(p.clientNumber || "—"))} ${escapeHtml(p.site)} — ${escapeHtml(guardsSummary(p))}</option>`)
     .join("");
   if (preferredId && getPost(preferredId)) select.value = preferredId;
 }
@@ -1285,14 +1333,15 @@ function renderAdminList() {
     return;
   }
 
-  list.innerHTML = posts
+  ensureClientNumbers(false);
+  list.innerHTML = sortPostsByClientNumber(posts)
     .map((p) => {
       const g = primaryGuard(p);
       return `
       <article class="report-card admin-card" data-id="${p.id}">
         <div class="row">
           <div>
-            <h3>${escapeHtml(p.site)}</h3>
+            <h3><span class="client-num">#${escapeHtml(String(p.clientNumber || "—"))}</span> ${escapeHtml(p.site)}</h3>
             <p>${escapeHtml(guardsSummary(p))} · ${escapeHtml(p.guardCount)} vigilante(s)</p>
             <p>Supervisor: ${escapeHtml(p.supervisor || "—")} · Tel: ${escapeHtml(g.phone || "—")}</p>
             <p>${serviceLabel(p.serviceType)} · ${money(p.priceMonth)} / mes · ${escapeHtml(p.hours || 0)} h</p>
@@ -1341,7 +1390,7 @@ function openDetail(id) {
   previousView = document.querySelector(".view.active")?.id || "mapView";
   if (previousView === "detailView") previousView = "shiftsView";
 
-  document.getElementById("detailTitle").textContent = post.site;
+  document.getElementById("detailTitle").textContent = post.clientNumber ? `#${post.clientNumber} ${post.site}` : post.site;
   document.getElementById("detailMeta").textContent = `${serviceLabel(post.serviceType)} · Supervisor: ${post.supervisor || "—"} · ${post.shift || "Sin horario"}`;
   document.getElementById("detailStatusWrap").innerHTML = `<span class="status-pill ${statusClass(post.status)}">${STATUS_LABEL[post.status]}</span>`;
 
@@ -2877,6 +2926,7 @@ function readFormPost() {
 
   return normalizePost({
     id: editingId || `p-${Date.now()}`,
+    clientNumber: existing?.clientNumber || (editingId ? null : nextClientNumber()),
     site,
     supervisor: document.getElementById("fSupervisor").value.trim(),
     serviceType: document.getElementById("fServiceType").value,
@@ -3445,6 +3495,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateAdminGate();
   renderGuardsEditor([emptyGuard()]);
   updateMonthPreview();
+  ensureClientNumbers(true);
   initMap();
   renderShifts();
   fillReportPostSelect();

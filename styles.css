@@ -1097,3 +1097,11 @@ textarea { resize: vertical; }
   font-size: 11px;
   color: var(--muted);
 }
+
+
+.client-num {
+  display: inline-block;
+  margin-right: 6px;
+  color: #fca5a5;
+  font-weight: 800;
+}

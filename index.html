@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=19" />
+  <link rel="stylesheet" href="styles.css?v=20" />
 </head>
 <body>
   <div id="app">
@@ -30,13 +30,13 @@
     <section id="homeView" class="view active scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=19" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=20" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
-          <button class="welcome-action" type="button" data-go="shiftsView">Turnos</button>
+          <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
           <button class="welcome-action" type="button" data-go="employeesView">Empleados</button>
           <button class="welcome-action" type="button" data-go="loansView">Préstamos</button>
           <button class="welcome-action" type="button" data-go="monorrielView">Monorriel</button>
@@ -63,7 +63,7 @@
 
     <section id="shiftsView" class="view scroll-view">
       <div class="section-head">
-        <h1>Turnos de hoy</h1>
+        <h1>Clientes</h1>
         <p id="shiftsSummary">Cargando…</p>
       </div>
       <div id="shiftsList" class="card-list"></div>
@@ -551,7 +551,7 @@
     <nav class="tabbar">
       <button class="tab active" data-view="homeView" type="button"><span>Inicio</span></button>
       <button class="tab" data-view="mapView" type="button"><span>Mapa</span></button>
-      <button class="tab" data-view="shiftsView" type="button"><span>Turnos</span></button>
+      <button class="tab" data-view="shiftsView" type="button"><span>Clientes</span></button>
       <button class="tab" data-view="employeesView" type="button"><span>Empleados</span></button>
       <button class="tab" data-view="loansView" type="button"><span>Préstamos</span></button>
       <button class="tab" data-view="monorrielView" type="button"><span>Monorriel</span></button>
@@ -561,9 +561,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=19"></script>
-  <script src="monorriel-data.js?v=19"></script>
-  <script src="cloud.js?v=19"></script>
-  <script src="app.js?v=19"></script>
+  <script src="cloud-config.js?v=20"></script>
+  <script src="monorriel-data.js?v=20"></script>
+  <script src="cloud.js?v=20"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>
