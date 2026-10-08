@@ -62,16 +62,6 @@ function loadJson(key, fallback) {
   }
 }
 
-function loadJsonObject(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : fallback;
-  } catch (_) {
-    return fallback;
-  }
-}
 
 /** Carga la data más reciente sin borrar versiones anteriores */
 function loadPreservingUserData(primaryKey, legacyKeys) {
@@ -946,7 +936,7 @@ async function pushToCloud() {
   cloudSaving = true;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -976,13 +966,12 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-      localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -1006,9 +995,6 @@ async function syncFromCloud() {
     }
     const remoteMsgs = Array.isArray(remote.messages) ? remote.messages.map(normalizeChatMessage) : [];
     chatMessages = mergeChatMessages(chatMessages, remoteMsgs);
-    if (remote.radio && typeof remote.radio === "object") {
-      applyRemoteRadio(remote.radio);
-    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1018,7 +1004,6 @@ async function syncFromCloud() {
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -1510,7 +1495,6 @@ const MODULE_DEFS = [
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "reports", label: "Reportes", view: "reportsView" },
   { key: "messages", label: "Mensajes", view: "messagesView" },
-  { key: "radio", label: "Radio", view: "radioView" },
   { key: "admin", label: "Admin", view: "adminView" },
 ];
 
@@ -1531,7 +1515,6 @@ const VIEW_TO_MODULE = {
   financeView: "finance",
   reportsView: "reports",
   messagesView: "messages",
-  radioView: "radio",
   adminView: "admin",
   detailView: "clients",
   loginView: null,
@@ -1631,7 +1614,7 @@ function canAccessView(viewId) {
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "financeView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "loansView", "monorrielView", "financeView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -1763,7 +1746,6 @@ function clearUserForm() {
     finance: false,
     reports: true,
     messages: true,
-    radio: true,
     admin: false,
   });
   document.getElementById("btnCancelUserEdit").hidden = true;
@@ -4022,517 +4004,6 @@ function bindMessagesUi() {
 }
 /* ==== FIN MENSAJERÍA ==== */
 
-/* ==== RADIO EN VIVO ==== */
-const RADIO_KEY = "rfs-ops-radio";
-const RADIO_VOL_KEY = "rfs-ops-radio-volume";
-
-let radioState = {
-  stationName: "RFS Radio",
-  mode: "playlist",
-  streamUrl: "",
-  enabled: true,
-  playing: false,
-  trackId: null,
-  startedAt: null,
-  positionMs: 0,
-  playlist: [],
-  updatedAt: null,
-  updatedBy: "",
-};
-
-let radioListening = false;
-let radioPollTimer = null;
-let radioSyncLock = false;
-let radioLastAppliedSig = "";
-
-function emptyRadioState() {
-  return {
-    stationName: "RFS Radio",
-    mode: "playlist",
-    streamUrl: "",
-    enabled: true,
-    playing: false,
-    trackId: null,
-    startedAt: null,
-    positionMs: 0,
-    playlist: [],
-    updatedAt: null,
-    updatedBy: "",
-  };
-}
-
-function normalizeRadioTrack(t = {}) {
-  return {
-    id: t.id || `trk-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    title: String(t.title || "Sin título").trim() || "Sin título",
-    url: String(t.url || "").trim(),
-  };
-}
-
-function normalizeRadioState(r = {}) {
-  const mode = r.mode === "stream" ? "stream" : "playlist";
-  const playlist = Array.isArray(r.playlist) ? r.playlist.map(normalizeRadioTrack).filter((t) => t.url) : [];
-  let trackId = r.trackId || null;
-  if (mode === "playlist" && playlist.length) {
-    if (!trackId || !playlist.some((t) => t.id === trackId)) trackId = playlist[0].id;
-  }
-  return {
-    stationName: String(r.stationName || "RFS Radio").trim() || "RFS Radio",
-    mode,
-    streamUrl: String(r.streamUrl || "").trim(),
-    enabled: r.enabled === false ? false : true,
-    playing: !!r.playing,
-    trackId,
-    startedAt: r.startedAt || null,
-    positionMs: Math.max(0, Number(r.positionMs) || 0),
-    playlist,
-    updatedAt: r.updatedAt || null,
-    updatedBy: r.updatedBy || "",
-  };
-}
-
-function radioSignature(state = radioState) {
-  return [
-    state.mode,
-    state.playing ? "1" : "0",
-    state.trackId || "",
-    state.streamUrl || "",
-    state.startedAt || "",
-    Math.floor((state.positionMs || 0) / 500),
-    state.playlist.map((t) => t.id).join(","),
-    state.stationName,
-  ].join("|");
-}
-
-function currentRadioTrack() {
-  if (radioState.mode === "stream") {
-    if (!radioState.streamUrl) return null;
-    return { id: "stream", title: "Stream en vivo", url: radioState.streamUrl };
-  }
-  return radioState.playlist.find((t) => t.id === radioState.trackId) || radioState.playlist[0] || null;
-}
-
-function computeLivePositionMs() {
-  if (!radioState.playing || !radioState.startedAt) return radioState.positionMs || 0;
-  const started = Date.parse(radioState.startedAt);
-  if (!Number.isFinite(started)) return radioState.positionMs || 0;
-  return Math.max(0, (radioState.positionMs || 0) + (Date.now() - started));
-}
-
-function canControlRadio() {
-  return !!(currentUser && (currentUser.role === "owner" || canAccessModule("admin")));
-}
-
-function saveRadioState(push = true) {
-  radioState = normalizeRadioState(radioState);
-  radioState.updatedAt = new Date().toISOString();
-  radioState.updatedBy = currentUser ? currentUser.username || currentUser.displayName : "";
-  localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
-  if (push) queueCloudSave();
-}
-
-function applyRemoteRadio(remoteRadio) {
-  if (!remoteRadio || typeof remoteRadio !== "object") return false;
-  const next = normalizeRadioState(remoteRadio);
-  const prevSig = radioSignature(radioState);
-  const nextSig = radioSignature(next);
-  radioState = next;
-  localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
-  return prevSig !== nextSig;
-}
-
-function getRadioAudio() {
-  return document.getElementById("radioAudio");
-}
-
-function setRadioEq(on) {
-  const eq = document.getElementById("radioEq");
-  if (eq) eq.classList.toggle("on", !!on);
-}
-
-async function syncRadioPlayback(forceSeek = false) {
-  const audio = getRadioAudio();
-  if (!audio || radioSyncLock) return;
-  radioSyncLock = true;
-  try {
-    const track = currentRadioTrack();
-    const title = document.getElementById("radioNowTitle");
-    const meta = document.getElementById("radioNowMeta");
-    const station = document.getElementById("radioStationLabel");
-    if (station) station.textContent = radioState.stationName || "RFS Radio";
-
-    if (!track || !radioState.enabled) {
-      if (title) title.textContent = "Sin música asignada";
-      if (meta) meta.textContent = "El administrador aún no ha puesto una pista.";
-      setRadioEq(false);
-      if (radioListening) {
-        audio.pause();
-      }
-      return;
-    }
-
-    if (title) title.textContent = track.title;
-    if (meta) {
-      meta.textContent = radioState.playing
-        ? `En el aire · sincronizado${radioState.updatedBy ? ` · por @${radioState.updatedBy}` : ""}`
-        : "En pausa (el admin detuvo la radio)";
-    }
-
-    const sig = radioSignature(radioState);
-    const urlChanged = audio.getAttribute("data-url") !== track.url;
-    if (urlChanged || forceSeek) {
-      audio.setAttribute("data-url", track.url);
-      audio.src = track.url;
-      try {
-        audio.load();
-      } catch (_) {}
-    }
-
-    const volEl = document.getElementById("radioVolume");
-    const vol = volEl ? Number(volEl.value) / 100 : 0.8;
-    audio.volume = Math.min(1, Math.max(0, vol));
-
-    if (!radioListening) {
-      setRadioEq(false);
-      return;
-    }
-
-    if (!radioState.playing) {
-      audio.pause();
-      setRadioEq(false);
-      return;
-    }
-
-    if (radioState.mode === "playlist") {
-      const target = computeLivePositionMs() / 1000;
-      const drift = Math.abs((audio.currentTime || 0) - target);
-      if (forceSeek || urlChanged || drift > 2.5) {
-        try {
-          if (Number.isFinite(target)) audio.currentTime = Math.max(0, target);
-        } catch (_) {}
-      }
-    }
-
-    try {
-      await audio.play();
-      setRadioEq(true);
-      radioLastAppliedSig = sig;
-    } catch (_) {
-      setRadioEq(false);
-      // autoplay blocked until user taps join again
-      radioListening = false;
-      updateRadioListenButtons();
-      toast("Pulsa “Unirme a la radio” para escuchar (el navegador lo pide).");
-    }
-  } finally {
-    radioSyncLock = false;
-  }
-}
-
-function updateRadioListenButtons() {
-  const join = document.getElementById("btnRadioJoin");
-  const leave = document.getElementById("btnRadioLeave");
-  if (join) join.hidden = radioListening;
-  if (leave) leave.hidden = !radioListening;
-}
-
-function renderRadioPlaylistPublic() {
-  const list = document.getElementById("radioPlaylistPublic");
-  if (!list) return;
-  if (radioState.mode === "stream") {
-    list.innerHTML = radioState.streamUrl
-      ? `<article class="radio-track-row on-air"><div><strong>Stream en vivo</strong><div class="meta">${escapeHtml(radioState.streamUrl)}</div></div></article>`
-      : `<p class="empty">No hay stream configurado.</p>`;
-    return;
-  }
-  if (!radioState.playlist.length) {
-    list.innerHTML = `<p class="empty">Aún no hay canciones en la lista.</p>`;
-    return;
-  }
-  list.innerHTML = radioState.playlist
-    .map((t) => {
-      const on = t.id === radioState.trackId ? "on-air" : "";
-      return `<article class="radio-track-row ${on}">
-        <div>
-          <strong>${escapeHtml(t.title)}</strong>
-          ${t.id === radioState.trackId && radioState.playing ? `<div class="meta">● En el aire</div>` : `<div class="meta">${escapeHtml(t.url)}</div>`}
-        </div>
-      </article>`;
-    })
-    .join("");
-}
-
-function renderRadioAdminPanel() {
-  const card = document.getElementById("radioAdminCard");
-  if (!card) return;
-  const show = canControlRadio();
-  card.hidden = !show;
-  if (!show) return;
-
-  document.getElementById("radioStationName").value = radioState.stationName || "";
-  document.getElementById("radioMode").value = radioState.mode || "playlist";
-  document.getElementById("radioStreamUrl").value = radioState.streamUrl || "";
-  const streamWrap = document.getElementById("radioStreamUrlWrap");
-  const trackForm = document.getElementById("radioTrackForm");
-  if (streamWrap) streamWrap.hidden = radioState.mode !== "stream";
-  if (trackForm) trackForm.hidden = radioState.mode !== "playlist";
-
-  const list = document.getElementById("radioAdminPlaylist");
-  if (!list) return;
-  if (radioState.mode === "stream") {
-    list.innerHTML = `<p class="muted tight">En modo stream, todos escuchan la URL continua. Usa Play/Pausa para abrir o cerrar el aire.</p>`;
-    return;
-  }
-  list.innerHTML = radioState.playlist.length
-    ? radioState.playlist
-        .map((t) => {
-          const on = t.id === radioState.trackId ? "on-air" : "";
-          return `<article class="radio-track-row ${on}">
-            <div>
-              <strong>${escapeHtml(t.title)}</strong>
-              <div class="meta">${escapeHtml(t.url)}</div>
-            </div>
-            <div class="radio-track-actions">
-              <button class="btn secondary" type="button" data-radio-play="${escapeHtml(t.id)}">Al aire</button>
-              <button class="btn ghost" type="button" data-radio-del="${escapeHtml(t.id)}">Quitar</button>
-            </div>
-          </article>`;
-        })
-        .join("")
-    : `<p class="empty">Agrega canciones con título + URL de audio.</p>`;
-
-  list.querySelectorAll("[data-radio-play]").forEach((btn) => {
-    btn.addEventListener("click", () => adminRadioPlayTrack(btn.getAttribute("data-radio-play")));
-  });
-  list.querySelectorAll("[data-radio-del]").forEach((btn) => {
-    btn.addEventListener("click", () => adminRadioRemoveTrack(btn.getAttribute("data-radio-del")));
-  });
-}
-
-function renderRadioModule() {
-  if (!canAccessModule("radio")) return;
-  const summary = document.getElementById("radioSummary");
-  const track = currentRadioTrack();
-  if (summary) {
-    summary.textContent = radioState.playing && track
-      ? `En vivo: ${track.title}`
-      : "Todos escuchan la misma música asignada por el administrador.";
-  }
-  renderRadioPlaylistPublic();
-  renderRadioAdminPanel();
-  updateRadioListenButtons();
-  syncRadioPlayback(false).catch(() => {});
-}
-
-function adminCaptureMetaFromForm() {
-  const name = document.getElementById("radioStationName")?.value?.trim();
-  const mode = document.getElementById("radioMode")?.value === "stream" ? "stream" : "playlist";
-  const streamUrl = document.getElementById("radioStreamUrl")?.value?.trim() || "";
-  if (name) radioState.stationName = name;
-  radioState.mode = mode;
-  radioState.streamUrl = streamUrl;
-}
-
-function adminRadioSaveMeta() {
-  if (!canControlRadio()) return;
-  adminCaptureMetaFromForm();
-  saveRadioState(true);
-  renderRadioModule();
-  toast("Estación guardada.");
-}
-
-function adminRadioAddTrack() {
-  if (!canControlRadio()) return;
-  adminCaptureMetaFromForm();
-  const title = document.getElementById("radioTrackTitle").value.trim();
-  const url = document.getElementById("radioTrackUrl").value.trim();
-  if (!url) {
-    toast("Pega la URL del audio.");
-    return;
-  }
-  if (!/^https?:\/\//i.test(url)) {
-    toast("La URL debe empezar con http:// o https://");
-    return;
-  }
-  const track = normalizeRadioTrack({ title: title || "Canción", url });
-  radioState.playlist.push(track);
-  if (!radioState.trackId) radioState.trackId = track.id;
-  document.getElementById("radioTrackTitle").value = "";
-  document.getElementById("radioTrackUrl").value = "";
-  saveRadioState(true);
-  renderRadioModule();
-  toast("Canción agregada a la radio.");
-}
-
-function adminRadioRemoveTrack(id) {
-  if (!canControlRadio()) return;
-  radioState.playlist = radioState.playlist.filter((t) => t.id !== id);
-  if (radioState.trackId === id) {
-    radioState.trackId = radioState.playlist[0]?.id || null;
-    radioState.positionMs = 0;
-    radioState.startedAt = radioState.playing ? new Date().toISOString() : null;
-  }
-  saveRadioState(true);
-  renderRadioModule();
-  syncRadioPlayback(true).catch(() => {});
-}
-
-function adminRadioPlayTrack(id) {
-  if (!canControlRadio()) return;
-  adminCaptureMetaFromForm();
-  radioState.trackId = id;
-  radioState.positionMs = 0;
-  radioState.playing = true;
-  radioState.startedAt = new Date().toISOString();
-  saveRadioState(true);
-  renderRadioModule();
-  syncRadioPlayback(true).catch(() => {});
-  toast("Al aire para todos.");
-}
-
-function adminRadioPlay() {
-  if (!canControlRadio()) return;
-  adminCaptureMetaFromForm();
-  const track = currentRadioTrack();
-  if (!track) {
-    toast(radioState.mode === "stream" ? "Configura la URL del stream." : "Agrega al menos una canción.");
-    return;
-  }
-  radioState.playing = true;
-  radioState.startedAt = new Date().toISOString();
-  // positionMs already holds pause offset
-  saveRadioState(true);
-  renderRadioModule();
-  syncRadioPlayback(true).catch(() => {});
-  toast("Radio en vivo para todos.");
-}
-
-function adminRadioPause() {
-  if (!canControlRadio()) return;
-  if (radioState.playing && radioState.mode === "playlist") {
-    radioState.positionMs = computeLivePositionMs();
-  }
-  radioState.playing = false;
-  radioState.startedAt = null;
-  saveRadioState(true);
-  renderRadioModule();
-  syncRadioPlayback(false).catch(() => {});
-  toast("Radio en pausa.");
-}
-
-function adminRadioStep(dir) {
-  if (!canControlRadio() || radioState.mode !== "playlist") return;
-  if (!radioState.playlist.length) return;
-  const idx = Math.max(0, radioState.playlist.findIndex((t) => t.id === radioState.trackId));
-  const next = (idx + dir + radioState.playlist.length) % radioState.playlist.length;
-  radioState.trackId = radioState.playlist[next].id;
-  radioState.positionMs = 0;
-  if (radioState.playing) radioState.startedAt = new Date().toISOString();
-  saveRadioState(true);
-  renderRadioModule();
-  syncRadioPlayback(true).catch(() => {});
-}
-
-function joinRadio() {
-  if (!currentUser) {
-    toast("Inicia sesión para escuchar.");
-    return;
-  }
-  radioListening = true;
-  updateRadioListenButtons();
-  syncRadioPlayback(true).catch(() => {});
-  toast("Te uniste a la radio.");
-}
-
-function leaveRadio() {
-  radioListening = false;
-  const audio = getRadioAudio();
-  if (audio) audio.pause();
-  setRadioEq(false);
-  updateRadioListenButtons();
-}
-
-function startRadioPolling() {
-  stopRadioPolling();
-  radioPollTimer = setInterval(() => {
-    if (!currentUser || !canAccessModule("radio")) return;
-    if (!window.RFSCloudApi) return;
-    window.RFSCloudApi
-      .loadCloud()
-      .then((remote) => {
-        if (!remote || remote.empty) return;
-        const changed = applyRemoteRadio(remote.radio);
-        if (changed) {
-          renderRadioModule();
-          syncRadioPlayback(true).catch(() => {});
-        } else if (radioListening && radioState.playing) {
-          syncRadioPlayback(false).catch(() => {});
-        }
-      })
-      .catch(() => {});
-  }, 8000);
-}
-
-function stopRadioPolling() {
-  if (radioPollTimer) {
-    clearInterval(radioPollTimer);
-    radioPollTimer = null;
-  }
-}
-
-function bindRadioUi() {
-  if (!document.getElementById("radioView")) return;
-  document.getElementById("btnRadioJoin")?.addEventListener("click", joinRadio);
-  document.getElementById("btnRadioLeave")?.addEventListener("click", leaveRadio);
-  document.getElementById("btnRefreshRadio")?.addEventListener("click", () => {
-    if (!window.RFSCloudApi) {
-      renderRadioModule();
-      return;
-    }
-    window.RFSCloudApi
-      .loadCloud()
-      .then((remote) => {
-        if (remote && remote.radio) applyRemoteRadio(remote.radio);
-        renderRadioModule();
-        syncRadioPlayback(true).catch(() => {});
-        toast("Radio actualizada.");
-      })
-      .catch(() => {
-        renderRadioModule();
-        toast("Sin conexión. Mostrando radio local.");
-      });
-  });
-  document.getElementById("radioVolume")?.addEventListener("input", (e) => {
-    const v = Number(e.target.value) || 0;
-    localStorage.setItem(RADIO_VOL_KEY, String(v));
-    const audio = getRadioAudio();
-    if (audio) audio.volume = Math.min(1, Math.max(0, v / 100));
-  });
-  document.getElementById("btnRadioPlay")?.addEventListener("click", adminRadioPlay);
-  document.getElementById("btnRadioPause")?.addEventListener("click", adminRadioPause);
-  document.getElementById("btnRadioPrev")?.addEventListener("click", () => adminRadioStep(-1));
-  document.getElementById("btnRadioNext")?.addEventListener("click", () => adminRadioStep(1));
-  document.getElementById("btnRadioAddTrack")?.addEventListener("click", adminRadioAddTrack);
-  document.getElementById("btnRadioSaveMeta")?.addEventListener("click", adminRadioSaveMeta);
-  document.getElementById("radioMode")?.addEventListener("change", () => {
-    if (!canControlRadio()) return;
-    adminCaptureMetaFromForm();
-    renderRadioAdminPanel();
-  });
-  const savedVol = Number(localStorage.getItem(RADIO_VOL_KEY));
-  const volEl = document.getElementById("radioVolume");
-  if (volEl && Number.isFinite(savedVol)) volEl.value = String(Math.min(100, Math.max(0, savedVol)));
-  const audio = getRadioAudio();
-  if (audio) {
-    audio.addEventListener("ended", () => {
-      if (!canControlRadio() || radioState.mode !== "playlist") return;
-      if (!radioState.playing || radioState.playlist.length < 2) return;
-      adminRadioStep(1);
-    });
-  }
-  startRadioPolling();
-}
-/* ==== FIN RADIO ==== */
 
 
 
@@ -4569,7 +4040,6 @@ function switchView(viewId) {
   if (viewId === "monoReportEditView") renderMonoPostsEditor();
   if (viewId === "monoStaffView") renderMonoStaffList();
   if (viewId === "messagesView") renderMessagesModule();
-  if (viewId === "radioView") renderRadioModule();
   if (viewId === "adminView") updateAdminGate();
 }
 
@@ -4924,7 +4394,6 @@ function exportBackup() {
     monorrielReports,
     users: appUsers,
     messages: chatMessages,
-    radio: radioState,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -5027,10 +4496,6 @@ function restoreBackupMerge() {
         chatMessages = mergeChatMessages(chatMessages, data.messages.map(normalizeChatMessage));
         saveChatMessages();
       }
-      if (data.radio && typeof data.radio === "object") {
-        applyRemoteRadio(data.radio);
-        saveRadioState(true);
-      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -5074,9 +4539,6 @@ function restoreBackupReplace() {
       if (Array.isArray(data.messages)) {
         chatMessages = pruneChatMessages(data.messages.map(normalizeChatMessage));
       }
-      if (data.radio && typeof data.radio === "object") {
-        radioState = normalizeRadioState(data.radio);
-      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -5086,7 +4548,6 @@ function restoreBackupReplace() {
       saveMonorrielReports();
       saveUsers();
       saveChatMessages();
-      saveRadioState(true);
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -5229,7 +4690,6 @@ function bindUi() {
   bindMonorrielUi();
   bindPrintUi();
   bindMessagesUi();
-  bindRadioUi();
 
   document.getElementById("btnAppLogin").addEventListener("click", tryAppLogin);
   document.getElementById("loginPassword").addEventListener("keydown", (e) => {
@@ -5283,11 +4743,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   monorrielReports = loadJson(MONORRIEL_REPORTS_KEY, []).map(normalizeMonoReport);
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
   chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);
-  radioState = normalizeRadioState(loadJsonObject(RADIO_KEY, emptyRadioState()));
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-  localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
   restoreSessionUser();
@@ -5310,7 +4768,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
     await pushToCloud();
     toast(`Se importaron ${added} servicios y se subieron a la nube.`);
   } else {
@@ -5321,9 +4778,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
     localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-    localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
     // Sube el listado consolidado a la nube (sin borrar servicios)
-    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length || chatMessages.length || (radioState.playlist && radioState.playlist.length))) await pushToCloud();
+    if (cloud.usedCloud && (employees.length || loans.length || monorrielReports.length || appUsers.length || chatMessages.length)) await pushToCloud();
   }
 
   bindUi();
@@ -5348,14 +4804,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=28").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=29").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v28").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v29").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

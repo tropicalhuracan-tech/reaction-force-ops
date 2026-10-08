@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=28" />
+  <link rel="stylesheet" href="styles.css?v=29" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=28" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=29" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -53,7 +53,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=28" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=29" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -62,7 +62,6 @@
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
           <button class="welcome-action" type="button" data-go="employeesView">Empleados</button>
           <button class="welcome-action" type="button" data-go="messagesView">Mensajes</button>
-          <button class="welcome-action" type="button" data-go="radioView">Radio</button>
           <button class="welcome-action" type="button" data-go="loansView">Préstamos</button>
           <button class="welcome-action" type="button" data-go="monorrielView">Monorriel</button>
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
@@ -451,75 +450,6 @@
       <p class="muted tight">Notas de voz: máx. 40 s. Archivos JPG/PDF: máx. ~300 KB. Los mensajes se sincronizan en la nube entre usuarios.</p>
     </section>
 
-    <section id="radioView" class="view scroll-view">
-      <div class="section-head section-head-row">
-        <div>
-          <h1>Radio en vivo</h1>
-          <p id="radioSummary">Todos escuchan la misma música asignada por el administrador.</p>
-        </div>
-        <button id="btnRefreshRadio" class="icon-btn" type="button" aria-label="Actualizar" title="Actualizar">⟳</button>
-      </div>
-
-      <div class="radio-now form-card">
-        <p class="muted tight" id="radioStationLabel">RFS Radio</p>
-        <h2 id="radioNowTitle">Sin música asignada</h2>
-        <p class="muted" id="radioNowMeta">El administrador aún no ha puesto una pista.</p>
-        <div class="radio-eq" id="radioEq" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span>
-        </div>
-        <audio id="radioAudio" preload="metadata"></audio>
-        <div class="radio-listen-actions">
-          <button id="btnRadioJoin" class="btn primary" type="button">▶ Unirme a la radio</button>
-          <button id="btnRadioLeave" class="btn secondary" type="button" hidden>⏸ Dejar de escuchar</button>
-        </div>
-        <label class="radio-vol">Volumen local
-          <input id="radioVolume" type="range" min="0" max="100" value="80" />
-        </label>
-        <p class="muted tight" id="radioSyncHint">Al unirte, tu celular/PC se sincroniza con lo que está sonando ahora.</p>
-      </div>
-
-      <div class="form-card" id="radioPlaylistCard">
-        <h2>Lista en el aire</h2>
-        <div id="radioPlaylistPublic" class="card-list"></div>
-      </div>
-
-      <div class="form-card" id="radioAdminCard" hidden>
-        <h2>Control del administrador</h2>
-        <p class="muted">Solo el dueño/admin asigna música y decide qué suena para todos.</p>
-        <label>Nombre de la estación
-          <input id="radioStationName" type="text" placeholder="Ej. RFS Radio" maxlength="60" />
-        </label>
-        <label>Modo
-          <select id="radioMode">
-            <option value="playlist">Lista de canciones (URLs)</option>
-            <option value="stream">Stream en vivo (URL continua)</option>
-          </select>
-        </label>
-        <label id="radioStreamUrlWrap" hidden>URL del stream en vivo
-          <input id="radioStreamUrl" type="url" placeholder="https://…/stream.mp3" />
-        </label>
-        <div class="radio-admin-controls">
-          <button id="btnRadioPlay" class="btn primary" type="button">▶ Play para todos</button>
-          <button id="btnRadioPause" class="btn secondary" type="button">⏸ Pausa</button>
-          <button id="btnRadioPrev" class="btn ghost" type="button">⏮ Anterior</button>
-          <button id="btnRadioNext" class="btn ghost" type="button">Siguiente ⏭</button>
-        </div>
-        <div id="radioTrackForm">
-          <h3 class="tight">Agregar canción</h3>
-          <label>Título
-            <input id="radioTrackTitle" type="text" placeholder="Nombre de la canción" />
-          </label>
-          <label>URL del audio (MP3 / M4A / OGG directo)
-            <input id="radioTrackUrl" type="url" placeholder="https://ejemplo.com/cancion.mp3" />
-          </label>
-          <p class="muted tight">Usa un enlace directo al archivo de audio (no YouTube). Puedes subirlo a Drive/Dropbox y pegar el enlace de descarga directa, o a un hosting de audio.</p>
-          <button id="btnRadioAddTrack" class="btn secondary" type="button">Agregar a la lista</button>
-        </div>
-        <div id="radioAdminPlaylist" class="card-list" style="margin-top:12px"></div>
-        <button id="btnRadioSaveMeta" class="btn ghost" type="button">Guardar estación</button>
-      </div>
-    </section>
-
     <section id="financeView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -652,7 +582,6 @@
             <label class="check-row"><input type="checkbox" data-perm="finance" /><span>Finanzas</span></label>
             <label class="check-row"><input type="checkbox" data-perm="reports" checked /><span>Reportes</span></label>
             <label class="check-row"><input type="checkbox" data-perm="messages" checked /><span>Mensajes</span></label>
-            <label class="check-row"><input type="checkbox" data-perm="radio" checked /><span>Radio</span></label>
             <label class="check-row"><input type="checkbox" data-perm="admin" /><span>Admin</span></label>
           </div>
           <input type="hidden" id="uEditingId" value="" />
@@ -735,7 +664,6 @@
       <button class="tab" data-view="shiftsView" type="button"><span>Clientes</span></button>
       <button class="tab" data-view="employeesView" type="button"><span>Empleados</span></button>
       <button class="tab" data-view="messagesView" type="button"><span>Mensajes</span></button>
-      <button class="tab" data-view="radioView" type="button"><span>Radio</span></button>
       <button class="tab" data-view="loansView" type="button"><span>Préstamos</span></button>
       <button class="tab" data-view="monorrielView" type="button"><span>Monorriel</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
@@ -744,9 +672,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=28"></script>
-  <script src="monorriel-data.js?v=28"></script>
-  <script src="cloud.js?v=28"></script>
-  <script src="app.js?v=28"></script>
+  <script src="cloud-config.js?v=29"></script>
+  <script src="monorriel-data.js?v=29"></script>
+  <script src="cloud.js?v=29"></script>
+  <script src="app.js?v=29"></script>
 </body>
 </html>
