@@ -1392,3 +1392,125 @@ textarea { resize: vertical; }
   border: 1px dashed var(--line);
   font-size: 12px;
 }
+
+/* ==== RADIO EN VIVO ==== */
+.radio-now {
+  text-align: center;
+  padding: 18px 14px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(212, 20, 20, 0.22), transparent 55%),
+    var(--panel);
+}
+
+.radio-now h2 {
+  margin: 4px 0 6px;
+  font-size: 1.25rem;
+}
+
+.radio-eq {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 5px;
+  height: 36px;
+  margin: 14px 0 16px;
+  opacity: 0.35;
+}
+
+.radio-eq.on {
+  opacity: 1;
+}
+
+.radio-eq span {
+  width: 5px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--red);
+  transform-origin: bottom;
+}
+
+.radio-eq.on span {
+  animation: radioBar 0.9s ease-in-out infinite alternate;
+}
+
+.radio-eq.on span:nth-child(2) { animation-delay: 0.12s; height: 20px; }
+.radio-eq.on span:nth-child(3) { animation-delay: 0.24s; height: 28px; }
+.radio-eq.on span:nth-child(4) { animation-delay: 0.08s; height: 18px; }
+.radio-eq.on span:nth-child(5) { animation-delay: 0.2s; height: 14px; }
+
+@keyframes radioBar {
+  from { transform: scaleY(0.45); }
+  to { transform: scaleY(1.15); }
+}
+
+.radio-listen-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.radio-listen-actions .btn {
+  margin: 0;
+}
+
+.radio-vol {
+  display: block;
+  text-align: left;
+  margin-top: 8px;
+}
+
+.radio-vol input {
+  width: 100%;
+}
+
+.radio-admin-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+
+.radio-admin-controls .btn {
+  margin: 0;
+}
+
+.radio-track-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  margin-bottom: 8px;
+}
+
+.radio-track-row.on-air {
+  border-color: rgba(212, 20, 20, 0.55);
+  background: rgba(212, 20, 20, 0.14);
+}
+
+.radio-track-row .meta {
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.radio-track-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.radio-track-actions .btn {
+  width: auto;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+#radioAudio {
+  display: none;
+}

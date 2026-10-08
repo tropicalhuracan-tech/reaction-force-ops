@@ -8,7 +8,7 @@
     return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${docPath}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages) {
+  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio) {
     return {
       fields: {
         postsJson: { stringValue: JSON.stringify(posts || []) },
@@ -18,6 +18,7 @@
         monorrielReportsJson: { stringValue: JSON.stringify(monorrielReports || []) },
         usersJson: { stringValue: JSON.stringify(users || []) },
         messagesJson: { stringValue: JSON.stringify(messages || []) },
+        radioJson: { stringValue: JSON.stringify(radio || {}) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -35,6 +36,17 @@
     }
   }
 
+  function parseObjectField(fields, key) {
+    const raw = fields[key] && fields[key].stringValue;
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
   function decodeDoc(doc) {
     const fields = (doc && doc.fields) || {};
     return {
@@ -45,6 +57,7 @@
       monorrielReports: parseJsonField(fields, "monorrielReportsJson"),
       users: parseJsonField(fields, "usersJson"),
       messages: parseJsonField(fields, "messagesJson"),
+      radio: parseObjectField(fields, "radioJson"),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
     };
   }
@@ -61,6 +74,7 @@
         monorrielReports: [],
         users: [],
         messages: [],
+        radio: {},
         updatedAt: null,
         empty: true,
       };
@@ -70,9 +84,9 @@
     return { ...decodeDoc(doc), empty: false };
   }
 
-  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages) {
+  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages, radio) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
-    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages);
+    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio);
     const res = await fetch(docUrl(), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
