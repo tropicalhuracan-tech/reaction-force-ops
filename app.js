@@ -2152,7 +2152,15 @@ function markLoanInstallmentPaid(loanId, idx) {
 
 function deleteSelectedLoan() {
   if (!selectedLoanId) return;
-  const ok = window.confirm("¿Eliminar este préstamo? Esta acción no se puede deshacer.");
+  const loan = getLoan(selectedLoanId);
+  const label = loan ? `${loan.employeeName || "préstamo"} (${loanStatusLabel(loan.status)})` : "este préstamo";
+  const code = window.prompt(`Para eliminar ${label} escribe la clave de autorización:`);
+  if (code === null) return;
+  if (String(code).trim() !== LOAN_RATE_AUTH) {
+    toast("Clave incorrecta. No se eliminó el préstamo.");
+    return;
+  }
+  const ok = window.confirm("Clave correcta. ¿Eliminar este préstamo? Esta acción no se puede deshacer.");
   if (!ok) return;
   loans = loans.filter((l) => l.id !== selectedLoanId);
   selectedLoanId = null;
