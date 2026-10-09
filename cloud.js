@@ -106,6 +106,17 @@
     return patchDoc(mediaPath(id), fields);
   }
 
+  async function deleteMedia(id) {
+    if (!id) return false;
+    const res = await fetch(docUrl(mediaPath(id)), { method: "DELETE" });
+    if (res.status === 404) return false;
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`cloud media delete ${id} ${res.status}: ${text.slice(0, 180)}`);
+    }
+    return true;
+  }
+
   async function loadMediaMap(ids) {
     const unique = [...new Set((ids || []).filter(Boolean))];
     const out = {};
@@ -531,6 +542,7 @@
     loadCloud,
     saveCloud,
     saveMessages,
+    deleteMedia,
     decodeDoc: decodeLegacyMain,
     SCHEMA_VERSION,
   };

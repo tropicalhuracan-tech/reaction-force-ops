@@ -3716,7 +3716,7 @@ function deleteSelectedLoan() {
 
 
 /* ==== IMPRESIÓN ==== */
-function openPrintWindow(title, bodyHtml) {
+function openPrintWindow(title, bodyHtml, options = {}) {
   const appHref = (() => {
     try {
       return String(window.location.href || "./");
@@ -3724,6 +3724,7 @@ function openPrintWindow(title, bodyHtml) {
       return "./";
     }
   })();
+  const afterPrintKey = options && options.afterPrintKey ? String(options.afterPrintKey) : "";
   const win = window.open("", "_blank");
   if (!win) {
     toast("Permite ventanas emergentes para imprimir, o elige una impresora en el diálogo del sistema.");
@@ -3775,6 +3776,17 @@ function openPrintWindow(title, bodyHtml) {
   <script>
     (function () {
       var appHref = ${JSON.stringify(appHref)};
+      var afterPrintKey = ${JSON.stringify(afterPrintKey)};
+      var notified = false;
+      function notifyAfterPrint() {
+        if (!afterPrintKey || notified) return;
+        notified = true;
+        try {
+          if (window.opener && !window.opener.closed && typeof window.opener.__rfsOnPrintDone === "function") {
+            window.opener.__rfsOnPrintDone(afterPrintKey);
+          }
+        } catch (e0) {}
+      }
       function goBackToApp() {
         try {
           if (window.opener && !window.opener.closed) {
@@ -3803,6 +3815,7 @@ function openPrintWindow(title, bodyHtml) {
       if (backTop) backTop.addEventListener("click", goBackToApp);
       if (backBottom) backBottom.addEventListener("click", goBackToApp);
       if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
+      try { window.addEventListener("afterprint", notifyAfterPrint); } catch (e8) {}
       setTimeout(function () {
         try { window.focus(); window.print(); } catch (e7) {}
       }, 350);
@@ -6100,6 +6113,7 @@ function normalizeCajaExpense(e = {}) {
   const date = String(e.date || "").slice(0, 10) || localDateISO();
   const category = CAJA_CATEGORIES.some((c) => c.key === e.category) ? e.category : "otros";
   const checkPhoto = typeof e.checkPhoto === "string" && e.checkPhoto.startsWith("data:image") ? e.checkPhoto : "";
+  const checkPhotoMediaId = String(e.checkPhotoMediaId || "").trim();
   return {
     id: e.id || `caja-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     date,
@@ -6114,7 +6128,9 @@ function normalizeCajaExpense(e = {}) {
     createdBy: e.createdBy || "",
     receiptNo: e.receiptNo || "",
     checkPhoto,
-    checkPhotoName: checkPhoto ? String(e.checkPhotoName || "cheque.jpg").trim() : "",
+    checkPhotoName:
+      checkPhoto || checkPhotoMediaId ? String(e.checkPhotoName || "cheque.jpg").trim() : "",
+    checkPhotoMediaId,
   };
 }
 
@@ -7117,6 +7133,86 @@ function closeCajaDay() {
   toast("Día cerrado y guardado.");
 }
 
+async function clearCajaExpenseCheckPhoto(expenseId) {
+  const id = String(expenseId || "");
+  if (!id) return false;
+  let target = (pettyCash.expenses || []).find((e) => e.id === id);
+  let inDeleted = false;
+  if (!target) {
+    target = (pettyCash.deletedExpenses || []).find((e) => e.id === id);
+    inDeleted = !!target;
+  }
+  if (!target) return false;
+  const mediaId = String(target.checkPhotoMediaId || "").trim();
+  const hadPhoto = !!(target.checkPhoto || mediaId);
+  if (!hadPhoto) return false;
+
+  target.checkPhoto = "";
+  target.checkPhotoName = "";
+  target.checkPhotoMediaId = "";
+
+  if (inDeleted) {
+    pettyCash.deletedExpenses = (pettyCash.deletedExpenses || []).map((e) =>
+      e.id === id ? { ...e, checkPhoto: "", checkPhotoName: "", checkPhotoMediaId: "" } : e
+    );
+  } else {
+    pettyCash.expenses = (pettyCash.expenses || []).map((e) =>
+      e.id === id ? { ...e, checkPhoto: "", checkPhotoName: "", checkPhotoMediaId: "" } : e
+    );
+  }
+
+  savePettyCash(true);
+  if (mediaId && window.RFSCloudApi && typeof window.RFSCloudApi.deleteMedia === "function") {
+    try {
+      await window.RFSCloudApi.deleteMedia(mediaId);
+    } catch (_) {}
+  }
+  logActivity("caja_check_deleted", `Borró foto de cheque tras imprimir recibo ${target.receiptNo || id}`);
+  renderCajaModule();
+  return true;
+}
+
+function offerDeleteCajaCheckAfterPrint(expenseId) {
+  const id = String(expenseId || "");
+  if (!id) return;
+  const exp =
+    (pettyCash.expenses || []).find((e) => e.id === id) ||
+    (pettyCash.deletedExpenses || []).find((e) => e.id === id);
+  if (!exp || !(exp.checkPhoto || exp.checkPhotoMediaId)) return;
+
+  // Evitar doble pregunta si afterprint dispara más de una vez
+  const guardKey = `caja-check-ask:${id}`;
+  if (offerDeleteCajaCheckAfterPrint._busy === guardKey) return;
+  offerDeleteCajaCheckAfterPrint._busy = guardKey;
+
+  setTimeout(() => {
+    try {
+      const ok = window.confirm(
+        "¿Desea borrar la foto del cheque de la aplicación?\n\n" +
+          "Recomendado: Aceptar (Sí).\n" +
+          "Ya quedó en el recibo impreso y así libera espacio en la nube."
+      );
+      if (!ok) return;
+      clearCajaExpenseCheckPhoto(id)
+        .then((deleted) => {
+          if (deleted) toast("Foto del cheque borrada. El gasto y el recibo se conservan.");
+        })
+        .catch(() => toast("No se pudo borrar la foto del cheque."));
+    } finally {
+      if (offerDeleteCajaCheckAfterPrint._busy === guardKey) {
+        offerDeleteCajaCheckAfterPrint._busy = "";
+      }
+    }
+  }, 200);
+}
+
+window.__rfsOnPrintDone = function (key) {
+  const token = String(key || "");
+  if (token.startsWith("caja-check:")) {
+    offerDeleteCajaCheckAfterPrint(token.slice("caja-check:".length));
+  }
+};
+
 function printCajaReceipt(id) {
   const exp =
     (pettyCash.expenses || []).find((e) => e.id === id) ||
@@ -7161,7 +7257,11 @@ function printCajaReceipt(id) {
       </div>
     </div>
   `;
-  openPrintWindow(`Recibo caja ${exp.receiptNo || ""}`, body);
+  const opts =
+    exp.checkPhoto || exp.checkPhotoMediaId
+      ? { afterPrintKey: `caja-check:${exp.id}` }
+      : {};
+  openPrintWindow(`Recibo caja ${exp.receiptNo || ""}`, body, opts);
 }
 
 function printCajaSheet() {
@@ -8261,7 +8361,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=49").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=50").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8277,7 +8377,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v49").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v50").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
