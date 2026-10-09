@@ -111,5 +111,28 @@
     return res.json();
   }
 
-  window.RFSCloudApi = { loadCloud, saveCloud, decodeDoc };
+  /** Parche ligero solo de mensajes (evita fallos/sobrescrituras del documento completo ~1MB) */
+  async function saveMessages(messages) {
+    if (!projectId || !apiKey) throw new Error("cloud not configured");
+    const body = {
+      fields: {
+        messagesJson: { stringValue: JSON.stringify(messages || []) },
+        updatedAt: { stringValue: new Date().toISOString() },
+      },
+    };
+    const mask =
+      "&updateMask.fieldPaths=messagesJson&updateMask.fieldPaths=updatedAt";
+    const res = await fetch(docUrl() + mask, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`cloud messages save ${res.status}: ${text.slice(0, 200)}`);
+    }
+    return res.json();
+  }
+
+  window.RFSCloudApi = { loadCloud, saveCloud, saveMessages, decodeDoc };
 })();

@@ -1461,6 +1461,46 @@ function queueCloudSave() {
 
 let cloudSavePending = false;
 
+async function mergeRemoteMessagesBeforeSave() {
+  if (!window.RFSCloudApi) return;
+  try {
+    const remote = await window.RFSCloudApi.loadCloud();
+    if (!remote || remote.empty) return;
+    if (Array.isArray(remote.messages)) {
+      chatMessages = mergeChatMessages(chatMessages, remote.messages.map(normalizeChatMessage));
+      localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+    }
+  } catch (_) {}
+}
+
+/** Subida dedicada del chat: no reescribe empleados/fotos y no borra mensajes ajenos */
+async function pushMessagesToCloud() {
+  if (!window.RFSCloudApi) throw new Error("cloud not configured");
+  await mergeRemoteMessagesBeforeSave();
+  chatMessages = pruneChatMessages(chatMessages);
+  localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
+  if (typeof window.RFSCloudApi.saveMessages === "function") {
+    await window.RFSCloudApi.saveMessages(chatMessages);
+  } else {
+    await mergeRemoteMessagesBeforeSave();
+    await window.RFSCloudApi.saveCloud(
+      posts,
+      reports,
+      employees,
+      loans,
+      monorrielReports,
+      appUsers,
+      chatMessages,
+      radioState,
+      activityLog,
+      lvaState,
+      pettyCash,
+      hrData
+    );
+  }
+  cloudReady = true;
+}
+
 async function pushToCloud() {
   if (!window.RFSCloudApi) return;
   if (cloudSaving) {
@@ -1471,12 +1511,19 @@ async function pushToCloud() {
   cloudSavePending = false;
   setCloudStatus("Nube: guardando…");
   try {
+    // Fusionar chat remoto antes de guardar el documento completo (evita borrar mensajes nuevos)
+    await mergeRemoteMessagesBeforeSave();
     await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash, hrData);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
     console.error(err);
     setCloudStatus("Nube: error al guardar (se mantiene copia local)");
+    // Si el doc completo falla por tamaño, al menos intentar subir el chat
+    try {
+      await pushMessagesToCloud();
+      setCloudStatus("Nube: chat sincronizado (doc completo pendiente)");
+    } catch (_) {}
   } finally {
     cloudSaving = false;
     if (cloudSavePending) {
@@ -5078,10 +5125,12 @@ function pruneChatMessages(list = chatMessages) {
   return arr;
 }
 
-function saveChatMessages() {
+function saveChatMessages(push = true) {
   chatMessages = pruneChatMessages(chatMessages);
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-  queueCloudSave();
+  if (!push) return;
+  // Chat usa parche ligero; si falla, cae al guardado general
+  pushMessagesToCloud().catch(() => queueCloudSave());
 }
 
 function mergeChatMessages(localList, remoteList) {
@@ -5278,7 +5327,7 @@ function openChatWith(userId) {
   renderMessageThread();
 }
 
-function sendChatMessage() {
+async function sendChatMessage() {
   if (!currentUser) {
     toast("Inicia sesión para enviar mensajes.");
     return;
@@ -5320,9 +5369,17 @@ function sendChatMessage() {
   chatMessages.push(msg);
   document.getElementById("msgText").value = "";
   clearPendingMsgAttach();
-  saveChatMessages();
+  saveChatMessages(false);
   renderMessageThread();
-  toast(selectedChatUserId === "*" ? "Aviso enviado a todos." : "Mensaje enviado.");
+  renderMessagesUsers();
+  try {
+    await pushMessagesToCloud();
+    toast(selectedChatUserId === "*" ? "Aviso enviado a todos ✓" : `Enviado a ${toName} ✓`);
+  } catch (err) {
+    console.error(err);
+    queueCloudSave();
+    toast("No se pudo subir el mensaje a la nube. Reintentando…");
+  }
 }
 
 async function toggleVoiceRecording() {
