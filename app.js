@@ -760,6 +760,8 @@ function renderEmpDocPreview() {
   const isPdf = mime.includes("pdf") || /\.pdf$/i.test(doc.name || "");
   const isImage = mime.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(doc.name || "");
   nameEl.textContent = doc.name || (isPdf ? "Documento PDF" : "Documento");
+  const expandBtn = document.getElementById("btnEmpDocExpand");
+  if (expandBtn) expandBtn.hidden = !isImage;
   img.hidden = !isImage;
   pdf.hidden = !isPdf;
   if (isImage) {
@@ -857,27 +859,78 @@ async function onEmpDocSelected(event) {
   }
 }
 
+function closeMediaLightbox() {
+  const box = document.getElementById("mediaLightbox");
+  const img = document.getElementById("mediaLightboxImg");
+  const pdf = document.getElementById("mediaLightboxPdf");
+  if (box) box.hidden = true;
+  if (img) {
+    img.hidden = true;
+    img.removeAttribute("src");
+  }
+  if (pdf) {
+    pdf.hidden = true;
+    pdf.removeAttribute("src");
+  }
+  document.body.classList.remove("lightbox-open");
+}
+
+function openMediaLightbox({ title, dataUrl, mime = "", name = "" }) {
+  if (!dataUrl) {
+    toast("No hay archivo para ver.");
+    return;
+  }
+  const box = document.getElementById("mediaLightbox");
+  const titleEl = document.getElementById("mediaLightboxTitle");
+  const img = document.getElementById("mediaLightboxImg");
+  const pdf = document.getElementById("mediaLightboxPdf");
+  if (!box || !img || !pdf) {
+    toast("No se pudo abrir la vista previa.");
+    return;
+  }
+  const lowerMime = String(mime || "").toLowerCase();
+  const isPdf = lowerMime.includes("pdf") || /\.pdf$/i.test(name || "");
+  if (titleEl) titleEl.textContent = title || name || (isPdf ? "Documento PDF" : "Vista previa");
+  img.hidden = isPdf;
+  pdf.hidden = !isPdf;
+  if (isPdf) {
+    pdf.src = dataUrl;
+    img.removeAttribute("src");
+  } else {
+    img.src = dataUrl;
+    pdf.removeAttribute("src");
+  }
+  box.hidden = false;
+  document.body.classList.add("lightbox-open");
+}
+
+function openEmpPhotoPreview() {
+  const photo = currentEmpPhoto();
+  if (!photo) {
+    toast("No hay foto para ver.");
+    return;
+  }
+  const emp = getEmployee(selectedEmployeeId);
+  openMediaLightbox({
+    title: emp ? `Foto · ${emp.name}` : "Foto del empleado",
+    dataUrl: photo,
+    mime: "image/jpeg",
+    name: "foto.jpg",
+  });
+}
+
 function openEmpDocument() {
   const doc = currentEmpDoc();
   if (!doc.dataUrl) {
     toast("No hay documento para ver.");
     return;
   }
-  const win = window.open();
-  if (!win) {
-    toast("Permite ventanas emergentes para previsualizar.");
-    return;
-  }
-  const mime = (doc.mime || "").toLowerCase();
-  if (mime.includes("pdf") || /\.pdf$/i.test(doc.name || "")) {
-    win.document.write(
-      `<title>${escapeHtml(doc.name || "Documento")}</title><embed src="${doc.dataUrl}" type="application/pdf" width="100%" height="100%" style="border:0;position:fixed;inset:0" />`
-    );
-  } else {
-    win.document.write(
-      `<title>${escapeHtml(doc.name || "Documento")}</title><img src="${doc.dataUrl}" style="max-width:100%;height:auto;display:block;margin:0 auto" alt="Documento" />`
-    );
-  }
+  openMediaLightbox({
+    title: doc.name || "Documento",
+    dataUrl: doc.dataUrl,
+    mime: doc.mime || "",
+    name: doc.name || "",
+  });
 }
 
 function openEmployeeDetail(id) {
@@ -6251,6 +6304,7 @@ function switchView(viewId) {
     toast("Tu usuario no tiene acceso a esa sección.");
     viewId = firstAllowedView();
   }
+  closeMediaLightbox();
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === viewId));
   document.querySelectorAll(".tab").forEach((t) => {
     // detailView no tiene tab; no marcar ninguno extra
@@ -6990,6 +7044,16 @@ function bindUi() {
   document.getElementById("btnClearEmpPhoto").addEventListener("click", clearEmpPhotoPending);
   document.getElementById("btnClearEmpDoc").addEventListener("click", clearEmpDocPending);
   document.getElementById("btnOpenEmpDoc").addEventListener("click", openEmpDocument);
+  document.getElementById("btnOpenEmpPhoto")?.addEventListener("click", openEmpPhotoPreview);
+  document.getElementById("btnEmpPhotoExpand")?.addEventListener("click", openEmpPhotoPreview);
+  document.getElementById("btnEmpDocExpand")?.addEventListener("click", openEmpDocument);
+  document.getElementById("btnCloseLightbox")?.addEventListener("click", closeMediaLightbox);
+  document.getElementById("mediaLightbox")?.addEventListener("click", (e) => {
+    if (e.target && e.target.id === "mediaLightbox") closeMediaLightbox();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeMediaLightbox();
+  });
   bindLoansUi();
   bindCajaUi();
   bindMonorrielUi();

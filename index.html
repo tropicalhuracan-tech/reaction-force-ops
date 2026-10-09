@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=40" />
+  <link rel="stylesheet" href="styles.css?v=41" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=40" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=41" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,7 +56,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=40" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=41" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -180,8 +180,11 @@
             <input id="ePhotoFile" type="file" accept="image/*" capture="environment" />
           </label>
           <div id="ePhotoPreviewWrap" class="photo-preview emp-attach-preview" hidden>
-            <img id="ePhotoPreview" alt="Foto del empleado" />
+            <button id="btnEmpPhotoExpand" class="media-thumb-btn" type="button" aria-label="Ver foto grande">
+              <img id="ePhotoPreview" alt="Foto del empleado" />
+            </button>
             <div class="attach-actions">
+              <button id="btnOpenEmpPhoto" class="btn secondary attach-btn" type="button">Ver foto</button>
               <a id="ePhotoDownload" class="btn secondary attach-btn" download="foto-empleado.jpg">Descargar foto</a>
               <button id="btnClearEmpPhoto" class="btn ghost attach-btn" type="button">Quitar foto</button>
             </div>
@@ -196,7 +199,9 @@
           </label>
           <div id="eDocPreviewWrap" class="emp-attach-preview" hidden>
             <p id="eDocName" class="doc-name"></p>
-            <img id="eDocPreviewImg" class="doc-preview-img" alt="Vista previa del documento" hidden />
+            <button id="btnEmpDocExpand" class="media-thumb-btn" type="button" aria-label="Ver documento grande" hidden>
+              <img id="eDocPreviewImg" class="doc-preview-img" alt="Vista previa del documento" />
+            </button>
             <iframe id="eDocPreviewPdf" class="doc-preview-pdf" title="Vista previa PDF" hidden></iframe>
             <div class="attach-actions">
               <a id="eDocDownload" class="btn secondary attach-btn" download="documento-empleado">Descargar</a>
@@ -898,6 +903,17 @@
       </div>
     </div>
 
+    <div id="mediaLightbox" class="media-lightbox" hidden>
+      <div class="media-lightbox-bar">
+        <button id="btnCloseLightbox" class="btn secondary" type="button">← Cerrar</button>
+        <strong id="mediaLightboxTitle">Vista previa</strong>
+      </div>
+      <div class="media-lightbox-body">
+        <img id="mediaLightboxImg" alt="Vista previa" hidden />
+        <iframe id="mediaLightboxPdf" title="Documento" hidden></iframe>
+      </div>
+    </div>
+
     <nav class="tabbar">
       <button class="tab" data-view="homeView" type="button"><span>Inicio</span></button>
       <button class="tab" data-view="mapView" type="button"><span>Mapa</span></button>
@@ -915,9 +931,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=40"></script>
-  <script src="monorriel-data.js?v=40"></script>
-  <script src="cloud.js?v=40"></script>
-  <script src="app.js?v=40"></script>
+  <script src="cloud-config.js?v=41"></script>
+  <script src="monorriel-data.js?v=41"></script>
+  <script src="cloud.js?v=41"></script>
+  <script src="app.js?v=41"></script>
 </body>
 </html>
