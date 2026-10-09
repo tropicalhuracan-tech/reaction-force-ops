@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=41" />
+  <link rel="stylesheet" href="styles.css?v=42" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -574,6 +574,7 @@
 
       <div class="emp-tabs caja-tabs" role="tablist">
         <button class="emp-tab active" type="button" data-caja-tab="hoy">Hoy</button>
+        <button class="emp-tab" type="button" data-caja-tab="personas">Personas</button>
         <button class="emp-tab" type="button" data-caja-tab="gasolina">Gasolina</button>
         <button class="emp-tab" type="button" data-caja-tab="cierres">Cierres</button>
         <button class="emp-tab" type="button" data-caja-tab="semana">Semana</button>
@@ -583,13 +584,17 @@
       <div id="cajaTabHoy" class="caja-tab-panel">
         <div class="form-card" id="cajaExpenseFormCard">
           <h2>Nuevo gasto de caja chica</h2>
-          <p class="muted tight">Digita a quién se le dio, para qué y el monto.</p>
+          <p class="muted tight">Cada persona recibe un código único para agrupar sus pagos e historial.</p>
           <div id="cajaClosedNotice" class="caja-banner" hidden style="margin-bottom:12px">
             <p><strong>Este día ya está cerrado.</strong></p>
             <p class="muted" style="margin:6px 0 10px">Para registrar otro gasto, reabre el día o cambia la fecha.</p>
             <button id="btnReopenCajaDay" class="btn secondary" type="button">Reabrir este día</button>
           </div>
-          <label>A quién se le dio el dinero<input id="cajaRecipient" type="text" placeholder="Nombre de quien recibió" /></label>
+          <label>A quién se le dio el dinero
+            <input id="cajaRecipient" type="text" list="cajaPeopleList" placeholder="Nombre de quien recibió" autocomplete="off" />
+            <datalist id="cajaPeopleList"></datalist>
+          </label>
+          <p id="cajaPersonCodeHint" class="muted tight">Código: se asignará al guardar</p>
           <label>Para qué se dio<textarea id="cajaPurpose" rows="2" placeholder="Motivo del gasto"></textarea></label>
           <div class="coords-row">
             <label>Monto (RD$)<input id="cajaAmount" type="number" min="0" step="0.01" placeholder="0.00" /></label>
@@ -607,6 +612,20 @@
           </div>
           <label>Fecha<input id="cajaDate" type="date" /></label>
           <label>Nota (opcional)<input id="cajaNote" type="text" placeholder="Detalle adicional" /></label>
+          <div class="attach-block">
+            <h3 class="attach-title">Foto del cheque (opcional)</h3>
+            <p class="muted tight">Si te pagan con cheque, toma la foto y queda en el expediente de esa persona.</p>
+            <label class="photo-label">Abrir cámara / elegir foto
+              <input id="cajaCheckPhoto" type="file" accept="image/*" capture="environment" />
+            </label>
+            <div id="cajaCheckPreviewWrap" class="photo-preview emp-attach-preview" hidden>
+              <img id="cajaCheckPreview" alt="Foto del cheque" />
+              <div class="attach-actions">
+                <button id="btnViewCajaCheck" class="btn secondary attach-btn" type="button">Ver foto</button>
+                <button id="btnClearCajaCheck" class="btn ghost attach-btn" type="button">Quitar foto</button>
+              </div>
+            </div>
+          </div>
           <button id="btnSaveCajaExpense" class="btn primary" type="button">Guardar gasto e imprimir recibo</button>
         </div>
 
@@ -631,6 +650,30 @@
 
         <div class="section-head tight"><h2>Gastos de hoy</h2></div>
         <div id="cajaTodayList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabPersonas" class="caja-tab-panel" hidden>
+        <div class="form-card">
+          <h2>Buscar por código o nombre</h2>
+          <p class="muted tight">Agrupa recibos, cheques y la suma total de esa persona.</p>
+          <label class="search-label">
+            Código o nombre
+            <input id="cajaPersonSearch" type="search" placeholder="Ej. P-0001 o Juan Pérez" />
+          </label>
+        </div>
+        <div id="cajaPeopleListCards" class="card-list"></div>
+        <div id="cajaPersonDetail" class="form-card" hidden>
+          <div class="section-head-row" style="margin-bottom:10px">
+            <div>
+              <h2 id="cajaPersonDetailTitle" style="margin:0">Persona</h2>
+              <p class="muted" id="cajaPersonDetailMeta" style="margin:6px 0 0"></p>
+            </div>
+            <button id="btnCajaPersonPrint" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir historial" title="Imprimir">⎙</button>
+          </div>
+          <div id="cajaPersonDetailStats" class="stats-grid"></div>
+          <div class="section-head tight" style="margin-top:12px"><h2>Pagos / recibos</h2></div>
+          <div id="cajaPersonExpenseList" class="card-list"></div>
+        </div>
       </div>
 
       <div id="cajaTabGasolina" class="caja-tab-panel" hidden>
@@ -933,7 +976,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="cloud-config.js?v=41"></script>
   <script src="monorriel-data.js?v=41"></script>
-  <script src="cloud.js?v=41"></script>
-  <script src="app.js?v=41"></script>
+  <script src="cloud.js?v=42"></script>
+  <script src="app.js?v=42"></script>
 </body>
 </html>

@@ -5629,11 +5629,13 @@ const CAJA_CATEGORIES = [
   { key: "otros", label: "Otros" },
 ];
 
-let pettyCash = { expenses: [], closings: [] };
+let pettyCash = { expenses: [], closings: [], people: [] };
 let cajaTab = "hoy";
+let pendingCajaCheckPhoto = null;
+let selectedCajaPersonId = null;
 
 function emptyPettyCash() {
-  return { expenses: [], closings: [] };
+  return { expenses: [], closings: [], people: [] };
 }
 
 function cajaCategoryLabel(key) {
@@ -5641,21 +5643,48 @@ function cajaCategoryLabel(key) {
   return found ? found.label : key || "Otros";
 }
 
+function cajaNameKey(name) {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeCajaPerson(p = {}) {
+  const name = String(p.name || "").trim();
+  const code = String(p.code || "").trim().toUpperCase();
+  return {
+    id: p.id || `caja-p-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    code: code || "",
+    name,
+    nameKey: cajaNameKey(name),
+    createdAt: p.createdAt || new Date().toISOString(),
+  };
+}
+
 function normalizeCajaExpense(e = {}) {
   const amount = Number(e.amount);
   const date = String(e.date || "").slice(0, 10) || localDateISO();
   const category = CAJA_CATEGORIES.some((c) => c.key === e.category) ? e.category : "otros";
+  const checkPhoto = typeof e.checkPhoto === "string" && e.checkPhoto.startsWith("data:image") ? e.checkPhoto : "";
   return {
     id: e.id || `caja-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     date,
     createdAt: e.createdAt || new Date().toISOString(),
     recipient: String(e.recipient || "").trim(),
+    personId: String(e.personId || "").trim(),
+    personCode: String(e.personCode || "").trim().toUpperCase(),
     purpose: String(e.purpose || "").trim(),
     amount: Number.isFinite(amount) ? amount : 0,
     category,
     note: String(e.note || "").trim(),
     createdBy: e.createdBy || "",
     receiptNo: e.receiptNo || "",
+    checkPhoto,
+    checkPhotoName: checkPhoto ? String(e.checkPhotoName || "cheque.jpg").trim() : "",
   };
 }
 
@@ -5678,10 +5707,100 @@ function normalizeCajaClosing(c = {}) {
   };
 }
 
+function nextCajaPersonCode(people) {
+  let max = 0;
+  (people || []).forEach((p) => {
+    const m = String(p.code || "").match(/^P-(\d+)$/i);
+    if (m) max = Math.max(max, Number(m[1]) || 0);
+  });
+  return `P-${String(max + 1).padStart(4, "0")}`;
+}
+
+function findCajaPersonByCode(code) {
+  const c = String(code || "").trim().toUpperCase();
+  if (!c) return null;
+  return (pettyCash.people || []).find((p) => String(p.code).toUpperCase() === c) || null;
+}
+
+function findCajaPersonByName(name) {
+  const key = cajaNameKey(name);
+  if (!key) return null;
+  return (pettyCash.people || []).find((p) => p.nameKey === key) || null;
+}
+
+function findCajaPersonById(id) {
+  if (!id) return null;
+  return (pettyCash.people || []).find((p) => p.id === id) || null;
+}
+
+function ensureCajaPersonForName(name, peopleBag = null) {
+  const clean = String(name || "").trim();
+  if (!clean) return null;
+  const list = peopleBag || (pettyCash.people = pettyCash.people || []);
+  const key = cajaNameKey(clean);
+  let person = list.find((p) => p.nameKey === key);
+  if (person) {
+    if (!person.name && clean) person.name = clean;
+    return person;
+  }
+  person = normalizeCajaPerson({
+    name: clean,
+    code: nextCajaPersonCode(list),
+    createdAt: new Date().toISOString(),
+  });
+  list.push(person);
+  return person;
+}
+
+function backfillCajaPeople(expenses, peopleIn) {
+  const people = Array.isArray(peopleIn) ? peopleIn.map(normalizeCajaPerson).filter((p) => p.name || p.code) : [];
+  const byId = new Map(people.map((p) => [p.id, p]));
+  const byCode = new Map(people.filter((p) => p.code).map((p) => [p.code.toUpperCase(), p]));
+  const byName = new Map(people.filter((p) => p.nameKey).map((p) => [p.nameKey, p]));
+
+  const ensureFromExpense = (e) => {
+    if (e.personId && byId.has(e.personId)) return byId.get(e.personId);
+    if (e.personCode && byCode.has(e.personCode.toUpperCase())) return byCode.get(e.personCode.toUpperCase());
+    const key = cajaNameKey(e.recipient);
+    if (key && byName.has(key)) return byName.get(key);
+    if (!e.recipient && !e.personCode) return null;
+    const person = normalizeCajaPerson({
+      id: e.personId || undefined,
+      name: e.recipient || e.personCode || "Sin nombre",
+      code: e.personCode || nextCajaPersonCode([...byId.values()]),
+      createdAt: e.createdAt,
+    });
+    if (!person.code) person.code = nextCajaPersonCode([...byId.values()]);
+    byId.set(person.id, person);
+    byCode.set(person.code.toUpperCase(), person);
+    if (person.nameKey) byName.set(person.nameKey, person);
+    return person;
+  };
+
+  const expensesOut = (expenses || []).map((raw) => {
+    const e = normalizeCajaExpense(raw);
+    const person = ensureFromExpense(e);
+    if (person) {
+      e.personId = person.id;
+      e.personCode = person.code;
+      if (!e.recipient) e.recipient = person.name;
+      if (person.name && person.name !== e.recipient) {
+        // keep expense recipient as typed; sync person name if empty
+      }
+    }
+    return e;
+  });
+
+  return {
+    expenses: expensesOut,
+    people: [...byId.values()].sort((a, b) => String(a.code).localeCompare(String(b.code))),
+  };
+}
+
 function normalizePettyCash(raw = {}) {
-  const expenses = Array.isArray(raw.expenses) ? raw.expenses.map(normalizeCajaExpense) : [];
   const closings = Array.isArray(raw.closings) ? raw.closings.map(normalizeCajaClosing) : [];
-  return { expenses, closings };
+  const filled = backfillCajaPeople(raw.expenses || [], raw.people || []);
+  return { expenses: filled.expenses, closings, people: filled.people };
 }
 
 function savePettyCash(push = true) {
@@ -5711,9 +5830,28 @@ function applyRemotePettyCash(remote) {
     const prev = byDate.get(c.date);
     if (!prev || String(c.closedAt) > String(prev.closedAt)) byDate.set(c.date, c);
   });
+  const peopleMap = new Map();
+  [...local.people, ...remoteNorm.people].forEach((p) => {
+    if (!p || !p.id) return;
+    const prev = peopleMap.get(p.id);
+    if (!prev || String(p.createdAt) > String(prev.createdAt)) peopleMap.set(p.id, p);
+  });
+  // Prefer unique by code
+  const byCode = new Map();
+  [...peopleMap.values()].forEach((p) => {
+    const code = String(p.code || "").toUpperCase();
+    if (!code) {
+      byCode.set(p.id, p);
+      return;
+    }
+    const prev = byCode.get(code);
+    if (!prev || String(p.createdAt) > String(prev.createdAt)) byCode.set(code, p);
+  });
+  const merged = backfillCajaPeople([...expMap.values()], [...byCode.values()]);
   pettyCash = {
-    expenses: [...expMap.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    expenses: merged.expenses.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
     closings: [...byDate.values()].sort((a, b) => String(b.date).localeCompare(String(a.date))),
+    people: merged.people,
   };
   localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
 }
@@ -5777,6 +5915,7 @@ function setCajaTab(tab) {
   });
   const map = {
     hoy: "cajaTabHoy",
+    personas: "cajaTabPersonas",
     gasolina: "cajaTabGasolina",
     cierres: "cajaTabCierres",
     semana: "cajaTabSemana",
@@ -5787,6 +5926,95 @@ function setCajaTab(tab) {
     if (el) el.hidden = key !== cajaTab;
   });
   renderCajaModule();
+}
+
+function expensesForPerson(person) {
+  if (!person) return [];
+  return (pettyCash.expenses || []).filter(
+    (e) => e.personId === person.id || (e.personCode && e.personCode === person.code) || cajaNameKey(e.recipient) === person.nameKey
+  );
+}
+
+function fillCajaPeopleDatalist() {
+  const dl = document.getElementById("cajaPeopleList");
+  if (!dl) return;
+  const people = [...(pettyCash.people || [])].sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+  dl.innerHTML = people
+    .map((p) => `<option value="${escapeHtml(p.code)} — ${escapeHtml(p.name)}"></option>`)
+    .join("");
+}
+
+function updateCajaPersonCodeHint() {
+  const hint = document.getElementById("cajaPersonCodeHint");
+  const raw = document.getElementById("cajaRecipient")?.value || "";
+  if (!hint) return;
+  const person = resolveCajaRecipientPreview(raw);
+  if (person) {
+    selectedCajaPersonId = person.id;
+    hint.textContent = `Código: ${person.code} · ${person.name}`;
+  } else if (String(raw).trim()) {
+    selectedCajaPersonId = null;
+    hint.textContent = "Código: se asignará al guardar (persona nueva)";
+  } else {
+    selectedCajaPersonId = null;
+    hint.textContent = "Código: se asignará al guardar";
+  }
+}
+
+function resolveCajaRecipientPreview(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return null;
+  const codeOnly = t.match(/^(P-\d+)$/i);
+  if (codeOnly) return findCajaPersonByCode(codeOnly[1]);
+  const labeled = t.match(/^(P-\d+)\s*[—\-]\s*(.+)$/i);
+  if (labeled) return findCajaPersonByCode(labeled[1]) || findCajaPersonByName(labeled[2]);
+  return findCajaPersonByName(t);
+}
+
+function resolveCajaRecipientForSave(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return null;
+  const preview = resolveCajaRecipientPreview(t);
+  if (preview) return preview;
+  const labeled = t.match(/^(P-\d+)\s*[—\-]\s*(.+)$/i);
+  if (labeled) return ensureCajaPersonForName(labeled[2].trim());
+  return ensureCajaPersonForName(t);
+}
+
+function clearCajaCheckPhoto() {
+  pendingCajaCheckPhoto = null;
+  const input = document.getElementById("cajaCheckPhoto");
+  if (input) input.value = "";
+  const wrap = document.getElementById("cajaCheckPreviewWrap");
+  const img = document.getElementById("cajaCheckPreview");
+  if (wrap) wrap.hidden = true;
+  if (img) img.removeAttribute("src");
+}
+
+function renderCajaCheckPreview() {
+  const wrap = document.getElementById("cajaCheckPreviewWrap");
+  const img = document.getElementById("cajaCheckPreview");
+  if (!wrap || !img) return;
+  if (pendingCajaCheckPhoto) {
+    img.src = pendingCajaCheckPhoto;
+    wrap.hidden = false;
+  } else {
+    wrap.hidden = true;
+    img.removeAttribute("src");
+  }
+}
+
+async function onCajaCheckPhotoSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    pendingCajaCheckPhoto = await compressImage(file, 1280, 0.7);
+    renderCajaCheckPreview();
+    toast("Foto del cheque lista.");
+  } catch (_) {
+    toast("No se pudo procesar la foto del cheque.");
+    clearCajaCheckPhoto();
+  }
 }
 
 function renderCajaCloseBanner() {
@@ -5814,17 +6042,21 @@ function renderCajaExpenseList(listEl, items, emptyMsg) {
   listEl.innerHTML = items
     .map((e) => {
       const closed = !!getClosingForDate(e.date);
+      const code = e.personCode || "—";
       return `<article class="report-card caja-expense-card" data-id="${escapeHtml(e.id)}">
         <div class="row">
           <div style="flex:1;min-width:0">
             <h3>${escapeHtml(e.recipient || "—")}</h3>
+            <span class="caja-code-pill">${escapeHtml(code)}</span>
             <p>${escapeHtml(e.purpose || "—")}</p>
             <p style="margin-top:6px">${escapeHtml(e.date)} · Recibo ${escapeHtml(e.receiptNo || "—")}${e.note ? ` · ${escapeHtml(e.note)}` : ""}</p>
             <span class="caja-cat-pill ${e.category === "gasolina" ? "gasolina" : ""}">${escapeHtml(cajaCategoryLabel(e.category))}</span>
+            ${e.checkPhoto ? `<span class="caja-cat-pill" style="margin-left:6px">Cheque adjunto</span>` : ""}
           </div>
           <div style="text-align:right">
             <div class="caja-amount">${money(e.amount)}</div>
             <button class="btn ghost btn-print-caja-receipt" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:8px;padding:6px 8px;font-size:12px">Recibo</button>
+            ${e.checkPhoto ? `<button class="btn secondary btn-view-caja-check" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:6px;padding:6px 8px;font-size:12px">Ver cheque</button>` : ""}
             ${closed ? "" : `<button class="btn danger btn-del-caja" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:6px;padding:6px 8px;font-size:12px">Quitar</button>`}
           </div>
         </div>
@@ -5837,14 +6069,30 @@ function renderCajaExpenseList(listEl, items, emptyMsg) {
   listEl.querySelectorAll(".btn-del-caja").forEach((btn) => {
     btn.addEventListener("click", () => deleteCajaExpense(btn.dataset.id));
   });
+  listEl.querySelectorAll(".btn-view-caja-check").forEach((btn) => {
+    btn.addEventListener("click", () => viewCajaCheckPhoto(btn.dataset.id));
+  });
+}
+
+function viewCajaCheckPhoto(id) {
+  const exp = (pettyCash.expenses || []).find((e) => e.id === id);
+  if (!exp || !exp.checkPhoto) {
+    toast("No hay foto de cheque en este gasto.");
+    return;
+  }
+  openMediaLightbox({
+    title: `Cheque · ${exp.personCode || ""} · ${exp.recipient || ""}`,
+    dataUrl: exp.checkPhoto,
+    mime: "image/jpeg",
+    name: exp.checkPhotoName || "cheque.jpg",
+  });
 }
 
 function setCajaExpenseFormEnabled(enabled) {
-  ["cajaRecipient", "cajaPurpose", "cajaAmount", "cajaCategory", "cajaNote", "btnSaveCajaExpense"].forEach((id) => {
+  ["cajaRecipient", "cajaPurpose", "cajaAmount", "cajaCategory", "cajaNote", "cajaCheckPhoto", "btnSaveCajaExpense", "btnClearCajaCheck", "btnViewCajaCheck"].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
-    if (id === "btnSaveCajaExpense") el.disabled = !enabled;
-    else el.disabled = !enabled;
+    el.disabled = !enabled;
   });
   // La fecha siempre se puede cambiar para registrar en otro día
   const dateEl = document.getElementById("cajaDate");
@@ -6039,16 +6287,131 @@ function renderCajaModule() {
   const closeDateEl = document.getElementById("cajaCloseDate");
   if (dateEl && !dateEl.value) dateEl.value = localDateISO();
   if (closeDateEl && !closeDateEl.value) closeDateEl.value = dateEl?.value || localDateISO();
+  fillCajaPeopleDatalist();
+  updateCajaPersonCodeHint();
   renderCajaCloseBanner();
   if (cajaTab === "hoy") renderCajaHoy();
+  else if (cajaTab === "personas") renderCajaPersonas();
   else if (cajaTab === "gasolina") renderCajaGasolina();
   else if (cajaTab === "cierres") renderCajaCierres();
   else if (cajaTab === "semana") renderCajaSemana();
   else if (cajaTab === "mes") renderCajaMes();
   const summary = document.getElementById("cajaSummary");
-  if (summary && (cajaTab === "hoy" || cajaTab === "gasolina" || cajaTab === "cierres")) {
-    summary.textContent = "Gastos del día, gasolina y cierres. Solo administrador / dueño.";
+  if (summary) {
+    if (cajaTab === "personas") {
+      summary.textContent = "Busca por código único para ver historial, recibos, cheques y suma por persona.";
+    } else if (cajaTab === "hoy" || cajaTab === "gasolina" || cajaTab === "cierres") {
+      summary.textContent = "Gastos del día, gasolina y cierres. Cada persona tiene código único.";
+    }
   }
+}
+
+function renderCajaPersonas() {
+  const q = String(document.getElementById("cajaPersonSearch")?.value || "")
+    .trim()
+    .toLowerCase();
+  const cards = document.getElementById("cajaPeopleListCards");
+  const detail = document.getElementById("cajaPersonDetail");
+  const people = [...(pettyCash.people || [])].sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  const filtered = people.filter((p) => {
+    if (!q) return true;
+    return (
+      String(p.code).toLowerCase().includes(q) ||
+      String(p.name).toLowerCase().includes(q) ||
+      cajaNameKey(p.name).includes(cajaNameKey(q))
+    );
+  });
+  if (!cards) return;
+  if (!filtered.length) {
+    cards.innerHTML = `<p class="empty">${q ? "Ninguna persona coincide con esa búsqueda." : "Aún no hay personas con pagos de caja."}</p>`;
+  } else {
+    cards.innerHTML = filtered
+      .map((p) => {
+        const items = expensesForPerson(p);
+        const total = sumExpenses(items);
+        const checks = items.filter((e) => e.checkPhoto).length;
+        return `<article class="report-card" data-person-id="${escapeHtml(p.id)}">
+          <div class="row">
+            <div style="flex:1;min-width:0">
+              <h3>${escapeHtml(p.name || "—")}</h3>
+              <span class="caja-code-pill">${escapeHtml(p.code)}</span>
+              <p style="margin-top:8px">${items.length} pago(s) · ${checks} cheque(s)</p>
+            </div>
+            <div style="text-align:right">
+              <div class="caja-amount">${money(total)}</div>
+              <button class="btn secondary btn-open-caja-person" type="button" data-person-id="${escapeHtml(p.id)}" style="width:auto;margin-top:8px;padding:6px 10px;font-size:12px">Ver historial</button>
+            </div>
+          </div>
+        </article>`;
+      })
+      .join("");
+    cards.querySelectorAll(".btn-open-caja-person").forEach((btn) => {
+      btn.addEventListener("click", () => openCajaPersonDetail(btn.dataset.personId));
+    });
+  }
+
+  if (selectedCajaPersonId && findCajaPersonById(selectedCajaPersonId)) {
+    openCajaPersonDetail(selectedCajaPersonId, false);
+  } else if (detail) {
+    detail.hidden = true;
+  }
+}
+
+function openCajaPersonDetail(personId, scroll = true) {
+  const person = findCajaPersonById(personId);
+  const detail = document.getElementById("cajaPersonDetail");
+  if (!person || !detail) return;
+  selectedCajaPersonId = person.id;
+  const items = expensesForPerson(person).sort(
+    (a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt))
+  );
+  const total = sumExpenses(items);
+  const checks = items.filter((e) => e.checkPhoto).length;
+  const title = document.getElementById("cajaPersonDetailTitle");
+  const meta = document.getElementById("cajaPersonDetailMeta");
+  const stats = document.getElementById("cajaPersonDetailStats");
+  if (title) title.textContent = person.name || "Persona";
+  if (meta) meta.textContent = `Código ${person.code}`;
+  if (stats) {
+    stats.innerHTML = `
+      <div class="stat-box"><span class="muted">Pagos</span><strong>${items.length}</strong></div>
+      <div class="stat-box"><span class="muted">Cheques</span><strong>${checks}</strong></div>
+      <div class="stat-box"><span class="muted">Total entregado</span><strong>${money(total)}</strong></div>
+    `;
+  }
+  detail.hidden = false;
+  renderCajaExpenseList(document.getElementById("cajaPersonExpenseList"), items, "Sin pagos registrados para esta persona.");
+  if (scroll) detail.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function printCajaPersonHistory(personId) {
+  const person = findCajaPersonById(personId || selectedCajaPersonId);
+  if (!person) {
+    toast("Selecciona una persona.");
+    return;
+  }
+  const items = expensesForPerson(person).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const total = sumExpenses(items);
+  const rows = items
+    .map(
+      (e) => `<tr>
+        <td>${escapeHtml(e.date)}</td>
+        <td>${escapeHtml(e.receiptNo || "—")}</td>
+        <td>${escapeHtml(e.purpose)}</td>
+        <td>${escapeHtml(cajaCategoryLabel(e.category))}</td>
+        <td class="right">${money(e.amount)}</td>
+        <td>${e.checkPhoto ? "Sí" : "—"}</td>
+      </tr>`
+    )
+    .join("");
+  openPrintWindow(`Historial ${person.code}`, `
+    <h2>Expediente de caja — ${escapeHtml(person.name)}</h2>
+    <p>Código: <strong>${escapeHtml(person.code)}</strong> · Pagos: ${items.length} · Total: <strong>${money(total)}</strong></p>
+    <table>
+      <thead><tr><th>Fecha</th><th>Recibo</th><th>Concepto</th><th>Categoría</th><th class="right">Monto</th><th>Cheque</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6">Sin pagos</td></tr>`}</tbody>
+    </table>
+  `);
 }
 
 function saveCajaExpense() {
@@ -6061,12 +6424,12 @@ function saveCajaExpense() {
     toast("Ese día ya está cerrado. No se pueden agregar gastos.");
     return;
   }
-  const recipient = document.getElementById("cajaRecipient").value.trim();
+  const recipientRaw = document.getElementById("cajaRecipient").value.trim();
   const purpose = document.getElementById("cajaPurpose").value.trim();
   const amount = Number(document.getElementById("cajaAmount").value);
   const category = document.getElementById("cajaCategory").value || "otros";
   const note = document.getElementById("cajaNote").value.trim();
-  if (!recipient) {
+  if (!recipientRaw) {
     toast("Indica a quién se le dio el dinero.");
     return;
   }
@@ -6078,26 +6441,41 @@ function saveCajaExpense() {
     toast("Escribe un monto válido.");
     return;
   }
+  const person = resolveCajaRecipientForSave(recipientRaw);
+  if (!person) {
+    toast("No se pudo asignar el código de persona.");
+    return;
+  }
   const expense = normalizeCajaExpense({
     date,
-    recipient,
+    recipient: person.name,
+    personId: person.id,
+    personCode: person.code,
     purpose,
     amount,
     category,
     note,
     createdBy: currentUser ? currentUser.displayName || currentUser.username : "",
     receiptNo: nextCajaReceiptNo(),
+    checkPhoto: pendingCajaCheckPhoto || "",
+    checkPhotoName: pendingCajaCheckPhoto ? "cheque.jpg" : "",
   });
   pettyCash.expenses.unshift(expense);
   savePettyCash(true);
-  logActivity("caja_expense", `Caja chica: ${money(amount)} a ${recipient} (${cajaCategoryLabel(category)})`);
+  logActivity(
+    "caja_expense",
+    `Caja chica: ${money(amount)} a ${person.name} [${person.code}] (${cajaCategoryLabel(category)})${expense.checkPhoto ? " +cheque" : ""}`
+  );
   document.getElementById("cajaRecipient").value = "";
   document.getElementById("cajaPurpose").value = "";
   document.getElementById("cajaAmount").value = "";
   document.getElementById("cajaNote").value = "";
   document.getElementById("cajaCategory").value = "otros";
+  clearCajaCheckPhoto();
+  selectedCajaPersonId = person.id;
+  updateCajaPersonCodeHint();
   renderCajaModule();
-  toast("Gasto guardado.");
+  toast(`Gasto guardado · código ${person.code}`);
   printCajaReceipt(expense.id);
 }
 
@@ -6168,6 +6546,10 @@ function printCajaReceipt(id) {
   const when = exp.createdAt
     ? new Date(exp.createdAt).toLocaleString("es-DO", { dateStyle: "long", timeStyle: "short" })
     : exp.date;
+  const checkBlock = exp.checkPhoto
+    ? `<p><strong>Cheque / comprobante adjunto</strong></p>
+       <img src="${exp.checkPhoto}" alt="Cheque" style="max-width:100%;max-height:280px;border:1px solid #ccc;margin:8px 0 16px" />`
+    : "";
   const body = `
     <h2 style="margin:0 0 4px">Recibo de caja chica</h2>
     <p style="margin:0 0 16px">Reaction Force Security · ${escapeHtml(exp.receiptNo || "")}</p>
@@ -6175,11 +6557,13 @@ function printCajaReceipt(id) {
       <div><strong>Fecha:</strong><br/>${escapeHtml(when)}</div>
       <div><strong>Categoría:</strong><br/>${escapeHtml(cajaCategoryLabel(exp.category))}</div>
       <div><strong>Monto:</strong><br/>${money(exp.amount)}</div>
+      <div><strong>Código persona:</strong><br/>${escapeHtml(exp.personCode || "—")}</div>
       <div><strong>Registró:</strong><br/>${escapeHtml(exp.createdBy || "—")}</div>
     </div>
-    <p><strong>Se entregó a:</strong> ${escapeHtml(exp.recipient || "—")}</p>
+    <p><strong>Se entregó a:</strong> ${escapeHtml(exp.recipient || "—")} ${exp.personCode ? `(${escapeHtml(exp.personCode)})` : ""}</p>
     <p><strong>Para qué / concepto:</strong> ${escapeHtml(exp.purpose || "—")}</p>
     ${exp.note ? `<p><strong>Nota:</strong> ${escapeHtml(exp.note)}</p>` : ""}
+    ${checkBlock}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:48px">
       <div>
         <div style="border-top:1px solid #111;padding-top:8px;min-height:70px">
@@ -6241,6 +6625,9 @@ function printCajaSheet() {
         <tbody>${rows || `<tr><td colspan="6">Sin cierres</td></tr>`}</tbody>
       </table>`);
     return;
+  } else if (cajaTab === "personas") {
+    printCajaPersonHistory(selectedCajaPersonId);
+    return;
   } else {
     from = document.getElementById("cajaDate")?.value || from;
     to = from;
@@ -6253,10 +6640,12 @@ function printCajaSheet() {
       (e) => `<tr>
         <td>${escapeHtml(e.date)}</td>
         <td>${escapeHtml(e.receiptNo || "—")}</td>
+        <td>${escapeHtml(e.personCode || "—")}</td>
         <td>${escapeHtml(e.recipient)}</td>
         <td>${escapeHtml(e.purpose)}</td>
         <td>${escapeHtml(cajaCategoryLabel(e.category))}</td>
         <td class="right">${money(e.amount)}</td>
+        <td>${e.checkPhoto ? "Sí" : "—"}</td>
       </tr>`
     )
     .join("");
@@ -6264,8 +6653,8 @@ function printCajaSheet() {
     <h2>${escapeHtml(title)}</h2>
     <p>Total: ${money(sumExpenses(items))} · ${items.length} movimiento(s)</p>
     <table>
-      <thead><tr><th>Fecha</th><th>Recibo</th><th>Recibió</th><th>Concepto</th><th>Categoría</th><th class="right">Monto</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="6">Sin gastos</td></tr>`}</tbody>
+      <thead><tr><th>Fecha</th><th>Recibo</th><th>Código</th><th>Recibió</th><th>Concepto</th><th>Categoría</th><th class="right">Monto</th><th>Cheque</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8">Sin gastos</td></tr>`}</tbody>
     </table>`);
 }
 
@@ -6293,6 +6682,26 @@ function bindCajaUi() {
   document.getElementById("cajaGasTo")?.addEventListener("change", renderCajaGasolina);
   document.getElementById("cajaWeekPivot")?.addEventListener("change", renderCajaSemana);
   document.getElementById("cajaMonth")?.addEventListener("change", renderCajaMes);
+  document.getElementById("cajaRecipient")?.addEventListener("input", updateCajaPersonCodeHint);
+  document.getElementById("cajaRecipient")?.addEventListener("change", updateCajaPersonCodeHint);
+  document.getElementById("cajaCheckPhoto")?.addEventListener("change", onCajaCheckPhotoSelected);
+  document.getElementById("btnClearCajaCheck")?.addEventListener("click", clearCajaCheckPhoto);
+  document.getElementById("btnViewCajaCheck")?.addEventListener("click", () => {
+    if (!pendingCajaCheckPhoto) {
+      toast("Aún no hay foto de cheque.");
+      return;
+    }
+    openMediaLightbox({
+      title: "Foto del cheque",
+      dataUrl: pendingCajaCheckPhoto,
+      mime: "image/jpeg",
+      name: "cheque.jpg",
+    });
+  });
+  document.getElementById("cajaPersonSearch")?.addEventListener("input", () => {
+    if (cajaTab === "personas") renderCajaPersonas();
+  });
+  document.getElementById("btnCajaPersonPrint")?.addEventListener("click", () => printCajaPersonHistory());
 }
 /* ==== FIN CAJA CHICA ==== */
 
@@ -7200,14 +7609,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=38").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=42").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v38").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v42").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

@@ -1152,12 +1152,25 @@ body.lightbox-open {
 }
 
 .caja-tabs {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .caja-tabs .emp-tab {
   font-size: 11px;
   padding: 9px 4px;
+}
+
+.caja-code-pill {
+  display: inline-block;
+  margin-top: 6px;
+  margin-right: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
 }
 
 .caja-banner {
