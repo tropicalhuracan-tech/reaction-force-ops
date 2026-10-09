@@ -1773,6 +1773,7 @@ const MODULE_DEFS = [
   { key: "monorriel", label: "Monorriel", view: "monorrielView" },
   { key: "lavega", label: "La Vega Autopista", view: "lvaView" },
   { key: "finance", label: "Finanzas", view: "financeView" },
+  { key: "cajachica", label: "Caja chica", view: "cajaView" },
   { key: "reports", label: "Reportes", view: "reportsView" },
   { key: "messages", label: "Mensajes", view: "messagesView" },
   { key: "radio", label: "Radio", view: "radioView" },
@@ -1826,6 +1827,11 @@ function normalizeUser(u = {}) {
   const incoming = u.modules || {};
   const modules = { ...allModulesTrue(), ...incoming };
   MODULE_DEFS.forEach((m) => {
+    // Caja chica: solo si el dueño la marca (no se hereda sola al actualizar la app).
+    if (m.key === "cajachica" && !Object.prototype.hasOwnProperty.call(incoming, "cajachica")) {
+      modules.cajachica = false;
+      return;
+    }
     if (typeof modules[m.key] !== "boolean") modules[m.key] = !!modules[m.key];
   });
   // Capacidades: si el usuario ya existía sin la clave, mantener permiso (compatibilidad).
@@ -5661,7 +5667,8 @@ function applyRemotePettyCash(remote) {
 function canAccessCajaChica() {
   if (!currentUser) return false;
   if (currentUser.role === "owner") return true;
-  return canAccessModule("admin");
+  // Permiso explícito que el dueño marca en Admin → Usuarios
+  return canAccessModule("cajachica");
 }
 
 function localDateISO(d = new Date()) {
