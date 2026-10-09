@@ -3062,6 +3062,13 @@ function deleteSelectedLoan() {
 
 /* ==== IMPRESIÓN ==== */
 function openPrintWindow(title, bodyHtml) {
+  const appHref = (() => {
+    try {
+      return String(window.location.href || "./");
+    } catch (_) {
+      return "./";
+    }
+  })();
   const win = window.open("", "_blank");
   if (!win) {
     toast("Permite ventanas emergentes para imprimir, o elige una impresora en el diálogo del sistema.");
@@ -3069,6 +3076,7 @@ function openPrintWindow(title, bodyHtml) {
   }
   win.document.write(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>${escapeHtml(title)}</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;max-width:900px;margin:0 auto;font-size:12px;line-height:1.35}
@@ -3085,8 +3093,18 @@ function openPrintWindow(title, bodyHtml) {
   .footer{margin-top:18px;font-size:11px;color:#555}
   .brand{display:flex;align-items:center;gap:12px;margin-bottom:14px}
   .brand img{width:54px;height:54px;object-fit:contain;border:1px solid #ccc;border-radius:10px}
-  @media print{body{padding:0} .no-print{display:none}}
+  .print-bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:#111;color:#fff;padding:12px;margin:-22px -22px 18px;border-bottom:1px solid #333}
+  .print-bar button{padding:12px 16px;font-size:15px;font-weight:800;border:0;border-radius:10px;cursor:pointer}
+  .print-bar .btn-back{background:#fff;color:#111}
+  .print-bar .btn-print{background:#d41414;color:#fff}
+  .print-bar .hint{font-size:12px;color:#ccc;flex:1;min-width:160px}
+  @media print{body{padding:0} .no-print{display:none !important}}
 </style></head><body>
+  <div class="print-bar no-print">
+    <button type="button" class="btn-back" id="btnPrintBack">← Volver a la aplicación</button>
+    <button type="button" class="btn-print" id="btnPrintNow">Imprimir ahora</button>
+    <span class="hint">Elige impresora USB, Wi‑Fi o PDF. Luego pulsa Volver.</span>
+  </div>
   <div class="brand">
     <img src="logo.jpg" alt="RFS" />
     <div>
@@ -3096,11 +3114,45 @@ function openPrintWindow(title, bodyHtml) {
   </div>
   ${bodyHtml}
   <p class="footer">Impreso: ${escapeHtml(new Date().toLocaleString("es"))} · Uso interno</p>
-  <p class="no-print" style="margin-top:16px">
-    <button onclick="window.print()" style="padding:10px 14px;font-weight:700">Imprimir ahora</button>
-    — Elige tu impresora en el cuadro del sistema (USB, Wi‑Fi o PDF).
-  </p>
-  <script>setTimeout(function(){ try{ window.focus(); window.print(); }catch(e){} }, 350);</script>
+  <div class="no-print" style="margin-top:20px">
+    <button type="button" id="btnPrintBackBottom" style="padding:12px 16px;font-weight:800;font-size:15px;border-radius:10px;border:1px solid #111;background:#fff;cursor:pointer">← Volver a la aplicación</button>
+  </div>
+  <script>
+    (function () {
+      var appHref = ${JSON.stringify(appHref)};
+      function goBackToApp() {
+        try {
+          if (window.opener && !window.opener.closed) {
+            try { window.opener.focus(); } catch (e1) {}
+            window.close();
+            setTimeout(function () {
+              try { window.location.replace(appHref); } catch (e2) {}
+            }, 200);
+            return;
+          }
+        } catch (e3) {}
+        try {
+          if (history.length > 1) {
+            history.back();
+            setTimeout(function () {
+              try { window.location.replace(appHref); } catch (e4) {}
+            }, 250);
+            return;
+          }
+        } catch (e5) {}
+        try { window.location.replace(appHref); } catch (e6) {}
+      }
+      var backTop = document.getElementById("btnPrintBack");
+      var backBottom = document.getElementById("btnPrintBackBottom");
+      var printBtn = document.getElementById("btnPrintNow");
+      if (backTop) backTop.addEventListener("click", goBackToApp);
+      if (backBottom) backBottom.addEventListener("click", goBackToApp);
+      if (printBtn) printBtn.addEventListener("click", function () { window.print(); });
+      setTimeout(function () {
+        try { window.focus(); window.print(); } catch (e7) {}
+      }, 350);
+    })();
+  </script>
 </body></html>`);
   win.document.close();
   return win;
@@ -6778,14 +6830,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=36").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=37").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v36").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v37").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
