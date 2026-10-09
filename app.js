@@ -297,6 +297,88 @@ function renderActivityLog() {
 
 
 
+function normalizeHrContactRow(c = {}) {
+  return {
+    name: String(c.name || "").trim(),
+    relation: String(c.relation || "").trim(),
+    phone: String(c.phone || "").trim(),
+    yearsKnown: String(c.yearsKnown || "").trim(),
+  };
+}
+
+function normalizeEmployeeHrProfile(p = {}) {
+  const family = Array.isArray(p.familyContacts) ? p.familyContacts.map(normalizeHrContactRow).filter((c) => c.name || c.phone) : [];
+  const refs = Array.isArray(p.personalRefs) ? p.personalRefs.map(normalizeHrContactRow).filter((c) => c.name || c.phone) : [];
+  return {
+    address: String(p.address || "").trim(),
+    sector: String(p.sector || "").trim(),
+    city: String(p.city || "").trim(),
+    phoneAlt: String(p.phoneAlt || "").trim(),
+    email: String(p.email || "").trim(),
+    bloodType: String(p.bloodType || "").trim(),
+    birthDate: String(p.birthDate || "").trim(),
+    gender: String(p.gender || "").trim(),
+    maritalStatus: String(p.maritalStatus || "").trim(),
+    nationality: String(p.nationality || "").trim(),
+    educationLevel: String(p.educationLevel || "").trim(),
+    availableShifts: String(p.availableShifts || "").trim(),
+    emergencyName: String(p.emergencyName || "").trim(),
+    emergencyPhone: String(p.emergencyPhone || "").trim(),
+    emergencyRelation: String(p.emergencyRelation || "").trim(),
+    familyContacts: family,
+    personalRefs: refs,
+    psychScore: p.psychScore === "" || p.psychScore == null ? "" : Number(p.psychScore),
+    psychViolenceRisk: String(p.psychViolenceRisk || "").trim(),
+    psychComprehension: String(p.psychComprehension || "").trim(),
+    psychRecommendation: String(p.psychRecommendation || "").trim(),
+    confidentialitySigned: !!p.confidentialitySigned,
+  };
+}
+
+function employeeHrProfileHasData(p) {
+  if (!p) return false;
+  return !!(
+    p.emergencyName ||
+    p.emergencyPhone ||
+    (p.familyContacts && p.familyContacts.length) ||
+    (p.personalRefs && p.personalRefs.length) ||
+    p.psychScore !== "" ||
+    p.address ||
+    p.bloodType
+  );
+}
+
+function mergeEmployeeHrProfile(base = {}, incoming = {}) {
+  const a = normalizeEmployeeHrProfile(base);
+  const b = normalizeEmployeeHrProfile(incoming);
+  if (!employeeHrProfileHasData(a) && employeeHrProfileHasData(b)) return b;
+  if (employeeHrProfileHasData(a) && !employeeHrProfileHasData(b)) return a;
+  return {
+    address: preferFill(a.address, b.address),
+    sector: preferFill(a.sector, b.sector),
+    city: preferFill(a.city, b.city),
+    phoneAlt: preferFill(a.phoneAlt, b.phoneAlt),
+    email: preferFill(a.email, b.email),
+    bloodType: preferFill(a.bloodType, b.bloodType),
+    birthDate: preferFill(a.birthDate, b.birthDate),
+    gender: preferFill(a.gender, b.gender),
+    maritalStatus: preferFill(a.maritalStatus, b.maritalStatus),
+    nationality: preferFill(a.nationality, b.nationality),
+    educationLevel: preferFill(a.educationLevel, b.educationLevel),
+    availableShifts: preferFill(a.availableShifts, b.availableShifts),
+    emergencyName: preferFill(a.emergencyName, b.emergencyName),
+    emergencyPhone: preferFill(a.emergencyPhone, b.emergencyPhone),
+    emergencyRelation: preferFill(a.emergencyRelation, b.emergencyRelation),
+    familyContacts: a.familyContacts.length ? a.familyContacts : b.familyContacts,
+    personalRefs: a.personalRefs.length ? a.personalRefs : b.personalRefs,
+    psychScore: a.psychScore !== "" && a.psychScore != null ? a.psychScore : b.psychScore,
+    psychViolenceRisk: preferFill(a.psychViolenceRisk, b.psychViolenceRisk),
+    psychComprehension: preferFill(a.psychComprehension, b.psychComprehension),
+    psychRecommendation: preferFill(a.psychRecommendation, b.psychRecommendation),
+    confidentialitySigned: a.confidentialitySigned || b.confidentialitySigned,
+  };
+}
+
 function normalizeEmployee(e = {}) {
   const name = (e.name || "").trim();
   const status = e.status === "inactive" ? "inactive" : "active";
@@ -319,6 +401,8 @@ function normalizeEmployee(e = {}) {
     status,
     inactiveReason: e.inactiveReason || "",
     inactiveAt: e.inactiveAt || "",
+    hrApplicationId: String(e.hrApplicationId || "").trim(),
+    hrProfile: normalizeEmployeeHrProfile(e.hrProfile || {}),
     updatedAt: e.updatedAt || new Date().toISOString(),
   };
 }
@@ -369,6 +453,8 @@ function mergeEmployeeRecord(base, incoming) {
     status: base.status === "inactive" ? "inactive" : incoming.status === "inactive" ? "inactive" : "active",
     inactiveReason: preferFill(base.inactiveReason, incoming.inactiveReason),
     inactiveAt: preferFill(base.inactiveAt, incoming.inactiveAt),
+    hrApplicationId: preferFill(base.hrApplicationId, incoming.hrApplicationId),
+    hrProfile: mergeEmployeeHrProfile(base.hrProfile, incoming.hrProfile),
     updatedAt: new Date().toISOString(),
   });
   out.key = employeeKey(out.name);
@@ -976,8 +1062,166 @@ function openEmployeeDetail(id) {
   }
   renderEmpPhotoPreview();
   renderEmpDocPreview();
+  syncEmployeeHrFromApplications(emp.id);
+  renderEmpHrProfile(getEmployee(selectedEmployeeId) || emp);
   switchView("employeeDetailView");
   applyEmployeeWriteUi();
+}
+
+function buildHrProfileFromApplication(app) {
+  if (!app) return normalizeEmployeeHrProfile({});
+  return normalizeEmployeeHrProfile({
+    address: app.address,
+    sector: app.sector,
+    city: app.city,
+    phoneAlt: app.phoneAlt,
+    email: app.email,
+    bloodType: app.bloodType,
+    birthDate: app.birthDate,
+    gender: app.gender,
+    maritalStatus: app.maritalStatus,
+    nationality: app.nationality,
+    educationLevel: app.educationLevel,
+    availableShifts: app.availableShifts,
+    emergencyName: app.emergencyName,
+    emergencyPhone: app.emergencyPhone,
+    emergencyRelation: app.emergencyRelation,
+    familyContacts: app.familyContacts,
+    personalRefs: app.personalRefs,
+    psychScore: app.psychTest?.completedAt ? app.psychTest.score : "",
+    psychViolenceRisk: app.psychTest?.violenceRisk || "",
+    psychComprehension: app.psychTest?.comprehension || "",
+    psychRecommendation: app.psychTest?.recommendation || "",
+    confidentialitySigned: !!app.confidentialitySigned,
+  });
+}
+
+/** Si el empleado se contrató por RRHH y aún no tiene perfil, lo completa desde la solicitud */
+function syncEmployeeHrFromApplications(empId) {
+  if (typeof hrData === "undefined" || !hrData || !Array.isArray(hrData.applications)) return;
+  const idx = employees.findIndex((e) => e.id === empId);
+  if (idx < 0) return;
+  const emp = employees[idx];
+  const app =
+    hrData.applications.find((a) => a.hiredEmployeeId === emp.id) ||
+    (emp.hrApplicationId ? hrData.applications.find((a) => a.id === emp.hrApplicationId) : null);
+  if (!app) return;
+  const profile = buildHrProfileFromApplication(app);
+  if (!employeeHrProfileHasData(profile) && !app.photo) return;
+  const needsProfile = !employeeHrProfileHasData(emp.hrProfile);
+  const needsPhoto = !emp.photo && app.photo;
+  if (!needsProfile && !needsPhoto && emp.hrApplicationId) return;
+  employees[idx] = normalizeEmployee({
+    ...emp,
+    photo: preferFill(emp.photo, app.photo),
+    hrApplicationId: preferFill(emp.hrApplicationId, app.id),
+    hrProfile: needsProfile ? profile : mergeEmployeeHrProfile(emp.hrProfile, profile),
+    updatedAt: new Date().toISOString(),
+  });
+  saveEmployees();
+}
+
+function renderEmpHrProfile(emp) {
+  const card = document.getElementById("empHrEmergencyCard");
+  const body = document.getElementById("empHrEmergencyBody");
+  if (!card || !body) return;
+  const p = normalizeEmployeeHrProfile(emp?.hrProfile || {});
+  if (!employeeHrProfileHasData(p) && !emp?.hrApplicationId) {
+    card.hidden = true;
+    body.innerHTML = "";
+    return;
+  }
+  card.hidden = false;
+  const fam = (p.familyContacts || [])
+    .map((c) => `<li><strong>${escapeHtml(c.name || "—")}</strong> (${escapeHtml(c.relation || "familiar")}) · ${escapeHtml(c.phone || "sin tel.")}</li>`)
+    .join("");
+  const refs = (p.personalRefs || [])
+    .map((c) => `<li><strong>${escapeHtml(c.name || "—")}</strong> (${escapeHtml(c.relation || "ref.")}) · ${escapeHtml(c.phone || "sin tel.")}${c.yearsKnown ? ` · ${escapeHtml(c.yearsKnown)} años` : ""}</li>`)
+    .join("");
+  const psych =
+    p.psychScore === "" || p.psychScore == null
+      ? "—"
+      : `${p.psychScore}/100${p.psychViolenceRisk ? ` · violencia: ${p.psychViolenceRisk}` : ""}${p.psychComprehension ? ` · comprensión: ${p.psychComprehension}` : ""}`;
+  const addr = [p.address, p.sector, p.city].filter(Boolean).join(", ") || "—";
+  body.innerHTML = `
+    <div class="emp-hr-grid">
+      <p><span class="muted">Emergencia</span><br/><strong>${escapeHtml(p.emergencyName || "—")}</strong><br/>${escapeHtml(p.emergencyRelation || "")} · ${escapeHtml(p.emergencyPhone || "—")}</p>
+      <p><span class="muted">Test psicológico</span><br/><strong>${escapeHtml(psych)}</strong></p>
+      <p><span class="muted">Dirección</span><br/>${escapeHtml(addr)}</p>
+      <p><span class="muted">Tel. alterno / correo</span><br/>${escapeHtml(p.phoneAlt || "—")} · ${escapeHtml(p.email || "—")}</p>
+      <p><span class="muted">Sangre / turnos</span><br/>${escapeHtml(p.bloodType || "—")} · ${escapeHtml(p.availableShifts || "—")}</p>
+    </div>
+    <p class="muted" style="margin-top:10px;margin-bottom:4px">Familiares</p>
+    <ul class="emp-hr-list">${fam || "<li>Sin contactos familiares</li>"}</ul>
+    <p class="muted" style="margin-top:10px;margin-bottom:4px">Referencias personales</p>
+    <ul class="emp-hr-list">${refs || "<li>Sin referencias</li>"}</ul>
+  `;
+}
+
+function buildEmployeeHirePrintHtml(emp) {
+  const p = normalizeEmployeeHrProfile(emp.hrProfile || {});
+  const famRows = (p.familyContacts || [])
+    .map((c) => `<tr><td>${escapeHtml(c.name || "—")}</td><td>${escapeHtml(c.relation || "—")}</td><td>${escapeHtml(c.phone || "—")}</td></tr>`)
+    .join("");
+  const refRows = (p.personalRefs || [])
+    .map((c) => `<tr><td>${escapeHtml(c.name || "—")}</td><td>${escapeHtml(c.relation || "—")}</td><td>${escapeHtml(c.phone || "—")}</td><td>${escapeHtml(c.yearsKnown || "—")}</td></tr>`)
+    .join("");
+  const psych =
+    p.psychScore === "" || p.psychScore == null
+      ? "—"
+      : `${p.psychScore}/100 (violencia: ${p.psychViolenceRisk || "—"}, comprensión: ${p.psychComprehension || "—"})`;
+  const photo = emp.photo
+    ? `<img src="${emp.photo}" alt="Foto" style="width:110px;height:130px;object-fit:cover;border:1px solid #333;border-radius:6px" />`
+    : "";
+  return `
+    <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:12px">
+      ${photo}
+      <div style="flex:1">
+        <h2 style="margin:0 0 6px">${escapeHtml(emp.name || "—")}</h2>
+        <div class="meta">
+          <div><strong>Cédula:</strong><br/>${escapeHtml(emp.cedula || "—")}</div>
+          <div><strong>Teléfono:</strong><br/>${escapeHtml(emp.phone || "—")}</div>
+          <div><strong>Entrada:</strong><br/>${escapeHtml(emp.companyEntryDate || "—")}</div>
+          <div><strong>Nacimiento:</strong><br/>${escapeHtml(p.birthDate || "—")}</div>
+          <div><strong>Sexo:</strong><br/>${escapeHtml(p.gender || "—")}</div>
+          <div><strong>Estado civil:</strong><br/>${escapeHtml(p.maritalStatus || "—")}</div>
+        </div>
+      </div>
+    </div>
+    <p><strong>Dirección:</strong> ${escapeHtml([p.address, p.sector, p.city].filter(Boolean).join(", ") || "—")}</p>
+    <p><strong>Tel. alterno:</strong> ${escapeHtml(p.phoneAlt || "—")} · <strong>Correo:</strong> ${escapeHtml(p.email || "—")}</p>
+    <p><strong>Sangre:</strong> ${escapeHtml(p.bloodType || "—")} · <strong>Turnos:</strong> ${escapeHtml(p.availableShifts || "—")} · <strong>Educación:</strong> ${escapeHtml(p.educationLevel || "—")}</p>
+    <p><strong>Contacto de emergencia:</strong> ${escapeHtml(p.emergencyName || "—")} (${escapeHtml(p.emergencyRelation || "—")}) · ${escapeHtml(p.emergencyPhone || "—")}</p>
+    <p><strong>Puntuación test psicológico:</strong> ${escapeHtml(psych)}</p>
+    <p><strong>Confidencialidad:</strong> ${p.confidentialitySigned ? "Aceptada" : "—"}</p>
+    <h2 style="margin-top:12px">Familiares</h2>
+    <table>
+      <thead><tr><th>Nombre</th><th>Parentesco</th><th>Teléfono</th></tr></thead>
+      <tbody>${famRows || `<tr><td colspan="3">—</td></tr>`}</tbody>
+    </table>
+    <h2 style="margin-top:12px">Referencias personales</h2>
+    <table>
+      <thead><tr><th>Nombre</th><th>Relación</th><th>Teléfono</th><th>Años</th></tr></thead>
+      <tbody>${refRows || `<tr><td colspan="4">—</td></tr>`}</tbody>
+    </table>
+    <p style="margin-top:10px"><strong>Notas:</strong> ${escapeHtml(emp.note || "—")}</p>
+    <p style="margin-top:14px;font-size:11px">Declaro que la información es correcta y firmo esta hoja de contratación / expediente.</p>
+    <div class="sign-box">
+      <div><div class="sign-line">Firma del empleado<br/>${escapeHtml(emp.name || "")}</div></div>
+      <div><div class="sign-line">Firma autorizado RFS<br/>Fecha: _______________</div></div>
+    </div>`;
+}
+
+function printEmployeeHireSheet(emp) {
+  if (!emp) {
+    toast("No hay empleado para imprimir.");
+    return;
+  }
+  if (!emp.photo || !String(emp.photo).startsWith("data:image")) {
+    toast("No se puede imprimir: sube la foto del empleado primero.");
+    return;
+  }
+  openPrintWindow(`Hoja de contratación — ${emp.name}`, buildEmployeeHirePrintHtml(emp));
 }
 
 /** Rellena campos vacíos de vigilantes en servicios con la ficha del empleado */
@@ -1048,6 +1292,8 @@ function saveEmployeeDetail() {
     status: current.status || "active",
     inactiveReason: current.inactiveReason || "",
     inactiveAt: current.inactiveAt || "",
+    hrApplicationId: current.hrApplicationId || "",
+    hrProfile: current.hrProfile || {},
     updatedAt: new Date().toISOString(),
   });
   updated = applyMonorrielFlag(updated, isMono);
@@ -3570,23 +3816,8 @@ function printEmployeeDetailSheet() {
     toast("Abre un empleado para imprimir su ficha.");
     return;
   }
-  openPrintWindow(`Ficha — ${emp.name}`, `
-    <h2>${escapeHtml(emp.name)}</h2>
-    <div class="meta">
-      <div><strong>Teléfono:</strong><br/>${escapeHtml(emp.phone || "—")}</div>
-      <div><strong>Cédula:</strong><br/>${escapeHtml(emp.cedula || "—")}</div>
-      <div><strong>Entrada:</strong><br/>${escapeHtml(emp.companyEntryDate || "—")}</div>
-      <div><strong>Arma:</strong><br/>${escapeHtml(emp.weapons || "—")}</div>
-      <div><strong>Serie:</strong><br/>${escapeHtml(emp.serial || "—")}</div>
-      <div><strong>Estado:</strong><br/>${isEmployeeActive(emp) ? "Activo" : "Inactivo"}</div>
-    </div>
-    <p><strong>Servicios:</strong> ${escapeHtml((emp.sites || []).join(", ") || "—")}</p>
-    <p><strong>Notas:</strong> ${escapeHtml(emp.note || "—")}</p>
-    ${!isEmployeeActive(emp) ? `<p><strong>Causa baja:</strong> ${escapeHtml(emp.inactiveReason || "—")}</p>` : ""}
-    <div class="sign-box">
-      <div><div class="sign-line">Firma del empleado</div></div>
-      <div><div class="sign-line">Firma RFS</div></div>
-    </div>`);
+  // Hoja completa de contratación / emergencia (exige foto)
+  printEmployeeHireSheet(emp);
 }
 
 function printLoansListSheet() {
@@ -7659,6 +7890,10 @@ function bindUi() {
     });
   });
   document.getElementById("btnSaveEmployee").addEventListener("click", saveEmployeeDetail);
+  document.getElementById("btnPrintEmpHrSheet")?.addEventListener("click", () => {
+    const emp = getEmployee(selectedEmployeeId);
+    printEmployeeHireSheet(emp);
+  });
   document.getElementById("btnDeactivateEmployee").addEventListener("click", deactivateSelectedEmployee);
   document.getElementById("btnReactivateEmployee").addEventListener("click", reactivateSelectedEmployee);
   document.querySelectorAll(".emp-tab[data-emp-filter]").forEach((tab) => {
@@ -7831,14 +8066,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=44").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=45").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v44").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v45").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

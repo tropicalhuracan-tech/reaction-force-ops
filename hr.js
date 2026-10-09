@@ -1132,11 +1132,42 @@ function hireHrApplication() {
     toast(`Ya existe un empleado activo similar: ${dup.name}`);
     return;
   }
+  if (!app.photo) {
+    toast("Sube la foto del solicitante antes de contratar (también se exige para imprimir).");
+    return;
+  }
   const noteParts = [
     "Alta desde RRHH",
     app.psychTest.recommendation ? `Test: ${app.psychTest.score}/100 (${app.psychTest.recommendation})` : "",
     app.hrNotes || "",
   ].filter(Boolean);
+  const hrProfile =
+    typeof buildHrProfileFromApplication === "function"
+      ? buildHrProfileFromApplication(app)
+      : {
+          address: app.address,
+          sector: app.sector,
+          city: app.city,
+          phoneAlt: app.phoneAlt,
+          email: app.email,
+          bloodType: app.bloodType,
+          birthDate: app.birthDate,
+          gender: app.gender,
+          maritalStatus: app.maritalStatus,
+          nationality: app.nationality,
+          educationLevel: app.educationLevel,
+          availableShifts: app.availableShifts,
+          emergencyName: app.emergencyName,
+          emergencyPhone: app.emergencyPhone,
+          emergencyRelation: app.emergencyRelation,
+          familyContacts: app.familyContacts,
+          personalRefs: app.personalRefs,
+          psychScore: app.psychTest.score,
+          psychViolenceRisk: app.psychTest.violenceRisk,
+          psychComprehension: app.psychTest.comprehension,
+          psychRecommendation: app.psychTest.recommendation,
+          confidentialitySigned: !!app.confidentialitySigned,
+        };
   const emp = normalizeEmployee({
     name: app.fullName,
     phone: app.phone,
@@ -1145,6 +1176,8 @@ function hireHrApplication() {
     photo: app.photo || "",
     note: noteParts.join(" · "),
     status: "active",
+    hrApplicationId: app.id,
+    hrProfile,
   });
   employees.unshift(emp);
   employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
@@ -1156,7 +1189,7 @@ function hireHrApplication() {
   saveHrData(true);
   logActivity("hr_hire", `RRHH contrató: ${emp.name} (desde solicitud)`);
   fillHrForm(app);
-  toast("Contratado. Ya está en la lista general de empleados.");
+  toast("Contratado. Datos de emergencia y test ya están en Empleados.");
   if (typeof openEmployeeDetail === "function") {
     setTimeout(() => {
       if (window.confirm("¿Abrir la ficha del empleado ahora?")) {
@@ -1164,6 +1197,60 @@ function hireHrApplication() {
         openEmployeeDetail(emp.id);
       }
     }, 200);
+  }
+}
+
+function printHrApplicationSheet() {
+  if (!canAccessRrhh()) return;
+  const app = getHrApp(selectedHrAppId);
+  if (!app) {
+    toast("Abre una solicitud primero.");
+    return;
+  }
+  readHrFormInto(app);
+  if (!app.photo || !String(app.photo).startsWith("data:image")) {
+    toast("No se puede imprimir: sube la foto del solicitante primero.");
+    return;
+  }
+  // Reutiliza la hoja de empleado con los datos del expediente RRHH
+  const fakeEmp = {
+    name: app.fullName,
+    phone: app.phone,
+    cedula: app.cedula,
+    companyEntryDate: app.hiredAt ? String(app.hiredAt).slice(0, 10) : typeof localDateISO === "function" ? localDateISO() : "",
+    photo: app.photo,
+    note: app.hrNotes || "",
+    hrProfile:
+      typeof buildHrProfileFromApplication === "function"
+        ? buildHrProfileFromApplication(app)
+        : {
+            address: app.address,
+            sector: app.sector,
+            city: app.city,
+            phoneAlt: app.phoneAlt,
+            email: app.email,
+            bloodType: app.bloodType,
+            birthDate: app.birthDate,
+            gender: app.gender,
+            maritalStatus: app.maritalStatus,
+            nationality: app.nationality,
+            educationLevel: app.educationLevel,
+            availableShifts: app.availableShifts,
+            emergencyName: app.emergencyName,
+            emergencyPhone: app.emergencyPhone,
+            emergencyRelation: app.emergencyRelation,
+            familyContacts: app.familyContacts,
+            personalRefs: app.personalRefs,
+            psychScore: app.psychTest?.score,
+            psychViolenceRisk: app.psychTest?.violenceRisk,
+            psychComprehension: app.psychTest?.comprehension,
+            confidentialitySigned: !!app.confidentialitySigned,
+          },
+  };
+  if (typeof printEmployeeHireSheet === "function") {
+    printEmployeeHireSheet(fakeEmp);
+  } else if (typeof openPrintWindow === "function") {
+    openPrintWindow(`Solicitud — ${app.fullName}`, `<h2>${escapeHtml(app.fullName)}</h2>`);
   }
 }
 
@@ -1298,6 +1385,7 @@ function bindHrUi() {
   document.getElementById("btnHrScorePsych")?.addEventListener("click", scoreHrPsychFromForm);
   document.getElementById("btnHrResetPsych")?.addEventListener("click", resetHrPsych);
   document.getElementById("btnHrHire")?.addEventListener("click", hireHrApplication);
+  document.getElementById("btnHrPrintSheet")?.addEventListener("click", printHrApplicationSheet);
   document.getElementById("hrSearch")?.addEventListener("input", () => {
     if (hrTab === "list") renderHrList();
   });

@@ -1765,6 +1765,39 @@ body.lightbox-open {
   width: 100%;
 }
 
+.emp-hr-card {
+  margin-top: 8px;
+}
+
+.emp-hr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 12px;
+  margin-top: 8px;
+}
+
+.emp-hr-grid p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.emp-hr-list {
+  margin: 0 0 0 18px;
+  padding: 0;
+  font-size: 13px;
+}
+
+.emp-hr-list li {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 520px) {
+  .emp-hr-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ==== RRHH ==== */
 .hr-tabs,
 .hr-section-tabs {
