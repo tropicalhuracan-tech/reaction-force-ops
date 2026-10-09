@@ -1225,7 +1225,7 @@ async function pushToCloud() {
   cloudSavePending = false;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash, hrData);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -1259,7 +1259,7 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash, hrData);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
@@ -1269,6 +1269,7 @@ async function syncFromCloud() {
       localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
       localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
       localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
+      localStorage.setItem(HR_KEY, JSON.stringify(hrData));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -1309,6 +1310,11 @@ async function syncFromCloud() {
         savePettyCash(true);
       }
     }
+    if (remote.hr && typeof remote.hr === "object") {
+      applyRemoteHrData(remote.hr);
+    } else if (!(hrData.applications && hrData.applications.length)) {
+      hrData = emptyHrData();
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1322,6 +1328,7 @@ async function syncFromCloud() {
     localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
     localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
     localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
+    localStorage.setItem(HR_KEY, JSON.stringify(hrData));
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -1827,6 +1834,7 @@ const MODULE_DEFS = [
   { key: "lavega", label: "La Vega Autopista", view: "lvaView" },
   { key: "finance", label: "Finanzas", view: "financeView" },
   { key: "cajachica", label: "Caja chica", view: "cajaView" },
+  { key: "rrhh", label: "Recursos Humanos", view: "hrView" },
   { key: "reports", label: "Reportes", view: "reportsView" },
   { key: "messages", label: "Mensajes", view: "messagesView" },
   { key: "radio", label: "Radio", view: "radioView" },
@@ -1862,6 +1870,7 @@ const VIEW_TO_MODULE = {
   adminView: "admin",
   detailView: "clients",
   cajaView: "cajachica",
+  hrView: "rrhh",
   loginView: null,
 };
 
@@ -1880,9 +1889,13 @@ function normalizeUser(u = {}) {
   const incoming = u.modules || {};
   const modules = { ...allModulesTrue(), ...incoming };
   MODULE_DEFS.forEach((m) => {
-    // Caja chica: solo si el dueño la marca (no se hereda sola al actualizar la app).
+    // Caja chica / RRHH: solo si el dueño las marca (no se heredan solas al actualizar).
     if (m.key === "cajachica" && !Object.prototype.hasOwnProperty.call(incoming, "cajachica")) {
       modules.cajachica = false;
+      return;
+    }
+    if (m.key === "rrhh" && !Object.prototype.hasOwnProperty.call(incoming, "rrhh")) {
+      modules.rrhh = false;
       return;
     }
     if (typeof modules[m.key] !== "boolean") modules[m.key] = !!modules[m.key];
@@ -1994,13 +2007,14 @@ function canWriteEmployees() {
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   if (viewId === "cajaView") return canAccessCajaChica();
+  if (viewId === "hrView") return canAccessRrhh();
   const mod = VIEW_TO_MODULE[viewId];
   if (!mod) return !!currentUser;
   return canAccessModule(mod);
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "hrView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -2447,6 +2461,7 @@ function clearUserForm() {
     lavega: true,
     finance: false,
     cajachica: false,
+    rrhh: false,
     reports: true,
     messages: true,
     radio: true,
@@ -6921,6 +6936,7 @@ function switchView(viewId) {
   }
   if (viewId === "financeView") renderFinance();
   if (viewId === "cajaView") renderCajaModule();
+  if (viewId === "hrView") renderHrModule();
   if (viewId === "employeesView") renderEmployees();
   if (viewId === "employeeNewView") {}
   if (viewId === "loansView") renderLoans();
@@ -7307,6 +7323,7 @@ function exportBackup() {
     activity: activityLog,
     lva: lvaState,
     pettyCash,
+    hr: hrData,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -7425,6 +7442,10 @@ function restoreBackupMerge() {
         applyRemotePettyCash(data.pettyCash);
         savePettyCash(true);
       }
+      if (data.hr && typeof data.hr === "object") {
+        applyRemoteHrData(data.hr);
+        saveHrData(true);
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -7442,6 +7463,7 @@ function restoreBackupMerge() {
       renderMonorrielHome();
       renderAdminList();
       renderCajaModule();
+      renderHrModule();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
     .catch((err) => {
@@ -7484,6 +7506,10 @@ function restoreBackupReplace() {
         pettyCash = normalizePettyCash(data.pettyCash);
         localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
       }
+      if (data.hr && typeof data.hr === "object") {
+        hrData = normalizeHrData(data.hr);
+        localStorage.setItem(HR_KEY, JSON.stringify(hrData));
+      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -7495,6 +7521,7 @@ function restoreBackupReplace() {
       saveChatMessages();
       saveRadioState(true);
       savePettyCash(true);
+      saveHrData(true);
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -7657,6 +7684,7 @@ function bindUi() {
   });
   bindLoansUi();
   bindCajaUi();
+  bindHrUi();
   bindMonorrielUi();
   bindLvaUi();
   bindPrintUi();
@@ -7732,6 +7760,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   lvaState = normalizeLvaState(loadJsonObject(LVA_KEY, emptyLvaState()));
   radioState = normalizeRadioState(loadJsonObject(RADIO_KEY, emptyRadioState()));
   pettyCash = normalizePettyCash(loadJsonObject(PETTY_KEY, emptyPettyCash()));
+  hrData = normalizeHrData(loadJsonObject(HR_KEY, emptyHrData()));
   if (!radioState.streamUrl) radioState.streamUrl = DEFAULT_RADIO_STREAM;
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
@@ -7740,6 +7769,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
   localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
   localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
+  localStorage.setItem(HR_KEY, JSON.stringify(hrData));
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
   restoreSessionUser();
@@ -7801,14 +7831,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=43").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=44").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v43").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v44").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

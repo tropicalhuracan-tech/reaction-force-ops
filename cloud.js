@@ -8,7 +8,7 @@
     return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${docPath}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash) {
+  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash, hr) {
     return {
       fields: {
         postsJson: { stringValue: JSON.stringify(posts || []) },
@@ -22,6 +22,7 @@
         activityJson: { stringValue: JSON.stringify(activity || []) },
         lvaJson: { stringValue: JSON.stringify(lva || {}) },
         pettyCashJson: { stringValue: JSON.stringify(pettyCash || { expenses: [], closings: [], people: [], deletedExpenses: [], epoch: 2 }) },
+        hrJson: { stringValue: JSON.stringify(hr || { applications: [] }) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -64,6 +65,7 @@
       activity: parseJsonField(fields, "activityJson"),
       lva: parseObjectField(fields, "lvaJson"),
       pettyCash: parseObjectField(fields, "pettyCashJson"),
+      hr: parseObjectField(fields, "hrJson"),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
     };
   }
@@ -84,6 +86,7 @@
         activity: [],
         lva: {},
         pettyCash: { expenses: [], closings: [], people: [], deletedExpenses: [], epoch: 2 },
+        hr: { applications: [] },
         updatedAt: null,
         empty: true,
       };
@@ -93,9 +96,9 @@
     return { ...decodeDoc(doc), empty: false };
   }
 
-  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash) {
+  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash, hr) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
-    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash);
+    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash, hr);
     const res = await fetch(docUrl(), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

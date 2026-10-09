@@ -1,20 +1,22 @@
-const CACHE = "rfs-ops-v43";
+const CACHE = "rfs-ops-v44";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=41",
+  "styles.css?v=44",
   "app.js",
-  "app.js?v=41",
+  "app.js?v=44",
+  "hr.js",
+  "hr.js?v=44",
   "cloud.js",
-  "cloud.js?v=41",
+  "cloud.js?v=44",
   "cloud-config.js",
-  "cloud-config.js?v=41",
+  "cloud-config.js?v=44",
   "monorriel-data.js",
-  "monorriel-data.js?v=41",
+  "monorriel-data.js?v=44",
   "manifest.json",
   "logo.jpg",
-  "logo.jpg?v=41",
+  "logo.jpg?v=44",
   "import-posts.json",
   "icons/icon-192.png",
   "icons/icon-256.png",
@@ -46,6 +48,7 @@ self.addEventListener("fetch", (event) => {
     path === "index.html" ||
     path.startsWith("styles.css") ||
     path.startsWith("app.js") ||
+    path.startsWith("hr.js") ||
     path.startsWith("cloud") ||
     path.startsWith("monorriel") ||
     path.startsWith("sw.js");

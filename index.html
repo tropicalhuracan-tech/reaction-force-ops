@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=43" />
+  <link rel="stylesheet" href="styles.css?v=44" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -72,6 +72,7 @@
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
           <button class="welcome-action" type="button" data-go="cajaView">Caja chica</button>
+          <button class="welcome-action" type="button" data-go="hrView">Recursos Humanos</button>
           <button class="welcome-action ghost" type="button" data-go="adminView">Admin</button>
         </div>
         <p id="cloudStatus" class="muted cloud-status-home">Nube: conectando…</p>
@@ -748,6 +749,281 @@
       </div>
     </section>
 
+    <section id="hrView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Recursos Humanos</h1>
+          <p id="hrSummary">Solicitudes de empleo, confidencialidad, uniformes y test psicológico.</p>
+        </div>
+      </div>
+
+      <button id="btnHrNew" class="btn primary" type="button" style="margin-bottom:10px">＋ Nueva solicitud de empleo</button>
+
+      <div class="emp-tabs hr-tabs" role="tablist">
+        <button class="emp-tab active" type="button" data-hr-tab="list">Solicitudes</button>
+        <button class="emp-tab" type="button" data-hr-tab="form">Expediente</button>
+      </div>
+
+      <div id="hrTabList" class="hr-tab-panel">
+        <div class="form-card">
+          <label class="search-label">Buscar
+            <input id="hrSearch" type="search" placeholder="Nombre, cédula, teléfono o estado" />
+          </label>
+        </div>
+        <div id="hrAppList" class="card-list"></div>
+      </div>
+
+      <div id="hrTabForm" class="hr-tab-panel" hidden>
+        <div class="form-card">
+          <div class="section-head-row">
+            <div>
+              <h2 style="margin:0">Expediente del solicitante</h2>
+              <p class="muted" id="hrFormMeta" style="margin:6px 0 0"></p>
+            </div>
+            <button id="btnHrBackList" class="btn ghost" type="button" style="width:auto">← Lista</button>
+          </div>
+        </div>
+
+        <div class="emp-tabs hr-section-tabs" role="tablist">
+          <button class="emp-tab active" type="button" data-hr-section="datos">Datos</button>
+          <button class="emp-tab" type="button" data-hr-section="refs">Refs / familia</button>
+          <button class="emp-tab" type="button" data-hr-section="exp">Experiencia</button>
+          <button class="emp-tab" type="button" data-hr-section="conf">Confidencialidad</button>
+          <button class="emp-tab" type="button" data-hr-section="uni">Uniformes</button>
+          <button class="emp-tab" type="button" data-hr-section="test">Test</button>
+          <button class="emp-tab" type="button" data-hr-section="hire">Contratar</button>
+        </div>
+
+        <div class="hr-section-panel" data-hr-section="datos">
+          <div class="form-card">
+            <h2>Datos personales</h2>
+            <label class="photo-label">Foto del solicitante
+              <input id="hrPhoto" type="file" accept="image/*" capture="environment" />
+            </label>
+            <div id="hrPhotoPreviewWrap" class="photo-preview emp-attach-preview" hidden>
+              <img id="hrPhotoPreview" alt="Foto solicitante" />
+              <button id="btnHrClearPhoto" class="btn ghost attach-btn" type="button">Quitar foto</button>
+            </div>
+            <label>Nombre completo<input id="hrFullName" type="text" placeholder="Nombre y apellidos" /></label>
+            <div class="coords-row">
+              <label>Cédula<input id="hrCedula" type="text" placeholder="000-0000000-0" /></label>
+              <label>Fecha de nacimiento<input id="hrBirthDate" type="date" /></label>
+            </div>
+            <div class="coords-row">
+              <label>Sexo
+                <select id="hrGender">
+                  <option value="">—</option>
+                  <option value="M">Masculino</option>
+                  <option value="F">Femenino</option>
+                  <option value="O">Otro</option>
+                </select>
+              </label>
+              <label>Estado civil
+                <select id="hrMarital">
+                  <option value="">—</option>
+                  <option>Soltero/a</option>
+                  <option>Casado/a</option>
+                  <option>Unión libre</option>
+                  <option>Divorciado/a</option>
+                  <option>Viudo/a</option>
+                </select>
+              </label>
+            </div>
+            <label>Nacionalidad<input id="hrNationality" type="text" /></label>
+            <label>Dirección<input id="hrAddress" type="text" placeholder="Calle / no." /></label>
+            <div class="coords-row">
+              <label>Sector<input id="hrSector" type="text" /></label>
+              <label>Ciudad / municipio<input id="hrCity" type="text" /></label>
+            </div>
+            <div class="coords-row">
+              <label>Teléfono<input id="hrPhone" type="tel" /></label>
+              <label>Tel. alterno<input id="hrPhoneAlt" type="tel" /></label>
+            </div>
+            <label>Correo<input id="hrEmail" type="email" /></label>
+            <div class="coords-row">
+              <label>Tipo de sangre<input id="hrBlood" type="text" placeholder="Ej. O+" /></label>
+              <label>Nivel educativo
+                <select id="hrEducation">
+                  <option value="">—</option>
+                  <option>Primaria</option>
+                  <option>Secundaria</option>
+                  <option>Bachiller</option>
+                  <option>Técnico</option>
+                  <option>Universitario</option>
+                </select>
+              </label>
+            </div>
+            <label class="check-row"><input id="hrHasLicense" type="checkbox" /><span>Tiene licencia de conducir</span></label>
+            <label>Tipo de licencia<input id="hrLicenseType" type="text" placeholder="Ej. 02" /></label>
+            <label class="check-row"><input id="hrHasWeapon" type="checkbox" /><span>Permiso de porte de arma</span></label>
+            <label>No. permiso arma<input id="hrWeaponNo" type="text" /></label>
+            <label>Turnos disponibles
+              <select id="hrShifts">
+                <option value="">—</option>
+                <option>Diurno</option>
+                <option>Nocturno</option>
+                <option>Rotativo</option>
+                <option>Cualquiera</option>
+              </select>
+            </label>
+            <label class="check-row"><input id="hrTravel" type="checkbox" /><span>Disponible para viajar / otros puntos</span></label>
+            <label class="check-row"><input id="hrTransport" type="checkbox" /><span>Tiene transporte propio</span></label>
+            <label class="check-row"><input id="hrSecExp" type="checkbox" /><span>Experiencia en seguridad privada</span></label>
+            <label>Años en seguridad<input id="hrSecYears" type="text" /></label>
+            <label>Empresas de seguridad anteriores<textarea id="hrSecCompanies" rows="2"></textarea></label>
+            <label class="check-row"><input id="hrCriminal" type="checkbox" /><span>Declara antecedentes penales / judiciales</span></label>
+            <label>Detalle (si aplica)<textarea id="hrCriminalNote" rows="2"></textarea></label>
+            <label>Estado de la solicitud
+              <select id="hrStatus">
+                <option value="draft">Borrador</option>
+                <option value="review">En revisión</option>
+                <option value="rejected">No contratado</option>
+                <option value="hired">Contratado</option>
+              </select>
+            </label>
+            <label>Notas de RRHH<textarea id="hrNotes" rows="2"></textarea></label>
+          </div>
+        </div>
+
+        <div class="hr-section-panel" data-hr-section="refs" hidden>
+          <div class="form-card">
+            <h2>Contacto de emergencia</h2>
+            <label>Nombre<input id="hrEmergencyName" type="text" /></label>
+            <div class="coords-row">
+              <label>Parentesco<input id="hrEmergencyRelation" type="text" /></label>
+              <label>Teléfono<input id="hrEmergencyPhone" type="tel" /></label>
+            </div>
+          </div>
+          <div class="form-card">
+            <h2>Contactos familiares</h2>
+            <p class="muted tight">Al menos un familiar cercano.</p>
+            <div class="hr-mini-block">
+              <h3>Familiar 1</h3>
+              <label>Nombre<input id="hrFamName0" type="text" /></label>
+              <div class="coords-row">
+                <label>Parentesco<input id="hrFamRel0" type="text" /></label>
+                <label>Teléfono<input id="hrFamPhone0" type="tel" /></label>
+              </div>
+            </div>
+            <div class="hr-mini-block">
+              <h3>Familiar 2</h3>
+              <label>Nombre<input id="hrFamName1" type="text" /></label>
+              <div class="coords-row">
+                <label>Parentesco<input id="hrFamRel1" type="text" /></label>
+                <label>Teléfono<input id="hrFamPhone1" type="tel" /></label>
+              </div>
+            </div>
+          </div>
+          <div class="form-card">
+            <h2>Referencias personales</h2>
+            <div class="hr-mini-block">
+              <h3>Referencia 1</h3>
+              <label>Nombre<input id="hrRefName0" type="text" /></label>
+              <div class="coords-row">
+                <label>Relación<input id="hrRefRel0" type="text" /></label>
+                <label>Teléfono<input id="hrRefPhone0" type="tel" /></label>
+              </div>
+              <label>Años de conocerle<input id="hrRefYears0" type="text" /></label>
+            </div>
+            <div class="hr-mini-block">
+              <h3>Referencia 2</h3>
+              <label>Nombre<input id="hrRefName1" type="text" /></label>
+              <div class="coords-row">
+                <label>Relación<input id="hrRefRel1" type="text" /></label>
+                <label>Teléfono<input id="hrRefPhone1" type="tel" /></label>
+              </div>
+              <label>Años de conocerle<input id="hrRefYears1" type="text" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="hr-section-panel" data-hr-section="exp" hidden>
+          <div class="form-card">
+            <h2>Experiencia laboral</h2>
+            <p class="muted tight">Últimos empleos (seguridad u otros).</p>
+            <div class="hr-mini-block">
+              <h3>Empleo 1</h3>
+              <label>Empresa<input id="hrWorkCo0" type="text" /></label>
+              <label>Puesto<input id="hrWorkPos0" type="text" /></label>
+              <div class="coords-row">
+                <label>Desde<input id="hrWorkFrom0" type="text" placeholder="Mes/año" /></label>
+                <label>Hasta<input id="hrWorkTo0" type="text" placeholder="Mes/año" /></label>
+              </div>
+              <label>Tel. empresa<input id="hrWorkPhone0" type="tel" /></label>
+              <label>Motivo de salida<input id="hrWorkReason0" type="text" /></label>
+            </div>
+            <div class="hr-mini-block">
+              <h3>Empleo 2</h3>
+              <label>Empresa<input id="hrWorkCo1" type="text" /></label>
+              <label>Puesto<input id="hrWorkPos1" type="text" /></label>
+              <div class="coords-row">
+                <label>Desde<input id="hrWorkFrom1" type="text" placeholder="Mes/año" /></label>
+                <label>Hasta<input id="hrWorkTo1" type="text" placeholder="Mes/año" /></label>
+              </div>
+              <label>Tel. empresa<input id="hrWorkPhone1" type="tel" /></label>
+              <label>Motivo de salida<input id="hrWorkReason1" type="text" /></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="hr-section-panel" data-hr-section="conf" hidden>
+          <div class="form-card">
+            <h2>Hoja de confidencialidad</h2>
+            <p class="muted tight">Reaction Force Security — Acuerdo de confidencialidad y ética del vigilante.</p>
+            <div class="hr-legal-box">
+              <p>El/la abajo firmante se compromete a:</p>
+              <ul>
+                <li>No divulgar información de clientes, compañeros, puestos, rutas, cámaras ni procedimientos de la empresa.</li>
+                <li>No publicar fotos, videos ni datos del servicio en redes sociales sin autorización escrita.</li>
+                <li>Usar el uniforme, equipos y credenciales solo en funciones autorizadas.</li>
+                <li>Reportar de inmediato cualquier intento de soborno, amenaza o conflicto de interés.</li>
+                <li>Cumplir el código de conducta, el uso proporcional de la fuerza y las órdenes de supervisión.</li>
+                <li>Entregar equipos y documentos al cesar la relación laboral.</li>
+              </ul>
+              <p>Entiendo que el incumplimiento puede causar despido y acciones legales.</p>
+            </div>
+            <label>Nombre completo (como firma)<input id="hrConfName" type="text" /></label>
+            <label class="check-row"><input id="hrConfAck" type="checkbox" /><span>He leído y comprendo este acuerdo</span></label>
+            <label class="check-row"><input id="hrConfSigned" type="checkbox" /><span>Confidencialidad firmada / aceptada</span></label>
+          </div>
+        </div>
+
+        <div class="hr-section-panel" data-hr-section="uni" hidden>
+          <div class="form-card">
+            <h2>Entrega de uniformes y equipos</h2>
+            <p class="muted tight">Toca cada ítem para marcar si se entregó.</p>
+            <div id="hrUniformGrid" class="hr-uniform-grid"></div>
+            <label>Detalle de «Otros»<input id="hrUniformOtrosDetalle" type="text" placeholder="Ej. silbato, porta placa…" /></label>
+            <label>Entregado por<input id="hrUniformsBy" type="text" placeholder="Nombre de quien entrega" /></label>
+            <label>Notas de entrega<textarea id="hrUniformsNotes" rows="2"></textarea></label>
+          </div>
+        </div>
+
+        <div class="hr-section-panel" data-hr-section="test" hidden>
+          <div class="form-card">
+            <h2>Test psicológico de acción y reacción</h2>
+            <p class="muted tight" id="hrPsychModelTitle">Modelo</p>
+            <p class="muted tight">8 preguntas selectivas. Evalúa autocontrol (violencia) y si comprende instrucciones. Hay 5 modelos distintos.</p>
+          </div>
+          <div id="hrPsychQuestions"></div>
+          <div id="hrPsychResult" class="form-card" hidden></div>
+          <button id="btnHrScorePsych" class="btn primary" type="button">Calificar test</button>
+          <button id="btnHrResetPsych" class="btn ghost" type="button" hidden>Repetir con otro modelo</button>
+        </div>
+
+        <div class="hr-section-panel" data-hr-section="hire" hidden>
+          <div class="form-card">
+            <h2>Contratar vigilante</h2>
+            <p class="muted tight">Al contratar, pasa a la lista general de empleados con foto y datos principales.</p>
+            <div id="hrHireSummary"></div>
+            <button id="btnHrHire" class="btn primary" type="button" style="margin-top:12px">Contratar y enviar a Empleados</button>
+          </div>
+        </div>
+
+        <button id="btnHrSave" class="btn secondary" type="button" style="margin:12px 0 24px">Guardar expediente</button>
+      </div>
+    </section>
+
     <section id="financeView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -896,6 +1172,7 @@
             <label class="check-row"><input type="checkbox" data-perm="lavega" checked /><span>La Vega Autopista</span></label>
             <label class="check-row"><input type="checkbox" data-perm="finance" /><span>Finanzas</span></label>
             <label class="check-row"><input type="checkbox" data-perm="cajachica" /><span>Caja chica</span></label>
+            <label class="check-row"><input type="checkbox" data-perm="rrhh" /><span>Recursos Humanos</span></label>
             <label class="check-row"><input type="checkbox" data-perm="reports" checked /><span>Reportes</span></label>
             <label class="check-row"><input type="checkbox" data-perm="messages" checked /><span>Mensajes</span></label>
             <label class="check-row"><input type="checkbox" data-perm="radio" checked /><span>Radio</span></label>
@@ -1005,14 +1282,16 @@
       <button class="tab" data-view="lvaView" type="button"><span>La Vega</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
       <button class="tab" data-view="cajaView" type="button"><span>Caja</span></button>
+      <button class="tab" data-view="hrView" type="button"><span>RRHH</span></button>
       <button class="tab" data-view="adminView" type="button"><span>Admin</span></button>
     </nav>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=41"></script>
-  <script src="monorriel-data.js?v=41"></script>
-  <script src="cloud.js?v=43"></script>
-  <script src="app.js?v=43"></script>
+  <script src="cloud-config.js?v=44"></script>
+  <script src="monorriel-data.js?v=44"></script>
+  <script src="cloud.js?v=44"></script>
+  <script src="hr.js?v=44"></script>
+  <script src="app.js?v=44"></script>
 </body>
 </html>

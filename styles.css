@@ -356,7 +356,7 @@ textarea { resize: vertical; }
 
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
+  grid-template-columns: repeat(13, minmax(0, 1fr));
   gap: 2px;
   padding: 8px 4px calc(8px + var(--safe-bottom));
   background: #101012;
@@ -371,7 +371,7 @@ textarea { resize: vertical; }
   color: var(--muted);
   padding: 10px 0;
   font: inherit;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
 }
 
@@ -1763,4 +1763,106 @@ body.lightbox-open {
 
 #btnBiometricDisable {
   width: 100%;
+}
+
+/* ==== RRHH ==== */
+.hr-tabs,
+.hr-section-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
+.hr-section-tabs {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.hr-section-tabs .emp-tab {
+  font-size: 10px;
+  padding: 8px 4px;
+}
+
+.hr-mini-block {
+  margin: 12px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.hr-mini-block h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.hr-legal-box {
+  margin: 10px 0 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hr-legal-box ul {
+  margin: 8px 0 8px 18px;
+  padding: 0;
+}
+
+.hr-uniform-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.hr-uniform-btn {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 12px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hr-uniform-btn.on {
+  border-color: rgba(52, 211, 153, 0.55);
+  background: rgba(52, 211, 153, 0.16);
+  color: #a7f3d0;
+}
+
+.hr-uniform-check {
+  display: block;
+  min-height: 16px;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.hr-psych-q p {
+  margin: 0 0 10px;
+}
+
+.hr-psych-opt {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.hr-psych-opt input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 520px) {
+  .hr-uniform-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .hr-section-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
