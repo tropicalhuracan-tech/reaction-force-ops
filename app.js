@@ -445,7 +445,7 @@ function renderEmployees() {
   const activeCount = employees.filter(isEmployeeActive).length;
   const inactiveCount = employees.filter((e) => !isEmployeeActive(e)).length;
 
-  document.querySelectorAll(".emp-tab").forEach((tab) => {
+  document.querySelectorAll(".emp-tab[data-emp-filter]").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.empFilter === employeeListFilter);
   });
 
@@ -1172,7 +1172,7 @@ async function pushToCloud() {
   cloudSavePending = false;
   setCloudStatus("Nube: guardando…");
   try {
-    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState, activityLog, lvaState);
+    await window.RFSCloudApi.saveCloud(posts, reports, employees, loans, monorrielReports, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash);
     cloudReady = true;
     setCloudStatus("Nube: guardado ✓ (todas las PCs)");
   } catch (err) {
@@ -1206,7 +1206,7 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureOwnerUser();
-      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState, activityLog, lvaState);
+      await window.RFSCloudApi.saveCloud(localPosts, localReports, employees, localLoans, localMono, appUsers, chatMessages, radioState, activityLog, lvaState, pettyCash);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
       localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
@@ -1215,6 +1215,7 @@ async function syncFromCloud() {
       localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
       localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
       localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
+      localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
       cloudReady = true;
       setCloudStatus("Nube: activa ✓ (datos iniciales subidos)");
       return { added: 0, usedCloud: true };
@@ -1247,6 +1248,14 @@ async function syncFromCloud() {
     if (remote.lva && typeof remote.lva === "object") {
       applyRemoteLva(remote.lva);
     }
+    if (remote.pettyCash && typeof remote.pettyCash === "object") {
+      const remotePetty = normalizePettyCash(remote.pettyCash);
+      if ((remotePetty.expenses && remotePetty.expenses.length) || (remotePetty.closings && remotePetty.closings.length)) {
+        applyRemotePettyCash(remotePetty);
+      } else if (!(pettyCash.expenses && pettyCash.expenses.length) && !(pettyCash.closings && pettyCash.closings.length)) {
+        pettyCash = remotePetty;
+      }
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
@@ -1259,6 +1268,7 @@ async function syncFromCloud() {
     localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
     localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
     localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
+    localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
     cloudReady = true;
     setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${employees.length} empleados · ${loans.length} préstamos · ${monorrielReports.length} monorriel`);
     return { added: 0, usedCloud: true };
@@ -1797,6 +1807,7 @@ const VIEW_TO_MODULE = {
   radioView: "radio",
   adminView: "admin",
   detailView: "clients",
+  cajaView: "cajachica",
   loginView: null,
 };
 
@@ -1923,13 +1934,14 @@ function canWriteEmployees() {
 
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
+  if (viewId === "cajaView") return canAccessCajaChica();
   const mod = VIEW_TO_MODULE[viewId];
   if (!mod) return !!currentUser;
   return canAccessModule(mod);
 }
 
 function firstAllowedView() {
-  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "reportsView", "adminView"];
+  const order = ["homeView", "mapView", "shiftsView", "employeesView", "messagesView", "radioView", "loansView", "monorrielView", "lvaView", "financeView", "cajaView", "reportsView", "adminView"];
   for (const v of order) {
     if (canAccessView(v)) return v;
   }
@@ -3287,6 +3299,7 @@ function printCurrentView() {
   if (id === "employeesView") return printEmployeesSheet();
   if (id === "employeeDetailView") return printEmployeeDetailSheet();
   if (id === "financeView") return printFinanceSheet();
+  if (id === "cajaView") return printCajaSheet();
   if (id === "monoReportDetailView") return printMonoReport();
   if (id === "monorrielView" || id === "monoStaffView") return printMonorrielIndexSheet();
   if (id === "detailView") {
@@ -5252,6 +5265,633 @@ function bindRadioUi() {
 
 
 
+
+/* ==== MÓDULO CAJA CHICA ==== */
+const PETTY_KEY = "rfs-ops-petty-cash";
+const CAJA_CLOSE_HOUR = 17; // 5:00 p.m.
+
+const CAJA_CATEGORIES = [
+  { key: "gasolina", label: "Gasolina" },
+  { key: "transporte", label: "Transporte / peaje" },
+  { key: "comida", label: "Alimentos / merienda" },
+  { key: "materiales", label: "Materiales / equipos" },
+  { key: "mantenimiento", label: "Mantenimiento" },
+  { key: "servicios", label: "Servicios / pagos" },
+  { key: "otros", label: "Otros" },
+];
+
+let pettyCash = { expenses: [], closings: [] };
+let cajaTab = "hoy";
+
+function emptyPettyCash() {
+  return { expenses: [], closings: [] };
+}
+
+function cajaCategoryLabel(key) {
+  const found = CAJA_CATEGORIES.find((c) => c.key === key);
+  return found ? found.label : key || "Otros";
+}
+
+function normalizeCajaExpense(e = {}) {
+  const amount = Number(e.amount);
+  const date = String(e.date || "").slice(0, 10) || localDateISO();
+  const category = CAJA_CATEGORIES.some((c) => c.key === e.category) ? e.category : "otros";
+  return {
+    id: e.id || `caja-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    date,
+    createdAt: e.createdAt || new Date().toISOString(),
+    recipient: String(e.recipient || "").trim(),
+    purpose: String(e.purpose || "").trim(),
+    amount: Number.isFinite(amount) ? amount : 0,
+    category,
+    note: String(e.note || "").trim(),
+    createdBy: e.createdBy || "",
+    receiptNo: e.receiptNo || "",
+  };
+}
+
+function normalizeCajaClosing(c = {}) {
+  const closingAmount = Number(c.closingAmount);
+  const totalExpenses = Number(c.totalExpenses);
+  const totalGasolina = Number(c.totalGasolina);
+  const totalOther = Number(c.totalOther);
+  return {
+    id: c.id || `cierre-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    date: String(c.date || "").slice(0, 10),
+    closedAt: c.closedAt || new Date().toISOString(),
+    closedBy: c.closedBy || "",
+    totalExpenses: Number.isFinite(totalExpenses) ? totalExpenses : 0,
+    totalGasolina: Number.isFinite(totalGasolina) ? totalGasolina : 0,
+    totalOther: Number.isFinite(totalOther) ? totalOther : 0,
+    closingAmount: Number.isFinite(closingAmount) ? closingAmount : 0,
+    note: String(c.note || "").trim(),
+    expenseCount: Number(c.expenseCount) || 0,
+  };
+}
+
+function normalizePettyCash(raw = {}) {
+  const expenses = Array.isArray(raw.expenses) ? raw.expenses.map(normalizeCajaExpense) : [];
+  const closings = Array.isArray(raw.closings) ? raw.closings.map(normalizeCajaClosing) : [];
+  return { expenses, closings };
+}
+
+function savePettyCash(push = true) {
+  pettyCash = normalizePettyCash(pettyCash);
+  localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
+  if (push) queueCloudSave();
+}
+
+function applyRemotePettyCash(remote) {
+  const remoteNorm = normalizePettyCash(remote || {});
+  const local = normalizePettyCash(pettyCash);
+  const expMap = new Map();
+  [...local.expenses, ...remoteNorm.expenses].forEach((e) => {
+    if (!e || !e.id) return;
+    const prev = expMap.get(e.id);
+    if (!prev || String(e.createdAt) > String(prev.createdAt)) expMap.set(e.id, e);
+  });
+  const closeMap = new Map();
+  [...local.closings, ...remoteNorm.closings].forEach((c) => {
+    if (!c || !c.id) return;
+    const prev = closeMap.get(c.id);
+    if (!prev || String(c.closedAt) > String(prev.closedAt)) closeMap.set(c.id, c);
+  });
+  // Also unique by date for closings (one closing per day)
+  const byDate = new Map();
+  [...closeMap.values()].forEach((c) => {
+    const prev = byDate.get(c.date);
+    if (!prev || String(c.closedAt) > String(prev.closedAt)) byDate.set(c.date, c);
+  });
+  pettyCash = {
+    expenses: [...expMap.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    closings: [...byDate.values()].sort((a, b) => String(b.date).localeCompare(String(a.date))),
+  };
+  localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
+}
+
+function canAccessCajaChica() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  return canAccessModule("admin");
+}
+
+function localDateISO(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseLocalDate(iso) {
+  const [y, m, d] = String(iso || "").split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function weekRangeFromPivot(iso) {
+  const d = parseLocalDate(iso) || new Date();
+  const day = d.getDay(); // 0 Sun
+  const diffToMon = day === 0 ? -6 : 1 - day;
+  const start = new Date(d);
+  start.setDate(d.getDate() + diffToMon);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  return { from: localDateISO(start), to: localDateISO(end) };
+}
+
+function expensesBetween(from, to) {
+  return (pettyCash.expenses || []).filter((e) => e.date >= from && e.date <= to);
+}
+
+function expensesOnDate(date) {
+  return (pettyCash.expenses || []).filter((e) => e.date === date);
+}
+
+function sumExpenses(list) {
+  return (list || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+}
+
+function getClosingForDate(date) {
+  return (pettyCash.closings || []).find((c) => c.date === date) || null;
+}
+
+function nextCajaReceiptNo() {
+  const n = (pettyCash.expenses || []).length + 1;
+  return `CC-${String(n).padStart(4, "0")}`;
+}
+
+function setCajaTab(tab) {
+  cajaTab = tab || "hoy";
+  document.querySelectorAll(".caja-tabs .emp-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.cajaTab === cajaTab);
+  });
+  const map = {
+    hoy: "cajaTabHoy",
+    gasolina: "cajaTabGasolina",
+    cierres: "cajaTabCierres",
+    semana: "cajaTabSemana",
+    mes: "cajaTabMes",
+  };
+  Object.entries(map).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = key !== cajaTab;
+  });
+  renderCajaModule();
+}
+
+function renderCajaCloseBanner() {
+  const banner = document.getElementById("cajaCloseBanner");
+  if (!banner) return;
+  const today = localDateISO();
+  const closed = !!getClosingForDate(today);
+  const hour = new Date().getHours();
+  const show = !closed && hour >= CAJA_CLOSE_HOUR;
+  banner.hidden = !show;
+  const text = document.getElementById("cajaCloseBannerText");
+  if (text) {
+    text.textContent = show
+      ? `Pasaron las 5:00 p.m. Hay ${expensesOnDate(today).length} gasto(s) y la caja de hoy aún no está cerrada.`
+      : "";
+  }
+}
+
+function renderCajaExpenseList(listEl, items, emptyMsg) {
+  if (!listEl) return;
+  if (!items.length) {
+    listEl.innerHTML = `<p class="empty">${emptyMsg}</p>`;
+    return;
+  }
+  listEl.innerHTML = items
+    .map((e) => {
+      const closed = !!getClosingForDate(e.date);
+      return `<article class="report-card caja-expense-card" data-id="${escapeHtml(e.id)}">
+        <div class="row">
+          <div style="flex:1;min-width:0">
+            <h3>${escapeHtml(e.recipient || "—")}</h3>
+            <p>${escapeHtml(e.purpose || "—")}</p>
+            <p style="margin-top:6px">${escapeHtml(e.date)} · Recibo ${escapeHtml(e.receiptNo || "—")}${e.note ? ` · ${escapeHtml(e.note)}` : ""}</p>
+            <span class="caja-cat-pill ${e.category === "gasolina" ? "gasolina" : ""}">${escapeHtml(cajaCategoryLabel(e.category))}</span>
+          </div>
+          <div style="text-align:right">
+            <div class="caja-amount">${money(e.amount)}</div>
+            <button class="btn ghost btn-print-caja-receipt" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:8px;padding:6px 8px;font-size:12px">Recibo</button>
+            ${closed ? "" : `<button class="btn danger btn-del-caja" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:6px;padding:6px 8px;font-size:12px">Quitar</button>`}
+          </div>
+        </div>
+      </article>`;
+    })
+    .join("");
+  listEl.querySelectorAll(".btn-print-caja-receipt").forEach((btn) => {
+    btn.addEventListener("click", () => printCajaReceipt(btn.dataset.id));
+  });
+  listEl.querySelectorAll(".btn-del-caja").forEach((btn) => {
+    btn.addEventListener("click", () => deleteCajaExpense(btn.dataset.id));
+  });
+}
+
+function renderCajaHoy() {
+  const today = document.getElementById("cajaDate")?.value || localDateISO();
+  const items = expensesOnDate(today).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const gas = items.filter((e) => e.category === "gasolina");
+  const total = sumExpenses(items);
+  const gasTotal = sumExpenses(gas);
+  const closed = getClosingForDate(today);
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  set("cajaTodayCount", String(items.length));
+  set("cajaTodayGas", money(gasTotal));
+  set("cajaTodayTotal", money(total));
+  set(
+    "cajaTodayStatus",
+    closed
+      ? `Día cerrado · efectivo ${money(closed.closingAmount)} · por ${closed.closedBy || "—"}`
+      : "Día abierto (cierre habitual 5:00 p.m.)"
+  );
+  const formCard = document.getElementById("cajaExpenseFormCard");
+  const closeCard = document.getElementById("cajaCloseFormCard");
+  if (formCard) formCard.hidden = !!closed;
+  if (closeCard) closeCard.hidden = !!closed;
+  renderCajaExpenseList(document.getElementById("cajaTodayList"), items, "No hay gastos registrados para esta fecha.");
+}
+
+function renderCajaGasolina() {
+  const fromEl = document.getElementById("cajaGasFrom");
+  const toEl = document.getElementById("cajaGasTo");
+  const today = localDateISO();
+  if (fromEl && !fromEl.value) {
+    const d = parseLocalDate(today);
+    d.setDate(1);
+    fromEl.value = localDateISO(d);
+  }
+  if (toEl && !toEl.value) toEl.value = today;
+  const from = fromEl?.value || today;
+  const to = toEl?.value || today;
+  const items = expensesBetween(from, to)
+    .filter((e) => e.category === "gasolina")
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+  const totalEl = document.getElementById("cajaGasTotal");
+  if (totalEl) totalEl.textContent = money(sumExpenses(items));
+  renderCajaExpenseList(document.getElementById("cajaGasList"), items, "No hay gastos de gasolina en este rango.");
+}
+
+function renderCajaCierres() {
+  const list = document.getElementById("cajaClosingsList");
+  if (!list) return;
+  const rows = [...(pettyCash.closings || [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  if (!rows.length) {
+    list.innerHTML = `<p class="empty">Aún no hay cierres diarios.</p>`;
+    return;
+  }
+  list.innerHTML = rows
+    .map(
+      (c) => `<article class="report-card">
+        <div class="row">
+          <div>
+            <h3>Cierre ${escapeHtml(c.date)}</h3>
+            <p>${c.expenseCount || 0} gastos · Total salidas ${money(c.totalExpenses)}</p>
+            <p style="margin-top:6px">Gasolina ${money(c.totalGasolina)} · Otros ${money(c.totalOther)}</p>
+            <p>Cerrado por ${escapeHtml(c.closedBy || "—")} · ${escapeHtml((c.closedAt || "").slice(0, 16).replace("T", " "))}</p>
+            ${c.note ? `<p style="margin-top:6px">${escapeHtml(c.note)}</p>` : ""}
+          </div>
+          <div style="text-align:right">
+            <div class="caja-amount">${money(c.closingAmount)}</div>
+            <span class="muted" style="font-size:12px">efectivo</span>
+          </div>
+        </div>
+      </article>`
+    )
+    .join("");
+}
+
+function renderCajaPeriodStats(statsEl, listEl, from, to, emptyMsg) {
+  const items = expensesBetween(from, to).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const gas = items.filter((e) => e.category === "gasolina");
+  const closings = (pettyCash.closings || []).filter((c) => c.date >= from && c.date <= to);
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="stat-box"><span class="muted">Gastos</span><strong>${items.length}</strong></div>
+      <div class="stat-box"><span class="muted">Total</span><strong>${money(sumExpenses(items))}</strong></div>
+      <div class="stat-box"><span class="muted">Gasolina</span><strong>${money(sumExpenses(gas))}</strong></div>
+      <div class="stat-box"><span class="muted">Cierres</span><strong>${closings.length}</strong></div>
+    `;
+  }
+  renderCajaExpenseList(listEl, items, emptyMsg);
+  return items;
+}
+
+function renderCajaSemana() {
+  const pivotEl = document.getElementById("cajaWeekPivot");
+  if (pivotEl && !pivotEl.value) pivotEl.value = localDateISO();
+  const { from, to } = weekRangeFromPivot(pivotEl?.value || localDateISO());
+  const summary = document.getElementById("cajaSummary");
+  if (summary && cajaTab === "semana") summary.textContent = `Semana ${from} → ${to}`;
+  renderCajaPeriodStats(
+    document.getElementById("cajaWeekStats"),
+    document.getElementById("cajaWeekList"),
+    from,
+    to,
+    "Sin gastos en esta semana."
+  );
+}
+
+function renderCajaMes() {
+  const monthEl = document.getElementById("cajaMonth");
+  const today = localDateISO();
+  if (monthEl && !monthEl.value) monthEl.value = today.slice(0, 7);
+  const ym = monthEl?.value || today.slice(0, 7);
+  const from = `${ym}-01`;
+  const end = parseLocalDate(from);
+  end.setMonth(end.getMonth() + 1);
+  end.setDate(0);
+  const to = localDateISO(end);
+  const items = renderCajaPeriodStats(
+    document.getElementById("cajaMonthStats"),
+    document.getElementById("cajaMonthList"),
+    from,
+    to,
+    "Sin gastos en este mes."
+  );
+  const byCat = {};
+  CAJA_CATEGORIES.forEach((c) => {
+    byCat[c.key] = 0;
+  });
+  items.forEach((e) => {
+    byCat[e.category] = (byCat[e.category] || 0) + (Number(e.amount) || 0);
+  });
+  const catBox = document.getElementById("cajaMonthByCat");
+  if (catBox) {
+    catBox.innerHTML =
+      `<h2 style="margin:0 0 10px">Por categoría</h2>` +
+      CAJA_CATEGORIES.map(
+        (c) => `<div class="row" style="margin-bottom:8px"><span>${escapeHtml(c.label)}</span><strong>${money(byCat[c.key] || 0)}</strong></div>`
+      ).join("");
+  }
+}
+
+function renderCajaModule() {
+  if (!canAccessCajaChica()) return;
+  const dateEl = document.getElementById("cajaDate");
+  const closeDateEl = document.getElementById("cajaCloseDate");
+  if (dateEl && !dateEl.value) dateEl.value = localDateISO();
+  if (closeDateEl && !closeDateEl.value) closeDateEl.value = dateEl?.value || localDateISO();
+  renderCajaCloseBanner();
+  if (cajaTab === "hoy") renderCajaHoy();
+  else if (cajaTab === "gasolina") renderCajaGasolina();
+  else if (cajaTab === "cierres") renderCajaCierres();
+  else if (cajaTab === "semana") renderCajaSemana();
+  else if (cajaTab === "mes") renderCajaMes();
+  const summary = document.getElementById("cajaSummary");
+  if (summary && (cajaTab === "hoy" || cajaTab === "gasolina" || cajaTab === "cierres")) {
+    summary.textContent = "Gastos del día, gasolina y cierres. Solo administrador / dueño.";
+  }
+}
+
+function saveCajaExpense() {
+  if (!canAccessCajaChica()) {
+    toast("Solo el administrador o dueño puede registrar gastos.");
+    return;
+  }
+  const date = document.getElementById("cajaDate").value || localDateISO();
+  if (getClosingForDate(date)) {
+    toast("Ese día ya está cerrado. No se pueden agregar gastos.");
+    return;
+  }
+  const recipient = document.getElementById("cajaRecipient").value.trim();
+  const purpose = document.getElementById("cajaPurpose").value.trim();
+  const amount = Number(document.getElementById("cajaAmount").value);
+  const category = document.getElementById("cajaCategory").value || "otros";
+  const note = document.getElementById("cajaNote").value.trim();
+  if (!recipient) {
+    toast("Indica a quién se le dio el dinero.");
+    return;
+  }
+  if (!purpose) {
+    toast("Indica para qué se dio el dinero.");
+    return;
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    toast("Escribe un monto válido.");
+    return;
+  }
+  const expense = normalizeCajaExpense({
+    date,
+    recipient,
+    purpose,
+    amount,
+    category,
+    note,
+    createdBy: currentUser ? currentUser.displayName || currentUser.username : "",
+    receiptNo: nextCajaReceiptNo(),
+  });
+  pettyCash.expenses.unshift(expense);
+  savePettyCash(true);
+  logActivity("caja_expense", `Caja chica: ${money(amount)} a ${recipient} (${cajaCategoryLabel(category)})`);
+  document.getElementById("cajaRecipient").value = "";
+  document.getElementById("cajaPurpose").value = "";
+  document.getElementById("cajaAmount").value = "";
+  document.getElementById("cajaNote").value = "";
+  document.getElementById("cajaCategory").value = "otros";
+  renderCajaModule();
+  toast("Gasto guardado.");
+  printCajaReceipt(expense.id);
+}
+
+function deleteCajaExpense(id) {
+  if (!canAccessCajaChica()) return;
+  const exp = (pettyCash.expenses || []).find((e) => e.id === id);
+  if (!exp) return;
+  if (getClosingForDate(exp.date)) {
+    toast("No se puede borrar: el día ya está cerrado.");
+    return;
+  }
+  if (!window.confirm(`¿Quitar el gasto de ${exp.recipient} por ${money(exp.amount)}?`)) return;
+  pettyCash.expenses = pettyCash.expenses.filter((e) => e.id !== id);
+  savePettyCash(true);
+  logActivity("caja_delete", `Eliminó gasto caja: ${exp.recipient} ${money(exp.amount)}`);
+  renderCajaModule();
+  toast("Gasto eliminado.");
+}
+
+function closeCajaDay() {
+  if (!canAccessCajaChica()) {
+    toast("Solo el administrador o dueño puede cerrar la caja.");
+    return;
+  }
+  const date = document.getElementById("cajaCloseDate").value || localDateISO();
+  if (getClosingForDate(date)) {
+    toast("Ese día ya está cerrado.");
+    return;
+  }
+  const items = expensesOnDate(date);
+  const gas = items.filter((e) => e.category === "gasolina");
+  const other = items.filter((e) => e.category !== "gasolina");
+  const closingAmount = Number(document.getElementById("cajaCloseAmount").value);
+  if (!Number.isFinite(closingAmount) || closingAmount < 0) {
+    toast("Escribe el monto de cierre.");
+    return;
+  }
+  const note = document.getElementById("cajaCloseNote").value.trim();
+  const ok = window.confirm(
+    `Cerrar caja del ${date}?\nGastos: ${items.length} · Total salidas: ${money(sumExpenses(items))}\nEfectivo de cierre: ${money(closingAmount)}`
+  );
+  if (!ok) return;
+  const closing = normalizeCajaClosing({
+    date,
+    closedBy: currentUser ? currentUser.displayName || currentUser.username : "",
+    totalExpenses: sumExpenses(items),
+    totalGasolina: sumExpenses(gas),
+    totalOther: sumExpenses(other),
+    closingAmount,
+    note,
+    expenseCount: items.length,
+  });
+  pettyCash.closings.unshift(closing);
+  savePettyCash(true);
+  logActivity("caja_close", `Cerró caja ${date}: salidas ${money(closing.totalExpenses)}, efectivo ${money(closingAmount)}`);
+  document.getElementById("cajaCloseAmount").value = "";
+  document.getElementById("cajaCloseNote").value = "";
+  renderCajaModule();
+  toast("Día cerrado y guardado.");
+}
+
+function printCajaReceipt(id) {
+  const exp = (pettyCash.expenses || []).find((e) => e.id === id);
+  if (!exp) {
+    toast("No se encontró el gasto.");
+    return;
+  }
+  const when = exp.createdAt
+    ? new Date(exp.createdAt).toLocaleString("es-DO", { dateStyle: "long", timeStyle: "short" })
+    : exp.date;
+  const body = `
+    <h2 style="margin:0 0 4px">Recibo de caja chica</h2>
+    <p style="margin:0 0 16px">Reaction Force Security · ${escapeHtml(exp.receiptNo || "")}</p>
+    <div class="meta">
+      <div><strong>Fecha:</strong><br/>${escapeHtml(when)}</div>
+      <div><strong>Categoría:</strong><br/>${escapeHtml(cajaCategoryLabel(exp.category))}</div>
+      <div><strong>Monto:</strong><br/>${money(exp.amount)}</div>
+      <div><strong>Registró:</strong><br/>${escapeHtml(exp.createdBy || "—")}</div>
+    </div>
+    <p><strong>Se entregó a:</strong> ${escapeHtml(exp.recipient || "—")}</p>
+    <p><strong>Para qué / concepto:</strong> ${escapeHtml(exp.purpose || "—")}</p>
+    ${exp.note ? `<p><strong>Nota:</strong> ${escapeHtml(exp.note)}</p>` : ""}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:48px">
+      <div>
+        <div style="border-top:1px solid #111;padding-top:8px;min-height:70px">
+          Firma quien recibe<br/>
+          Nombre: ${escapeHtml(exp.recipient || "________________")}
+        </div>
+      </div>
+      <div>
+        <div style="border-top:1px solid #111;padding-top:8px;min-height:70px">
+          Firma autorizado RFS<br/>
+          Fecha: _______________
+        </div>
+      </div>
+    </div>
+  `;
+  openPrintWindow(`Recibo caja ${exp.receiptNo || ""}`, body);
+}
+
+function printCajaSheet() {
+  if (!canAccessCajaChica()) return;
+  let from = localDateISO();
+  let to = from;
+  let title = "Caja chica — Hoy";
+  if (cajaTab === "gasolina") {
+    from = document.getElementById("cajaGasFrom")?.value || from;
+    to = document.getElementById("cajaGasTo")?.value || to;
+    title = "Caja chica — Gasolina";
+  } else if (cajaTab === "semana") {
+    const range = weekRangeFromPivot(document.getElementById("cajaWeekPivot")?.value || from);
+    from = range.from;
+    to = range.to;
+    title = `Caja chica — Semana ${from} a ${to}`;
+  } else if (cajaTab === "mes") {
+    const ym = document.getElementById("cajaMonth")?.value || from.slice(0, 7);
+    from = `${ym}-01`;
+    const end = parseLocalDate(from);
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
+    to = localDateISO(end);
+    title = `Caja chica — Mes ${ym}`;
+  } else if (cajaTab === "cierres") {
+    const rows = [...(pettyCash.closings || [])]
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+      .map(
+        (c) => `<tr>
+          <td>${escapeHtml(c.date)}</td>
+          <td class="right">${c.expenseCount || 0}</td>
+          <td class="right">${money(c.totalExpenses)}</td>
+          <td class="right">${money(c.totalGasolina)}</td>
+          <td class="right">${money(c.closingAmount)}</td>
+          <td>${escapeHtml(c.closedBy || "—")}</td>
+        </tr>`
+      )
+      .join("");
+    openPrintWindow("Cierres de caja chica", `
+      <h2>Historial de cierres</h2>
+      <table>
+        <thead><tr><th>Fecha</th><th class="right">Gastos</th><th class="right">Salidas</th><th class="right">Gasolina</th><th class="right">Efectivo</th><th>Cerrado por</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="6">Sin cierres</td></tr>`}</tbody>
+      </table>`);
+    return;
+  } else {
+    from = document.getElementById("cajaDate")?.value || from;
+    to = from;
+  }
+  let items = expensesBetween(from, to);
+  if (cajaTab === "gasolina") items = items.filter((e) => e.category === "gasolina");
+  items = items.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.createdAt).localeCompare(String(b.createdAt)));
+  const rows = items
+    .map(
+      (e) => `<tr>
+        <td>${escapeHtml(e.date)}</td>
+        <td>${escapeHtml(e.receiptNo || "—")}</td>
+        <td>${escapeHtml(e.recipient)}</td>
+        <td>${escapeHtml(e.purpose)}</td>
+        <td>${escapeHtml(cajaCategoryLabel(e.category))}</td>
+        <td class="right">${money(e.amount)}</td>
+      </tr>`
+    )
+    .join("");
+  openPrintWindow(title, `
+    <h2>${escapeHtml(title)}</h2>
+    <p>Total: ${money(sumExpenses(items))} · ${items.length} movimiento(s)</p>
+    <table>
+      <thead><tr><th>Fecha</th><th>Recibo</th><th>Recibió</th><th>Concepto</th><th>Categoría</th><th class="right">Monto</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6">Sin gastos</td></tr>`}</tbody>
+    </table>`);
+}
+
+function bindCajaUi() {
+  document.querySelectorAll(".caja-tabs .emp-tab").forEach((btn) => {
+    btn.addEventListener("click", () => setCajaTab(btn.dataset.cajaTab));
+  });
+  document.getElementById("btnSaveCajaExpense")?.addEventListener("click", saveCajaExpense);
+  document.getElementById("btnCloseCajaDay")?.addEventListener("click", closeCajaDay);
+  document.getElementById("btnCajaGoClose")?.addEventListener("click", () => {
+    setCajaTab("hoy");
+    document.getElementById("cajaCloseFormCard")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  document.getElementById("btnPrintCaja")?.addEventListener("click", printCajaSheet);
+  document.getElementById("cajaDate")?.addEventListener("change", () => {
+    const d = document.getElementById("cajaDate").value;
+    const closeDate = document.getElementById("cajaCloseDate");
+    if (closeDate && d) closeDate.value = d;
+    renderCajaHoy();
+    renderCajaCloseBanner();
+  });
+  document.getElementById("cajaGasFrom")?.addEventListener("change", renderCajaGasolina);
+  document.getElementById("cajaGasTo")?.addEventListener("change", renderCajaGasolina);
+  document.getElementById("cajaWeekPivot")?.addEventListener("change", renderCajaSemana);
+  document.getElementById("cajaMonth")?.addEventListener("change", renderCajaMes);
+}
+/* ==== FIN CAJA CHICA ==== */
+
+
 function switchView(viewId) {
   if (!currentUser) {
     viewId = "loginView";
@@ -5273,6 +5913,7 @@ function switchView(viewId) {
     renderReports();
   }
   if (viewId === "financeView") renderFinance();
+  if (viewId === "cajaView") renderCajaModule();
   if (viewId === "employeesView") renderEmployees();
   if (viewId === "employeeNewView") {}
   if (viewId === "loansView") renderLoans();
@@ -5658,6 +6299,7 @@ function exportBackup() {
     radio: radioState,
     activity: activityLog,
     lva: lvaState,
+    pettyCash,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -5772,6 +6414,10 @@ function restoreBackupMerge() {
         applyRemoteLva(data.lva);
         saveLvaState(true);
       }
+      if (data.pettyCash && typeof data.pettyCash === "object") {
+        applyRemotePettyCash(data.pettyCash);
+        savePettyCash(true);
+      }
       ensureMonorrielEmployeesImported();
       savePosts();
       saveReports();
@@ -5788,6 +6434,7 @@ function restoreBackupMerge() {
       renderLoans();
       renderMonorrielHome();
       renderAdminList();
+      renderCajaModule();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
     .catch((err) => {
@@ -5826,6 +6473,10 @@ function restoreBackupReplace() {
         lvaState = normalizeLvaState(data.lva);
         localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
       }
+      if (data.pettyCash && typeof data.pettyCash === "object") {
+        pettyCash = normalizePettyCash(data.pettyCash);
+        localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
+      }
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
       savePosts();
@@ -5836,6 +6487,7 @@ function restoreBackupReplace() {
       saveUsers();
       saveChatMessages();
       saveRadioState(true);
+      savePettyCash(true);
       renderMarkers();
       renderShifts();
       fillReportPostSelect();
@@ -5975,7 +6627,7 @@ function bindUi() {
   document.getElementById("btnSaveEmployee").addEventListener("click", saveEmployeeDetail);
   document.getElementById("btnDeactivateEmployee").addEventListener("click", deactivateSelectedEmployee);
   document.getElementById("btnReactivateEmployee").addEventListener("click", reactivateSelectedEmployee);
-  document.querySelectorAll(".emp-tab").forEach((tab) => {
+  document.querySelectorAll(".emp-tab[data-emp-filter]").forEach((tab) => {
     tab.addEventListener("click", () => {
       employeeListFilter = tab.dataset.empFilter === "inactive" ? "inactive" : "active";
       renderEmployees();
@@ -5987,6 +6639,7 @@ function bindUi() {
   document.getElementById("btnClearEmpDoc").addEventListener("click", clearEmpDocPending);
   document.getElementById("btnOpenEmpDoc").addEventListener("click", openEmpDocument);
   bindLoansUi();
+  bindCajaUi();
   bindMonorrielUi();
   bindLvaUi();
   bindPrintUi();
@@ -6056,6 +6709,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   activityLog = pruneActivity(loadJson(ACTIVITY_KEY, []));
   lvaState = normalizeLvaState(loadJsonObject(LVA_KEY, emptyLvaState()));
   radioState = normalizeRadioState(loadJsonObject(RADIO_KEY, emptyRadioState()));
+  pettyCash = normalizePettyCash(loadJsonObject(PETTY_KEY, emptyPettyCash()));
   if (!radioState.streamUrl) radioState.streamUrl = DEFAULT_RADIO_STREAM;
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
@@ -6063,6 +6717,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityLog));
   localStorage.setItem(LVA_KEY, JSON.stringify(lvaState));
   localStorage.setItem(RADIO_KEY, JSON.stringify(radioState));
+  localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
   restoreSessionUser();
@@ -6123,14 +6778,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=34").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=36").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v34").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v36").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

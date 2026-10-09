@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=35" />
+  <link rel="stylesheet" href="styles.css?v=36" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=35" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=36" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -53,7 +53,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=35" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=36" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -68,6 +68,7 @@
           <button class="welcome-action" type="button" data-go="lvaView">La Vega Autopista</button>
           <button class="welcome-action" type="button" data-go="reportsView">Reportes</button>
           <button class="welcome-action" type="button" data-go="financeView">Finanzas</button>
+          <button class="welcome-action" type="button" data-go="cajaView">Caja chica</button>
           <button class="welcome-action ghost" type="button" data-go="adminView">Admin</button>
         </div>
         <p id="cloudStatus" class="muted cloud-status-home">Nube: conectando…</p>
@@ -546,6 +547,112 @@
       </div>
     </section>
 
+    <section id="cajaView" class="view scroll-view">
+      <div class="section-head section-head-row">
+        <div>
+          <h1>Caja chica</h1>
+          <p id="cajaSummary">Gastos del día, gasolina y cierres. Solo administrador / dueño.</p>
+        </div>
+        <button id="btnPrintCaja" class="icon-btn print-icon-btn" type="button" aria-label="Imprimir caja" title="Imprimir">⎙</button>
+      </div>
+
+      <div id="cajaCloseBanner" class="form-card caja-banner" hidden>
+        <p><strong>Cierre pendiente</strong></p>
+        <p class="muted" id="cajaCloseBannerText">Pasaron las 5:00 p.m. Cierra la caja del día con el monto final.</p>
+        <button id="btnCajaGoClose" class="btn secondary" type="button">Ir a cerrar el día</button>
+      </div>
+
+      <div class="emp-tabs caja-tabs" role="tablist">
+        <button class="emp-tab active" type="button" data-caja-tab="hoy">Hoy</button>
+        <button class="emp-tab" type="button" data-caja-tab="gasolina">Gasolina</button>
+        <button class="emp-tab" type="button" data-caja-tab="cierres">Cierres</button>
+        <button class="emp-tab" type="button" data-caja-tab="semana">Semana</button>
+        <button class="emp-tab" type="button" data-caja-tab="mes">Mes</button>
+      </div>
+
+      <div id="cajaTabHoy" class="caja-tab-panel">
+        <div class="form-card finance-total">
+          <div class="stats-grid">
+            <div class="stat-box"><span class="muted">Gastos hoy</span><strong id="cajaTodayCount">0</strong></div>
+            <div class="stat-box"><span class="muted">Gasolina hoy</span><strong id="cajaTodayGas">RD$ 0</strong></div>
+          </div>
+          <p class="muted" style="margin-top:14px">Total gastado hoy</p>
+          <div id="cajaTodayTotal" class="money-big">RD$ 0</div>
+          <p class="muted" style="margin-top:8px" id="cajaTodayStatus">Día abierto</p>
+        </div>
+
+        <div class="form-card" id="cajaExpenseFormCard">
+          <h2>Registrar gasto</h2>
+          <label>A quién se le dio el dinero<input id="cajaRecipient" type="text" placeholder="Nombre de quien recibió" /></label>
+          <label>Para qué se dio<textarea id="cajaPurpose" rows="2" placeholder="Motivo del gasto"></textarea></label>
+          <div class="coords-row">
+            <label>Monto (RD$)<input id="cajaAmount" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+            <label>Categoría
+              <select id="cajaCategory">
+                <option value="gasolina">Gasolina</option>
+                <option value="transporte">Transporte / peaje</option>
+                <option value="comida">Alimentos / merienda</option>
+                <option value="materiales">Materiales / equipos</option>
+                <option value="mantenimiento">Mantenimiento</option>
+                <option value="servicios">Servicios / pagos</option>
+                <option value="otros" selected>Otros</option>
+              </select>
+            </label>
+          </div>
+          <label>Fecha<input id="cajaDate" type="date" /></label>
+          <label>Nota (opcional)<input id="cajaNote" type="text" placeholder="Detalle adicional" /></label>
+          <button id="btnSaveCajaExpense" class="btn primary" type="button">Guardar gasto e imprimir recibo</button>
+        </div>
+
+        <div class="form-card" id="cajaCloseFormCard">
+          <h2>Cerrar caja del día</h2>
+          <p class="muted tight">Se guarda el total del día (cierre habitual a las 5:00 p.m.).</p>
+          <label>Fecha a cerrar<input id="cajaCloseDate" type="date" /></label>
+          <label>Monto de cierre / efectivo restante (RD$)<input id="cajaCloseAmount" type="number" min="0" step="0.01" placeholder="0.00" /></label>
+          <label>Nota del cierre<textarea id="cajaCloseNote" rows="2" placeholder="Observaciones del cierre"></textarea></label>
+          <button id="btnCloseCajaDay" class="btn secondary" type="button">Cerrar día</button>
+        </div>
+
+        <div class="section-head tight"><h2>Gastos de hoy</h2></div>
+        <div id="cajaTodayList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabGasolina" class="caja-tab-panel" hidden>
+        <div class="form-card finance-total">
+          <p class="muted">Total gasolina (filtro)</p>
+          <div id="cajaGasTotal" class="money-big secondary">RD$ 0</div>
+          <div class="coords-row" style="margin-top:12px">
+            <label>Desde<input id="cajaGasFrom" type="date" /></label>
+            <label>Hasta<input id="cajaGasTo" type="date" /></label>
+          </div>
+        </div>
+        <div id="cajaGasList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabCierres" class="caja-tab-panel" hidden>
+        <div id="cajaClosingsList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabSemana" class="caja-tab-panel" hidden>
+        <div class="form-card">
+          <label>Semana (elige cualquier día de la semana)
+            <input id="cajaWeekPivot" type="date" />
+          </label>
+        </div>
+        <div id="cajaWeekStats" class="form-card stats-grid"></div>
+        <div id="cajaWeekList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabMes" class="caja-tab-panel" hidden>
+        <div class="form-card">
+          <label>Mes<input id="cajaMonth" type="month" /></label>
+        </div>
+        <div id="cajaMonthStats" class="form-card stats-grid"></div>
+        <div id="cajaMonthByCat" class="form-card"></div>
+        <div id="cajaMonthList" class="card-list"></div>
+      </div>
+    </section>
+
     <section id="financeView" class="view scroll-view">
       <div class="section-head section-head-row">
         <div>
@@ -790,14 +897,15 @@
       <button class="tab" data-view="monorrielView" type="button"><span>Monorriel</span></button>
       <button class="tab" data-view="lvaView" type="button"><span>La Vega</span></button>
       <button class="tab" data-view="financeView" type="button"><span>Finanzas</span></button>
+      <button class="tab" data-view="cajaView" type="button"><span>Caja</span></button>
       <button class="tab" data-view="adminView" type="button"><span>Admin</span></button>
     </nav>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=35"></script>
-  <script src="monorriel-data.js?v=35"></script>
-  <script src="cloud.js?v=35"></script>
-  <script src="app.js?v=35"></script>
+  <script src="cloud-config.js?v=36"></script>
+  <script src="monorriel-data.js?v=36"></script>
+  <script src="cloud.js?v=36"></script>
+  <script src="app.js?v=36"></script>
 </body>
 </html>

@@ -1070,6 +1070,49 @@ textarea { resize: vertical; }
   background: rgba(212, 20, 20, 0.18);
 }
 
+.caja-tabs {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.caja-tabs .emp-tab {
+  font-size: 11px;
+  padding: 9px 4px;
+}
+
+.caja-banner {
+  border-color: rgba(212, 20, 20, 0.45);
+  background: rgba(212, 20, 20, 0.1);
+  margin-bottom: 10px;
+}
+
+.caja-expense-card .caja-amount {
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.caja-cat-pill {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.caja-cat-pill.gasolina {
+  background: rgba(234, 179, 8, 0.18);
+  color: #fde68a;
+}
+
+@media (max-width: 520px) {
+  .caja-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 #btnAddEmployee {
   margin-bottom: 10px;
 }

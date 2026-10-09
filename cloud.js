@@ -8,7 +8,7 @@
     return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${docPath}?key=${encodeURIComponent(apiKey)}`;
   }
 
-  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva) {
+  function encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash) {
     return {
       fields: {
         postsJson: { stringValue: JSON.stringify(posts || []) },
@@ -21,6 +21,7 @@
         radioJson: { stringValue: JSON.stringify(radio || {}) },
         activityJson: { stringValue: JSON.stringify(activity || []) },
         lvaJson: { stringValue: JSON.stringify(lva || {}) },
+        pettyCashJson: { stringValue: JSON.stringify(pettyCash || { expenses: [], closings: [] }) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -62,6 +63,7 @@
       radio: parseObjectField(fields, "radioJson"),
       activity: parseJsonField(fields, "activityJson"),
       lva: parseObjectField(fields, "lvaJson"),
+      pettyCash: parseObjectField(fields, "pettyCashJson"),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
     };
   }
@@ -81,6 +83,7 @@
         radio: {},
         activity: [],
         lva: {},
+        pettyCash: { expenses: [], closings: [] },
         updatedAt: null,
         empty: true,
       };
@@ -90,9 +93,9 @@
     return { ...decodeDoc(doc), empty: false };
   }
 
-  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva) {
+  async function saveCloud(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
-    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva);
+    const body = encodeFields(posts, reports, employees, loans, monorrielReports, users, messages, radio, activity, lva, pettyCash);
     const res = await fetch(docUrl(), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
