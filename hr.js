@@ -654,11 +654,7 @@ function applyRemoteHrData(remote) {
   localStorage.setItem(HR_KEY, JSON.stringify(hrData));
 }
 
-function canAccessRrhh() {
-  if (!currentUser) return false;
-  if (currentUser.role === "owner") return true;
-  return typeof canAccessModule === "function" && canAccessModule("rrhh");
-}
+/* canAccessRrhh está definida en app.js para que el menú no falle si hr.js tarda */
 
 function getHrApp(id) {
   return (hrData.applications || []).find((a) => a.id === id) || null;

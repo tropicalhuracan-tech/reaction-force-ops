@@ -1738,22 +1738,51 @@ function fitAll() {
 function renderShifts() {
   const list = document.getElementById("shiftsList");
   const summary = document.getElementById("shiftsSummary");
+  if (!list || !summary) return;
   ensureClientNumbers(true);
+  const q = String(document.getElementById("clientsSearch")?.value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const matchClient = (p) => {
+    if (!q) return true;
+    const g = primaryGuard(p);
+    const hay = [
+      p.site,
+      String(p.clientNumber || ""),
+      p.supervisor,
+      p.shift,
+      guardsSummary(p),
+      g?.name,
+      g?.phone,
+      ...(p.guards || []).map((x) => `${x.name || ""} ${x.phone || ""} ${x.cedula || ""}`),
+    ]
+      .join(" ")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    return hay.includes(q);
+  };
   const activeClients = posts.length;
   const counts = { ok: 0, warn: 0, alert: 0 };
   posts.forEach((p) => {
     counts[p.status] = (counts[p.status] || 0) + 1;
   });
+  const ordered = sortPostsByClientNumber(posts).filter(matchClient);
   summary.textContent = activeClients
-    ? `Clientes activos: ${activeClients} · ${counts.ok || 0} en puesto · ${counts.warn || 0} pendientes · ${counts.alert || 0} incidentes`
+    ? `Clientes activos: ${activeClients} · mostrando ${ordered.length} · ${counts.ok || 0} en puesto · ${counts.warn || 0} pendientes · ${counts.alert || 0} incidentes`
     : "Clientes activos: 0 · Sin clientes todavía";
 
   if (!posts.length) {
     list.innerHTML = `<p class="empty">No hay clientes. Entra a Admin con la clave y crea el primero (se numera desde 101).</p>`;
     return;
   }
+  if (!ordered.length) {
+    list.innerHTML = `<p class="empty">Ningún cliente coincide con «${escapeHtml(document.getElementById("clientsSearch")?.value || "")}».</p>`;
+    return;
+  }
 
-  const ordered = sortPostsByClientNumber(posts);
   list.innerHTML = ordered
     .map((p) => {
       const g = primaryGuard(p);
@@ -2250,6 +2279,12 @@ function canWriteEmployees() {
   return canCap("employeesWrite");
 }
 
+function canAccessRrhh() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  return !!(currentUser.modules && currentUser.modules.rrhh);
+}
+
 function canAccessView(viewId) {
   if (viewId === "loginView") return true;
   if (viewId === "cajaView") return canAccessCajaChica();
@@ -2302,6 +2337,7 @@ function applyAccessControl() {
     const view = btn.dataset.go;
     btn.hidden = !(loggedIn && canAccessView(view));
   });
+  updateMessagesTabBadge();
 
   const usersCard = document.getElementById("usersAdminCard");
   if (usersCard) usersCard.hidden = !(currentUser && currentUser.role === "owner");
@@ -2460,8 +2496,17 @@ function clearBiometricEnrollment() {
 }
 
 function completeAppLogin(found, via = "password") {
+  // Dueño siempre con RRHH y módulos actuales (evita menú viejo sin Recursos Humanos)
+  if (found.role === "owner" || found.username === OWNER_USERNAME) {
+    found = normalizeUser({ ...found, role: "owner", username: OWNER_USERNAME, modules: allModulesTrue() });
+    const idx = appUsers.findIndex((u) => u.id === found.id || u.username === OWNER_USERNAME);
+    if (idx >= 0) appUsers[idx] = found;
+    localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+  }
   currentUser = found;
   setSessionUserId(found.id);
+  messageNotifyReady = false;
+  knownUnreadMessageIds = new Set();
   const error = document.getElementById("loginError");
   if (error) error.hidden = true;
   const passEl = document.getElementById("loginPassword");
@@ -2470,6 +2515,11 @@ function completeAppLogin(found, via = "password") {
   else setAdminUnlocked(false);
   logActivity("login", `Entró al sistema: ${found.displayName || found.username}${via === "biometric" ? " (Face ID/huella)" : ""}`, "login");
   applyAccessControl();
+  updateMessagesTabBadge();
+  detectAndNotifyNewMessages();
+  if (typeof Notification !== "undefined" && Notification.permission === "default" && canAccessModule("messages")) {
+    Notification.requestPermission().catch(() => {});
+  }
   refreshBiometricLoginUi();
   switchView(firstAllowedView());
   toast(`Bienvenido, ${found.displayName || found.username}`);
@@ -5109,6 +5159,7 @@ function markConversationRead(userId) {
     return { ...m, readBy: [...new Set([...(m.readBy || []), currentUser.id])] };
   });
   if (changed) saveChatMessages();
+  updateMessagesTabBadge();
 }
 
 function clearPendingMsgAttach() {
@@ -5396,28 +5447,100 @@ function renderMessagesModule() {
   renderMessageThread();
 }
 
+let knownUnreadMessageIds = new Set();
+let messageNotifyReady = false;
+
+function updateMessagesTabBadge() {
+  const badge = document.getElementById("msgTabBadge");
+  if (!badge) return;
+  const n = totalUnreadMessages();
+  if (n > 0) {
+    badge.hidden = false;
+    badge.textContent = n > 99 ? "99+" : String(n);
+  } else {
+    badge.hidden = true;
+    badge.textContent = "0";
+  }
+}
+
+function notifyNewChatMessages(newOnes) {
+  if (!newOnes.length || !currentUser) return;
+  const first = newOnes[0];
+  const from =
+    first.fromUserId === "*"
+      ? "Aviso"
+      : appUsers.find((u) => u.id === first.fromUserId)?.displayName ||
+        appUsers.find((u) => u.id === first.fromUserId)?.username ||
+        "Mensaje";
+  const preview = (first.text || (first.dataUrl ? "📎 Archivo" : "Nuevo mensaje")).slice(0, 80);
+  const more = newOnes.length > 1 ? ` (+${newOnes.length - 1} más)` : "";
+  toast(`💬 ${from}: ${preview}${more}`);
+  updateMessagesTabBadge();
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try {
+      new Notification("RFS · Nuevo mensaje", { body: `${from}: ${preview}${more}`, tag: "rfs-msg" });
+    } catch (_) {}
+  }
+}
+
+function detectAndNotifyNewMessages(prevIds) {
+  if (!currentUser || !messageNotifyReady) {
+    knownUnreadMessageIds = new Set(
+      chatMessages
+        .filter(
+          (m) =>
+            (m.toUserId === currentUser?.id || m.toUserId === "*") &&
+            m.fromUserId !== currentUser?.id &&
+            !(m.readBy || []).includes(currentUser?.id)
+        )
+        .map((m) => m.id)
+    );
+    messageNotifyReady = !!currentUser;
+    updateMessagesTabBadge();
+    return;
+  }
+  const unread = chatMessages.filter(
+    (m) =>
+      (m.toUserId === currentUser.id || m.toUserId === "*") &&
+      m.fromUserId !== currentUser.id &&
+      !(m.readBy || []).includes(currentUser.id)
+  );
+  const fresh = unread.filter((m) => !knownUnreadMessageIds.has(m.id) && !(prevIds && prevIds.has(m.id)));
+  knownUnreadMessageIds = new Set(unread.map((m) => m.id));
+  updateMessagesTabBadge();
+  if (fresh.length) notifyNewChatMessages(fresh);
+}
+
 function startMessagesPolling() {
   stopMessagesPolling();
   messagesPollTimer = setInterval(() => {
     if (!currentUser || !canAccessModule("messages")) return;
-    const active = document.querySelector(".view.active");
-    if (!active || active.id !== "messagesView") return;
-    if (!window.RFSCloudApi) return;
+    if (!window.RFSCloudApi) {
+      updateMessagesTabBadge();
+      return;
+    }
+    const prevIds = new Set(chatMessages.map((m) => m.id));
     window.RFSCloudApi
       .loadCloud()
       .then((remote) => {
         if (!remote || remote.empty) return;
         const remoteMsgs = Array.isArray(remote.messages) ? remote.messages.map(normalizeChatMessage) : [];
-        if (!remoteMsgs.length) return;
-        const before = chatMessages.length;
+        if (!remoteMsgs.length) {
+          updateMessagesTabBadge();
+          return;
+        }
         chatMessages = mergeChatMessages(chatMessages, remoteMsgs);
         localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
-        if (chatMessages.length !== before || document.querySelector(".view.active")?.id === "messagesView") {
+        detectAndNotifyNewMessages(prevIds);
+        const active = document.querySelector(".view.active");
+        if (active && active.id === "messagesView") {
           renderMessagesModule();
         }
       })
-      .catch(() => {});
-  }, 12000);
+      .catch(() => {
+        updateMessagesTabBadge();
+      });
+  }, 10000);
 }
 
 function stopMessagesPolling() {
@@ -7796,6 +7919,15 @@ function setupInstallPrompt() {
 }
 
 function bindUi() {
+  document.getElementById("btnBrandHome")?.addEventListener("click", () => {
+    if (!currentUser) {
+      switchView("loginView");
+      return;
+    }
+    switchView("homeView");
+  });
+  document.getElementById("clientsSearch")?.addEventListener("input", () => renderShifts());
+
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", (e) => {
       if (!currentUser) {

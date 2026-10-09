@@ -50,6 +50,37 @@ html, body {
   min-width: 0;
 }
 
+button.brand-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.brand-btn:active {
+  opacity: 0.85;
+}
+
+.tab-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #d41414;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+}
+
 .brand-logo,
 .sheet-logo {
   width: 42px;
@@ -365,6 +396,7 @@ textarea { resize: vertical; }
 }
 
 .tab {
+  position: relative;
   border: 0;
   border-radius: 12px;
   background: transparent;
@@ -401,9 +433,11 @@ textarea { resize: vertical; }
   box-shadow: var(--shadow);
 }
 
-#homeView .welcome-logo-wrap {
+#homeView .welcome-logo-wrap,
+#loginView .welcome-logo-wrap {
   width: min(70vw, 220px);
   max-width: 220px;
+  min-height: 140px;
   margin: 0 auto 10px;
   aspect-ratio: 1 / 1;
   border-radius: 28px;
