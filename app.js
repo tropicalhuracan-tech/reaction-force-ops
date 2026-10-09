@@ -5621,21 +5621,25 @@ const CAJA_CLOSE_HOUR = 17; // 5:00 p.m.
 
 const CAJA_CATEGORIES = [
   { key: "gasolina", label: "Gasolina" },
+  { key: "uniformes", label: "Uniformes" },
   { key: "transporte", label: "Transporte / peaje" },
   { key: "comida", label: "Alimentos / merienda" },
   { key: "materiales", label: "Materiales / equipos" },
   { key: "mantenimiento", label: "Mantenimiento" },
-  { key: "servicios", label: "Pago de día" },
+  { key: "servicios", label: "Pago de días" },
   { key: "otros", label: "Otros" },
 ];
 
-let pettyCash = { expenses: [], closings: [], people: [] };
+/** Subir este número vacía gastos de prueba antiguos en todos los dispositivos al sincronizar */
+const CAJA_RESET_EPOCH = 2;
+
+let pettyCash = { expenses: [], closings: [], people: [], deletedExpenses: [], epoch: CAJA_RESET_EPOCH };
 let cajaTab = "hoy";
 let pendingCajaCheckPhoto = null;
 let selectedCajaPersonId = null;
 
 function emptyPettyCash() {
-  return { expenses: [], closings: [], people: [] };
+  return { expenses: [], closings: [], people: [], deletedExpenses: [], epoch: CAJA_RESET_EPOCH };
 }
 
 function cajaCategoryLabel(key) {
@@ -5797,10 +5801,37 @@ function backfillCajaPeople(expenses, peopleIn) {
   };
 }
 
+function normalizeDeletedCajaExpense(e = {}) {
+  const base = normalizeCajaExpense(e);
+  return {
+    ...base,
+    deletedAt: e.deletedAt || new Date().toISOString(),
+    deletedBy: String(e.deletedBy || "").trim(),
+    deleteReason: String(e.deleteReason || "").trim(),
+  };
+}
+
 function normalizePettyCash(raw = {}) {
+  const epoch = Number(raw.epoch) || 1;
+  // Descarta gastos/cierres de prueba anteriores al reinicio pedido por el dueño
+  if (epoch < CAJA_RESET_EPOCH) {
+    return emptyPettyCash();
+  }
   const closings = Array.isArray(raw.closings) ? raw.closings.map(normalizeCajaClosing) : [];
+  const deletedExpenses = Array.isArray(raw.deletedExpenses)
+    ? raw.deletedExpenses.map(normalizeDeletedCajaExpense)
+    : [];
   const filled = backfillCajaPeople(raw.expenses || [], raw.people || []);
-  return { expenses: filled.expenses, closings, people: filled.people };
+  // Un gasto activo no debe quedar también en eliminados
+  const deletedIds = new Set(deletedExpenses.map((e) => e.id));
+  const active = filled.expenses.filter((e) => !deletedIds.has(e.id));
+  return {
+    expenses: active,
+    closings,
+    people: filled.people,
+    deletedExpenses: deletedExpenses.sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt))),
+    epoch: CAJA_RESET_EPOCH,
+  };
 }
 
 function savePettyCash(push = true) {
@@ -5812,9 +5843,16 @@ function savePettyCash(push = true) {
 function applyRemotePettyCash(remote) {
   const remoteNorm = normalizePettyCash(remote || {});
   const local = normalizePettyCash(pettyCash);
+  const deletedMap = new Map();
+  [...local.deletedExpenses, ...remoteNorm.deletedExpenses].forEach((e) => {
+    if (!e || !e.id) return;
+    const prev = deletedMap.get(e.id);
+    if (!prev || String(e.deletedAt) > String(prev.deletedAt)) deletedMap.set(e.id, e);
+  });
+  const deletedIds = new Set(deletedMap.keys());
   const expMap = new Map();
   [...local.expenses, ...remoteNorm.expenses].forEach((e) => {
-    if (!e || !e.id) return;
+    if (!e || !e.id || deletedIds.has(e.id)) return;
     const prev = expMap.get(e.id);
     if (!prev || String(e.createdAt) > String(prev.createdAt)) expMap.set(e.id, e);
   });
@@ -5852,6 +5890,8 @@ function applyRemotePettyCash(remote) {
     expenses: merged.expenses.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
     closings: [...byDate.values()].sort((a, b) => String(b.date).localeCompare(String(a.date))),
     people: merged.people,
+    deletedExpenses: [...deletedMap.values()].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt))),
+    epoch: CAJA_RESET_EPOCH,
   };
   localStorage.setItem(PETTY_KEY, JSON.stringify(pettyCash));
 }
@@ -5904,7 +5944,7 @@ function getClosingForDate(date) {
 }
 
 function nextCajaReceiptNo() {
-  const n = (pettyCash.expenses || []).length + 1;
+  const n = (pettyCash.expenses || []).length + (pettyCash.deletedExpenses || []).length + 1;
   return `CC-${String(n).padStart(4, "0")}`;
 }
 
@@ -5917,6 +5957,9 @@ function setCajaTab(tab) {
     hoy: "cajaTabHoy",
     personas: "cajaTabPersonas",
     gasolina: "cajaTabGasolina",
+    uniformes: "cajaTabUniformes",
+    pagodias: "cajaTabPagoDias",
+    eliminados: "cajaTabEliminados",
     cierres: "cajaTabCierres",
     semana: "cajaTabSemana",
     mes: "cajaTabMes",
@@ -6041,8 +6084,9 @@ function renderCajaExpenseList(listEl, items, emptyMsg) {
   }
   listEl.innerHTML = items
     .map((e) => {
-      const closed = !!getClosingForDate(e.date);
       const code = e.personCode || "—";
+      const catClass =
+        e.category === "gasolina" ? "gasolina" : e.category === "uniformes" ? "uniformes" : e.category === "servicios" ? "pagodias" : "";
       return `<article class="report-card caja-expense-card" data-id="${escapeHtml(e.id)}">
         <div class="row">
           <div style="flex:1;min-width:0">
@@ -6050,14 +6094,14 @@ function renderCajaExpenseList(listEl, items, emptyMsg) {
             <span class="caja-code-pill">${escapeHtml(code)}</span>
             <p>${escapeHtml(e.purpose || "—")}</p>
             <p style="margin-top:6px">${escapeHtml(e.date)} · Recibo ${escapeHtml(e.receiptNo || "—")}${e.note ? ` · ${escapeHtml(e.note)}` : ""}</p>
-            <span class="caja-cat-pill ${e.category === "gasolina" ? "gasolina" : ""}">${escapeHtml(cajaCategoryLabel(e.category))}</span>
+            <span class="caja-cat-pill ${catClass}">${escapeHtml(cajaCategoryLabel(e.category))}</span>
             ${e.checkPhoto ? `<span class="caja-cat-pill" style="margin-left:6px">Cheque adjunto</span>` : ""}
           </div>
           <div style="text-align:right">
             <div class="caja-amount">${money(e.amount)}</div>
             <button class="btn ghost btn-print-caja-receipt" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:8px;padding:6px 8px;font-size:12px">Recibo</button>
             ${e.checkPhoto ? `<button class="btn secondary btn-view-caja-check" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:6px;padding:6px 8px;font-size:12px">Ver cheque</button>` : ""}
-            ${closed ? "" : `<button class="btn danger btn-del-caja" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:6px;padding:6px 8px;font-size:12px">Quitar</button>`}
+            <button class="btn danger btn-del-caja" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:6px;padding:6px 8px;font-size:12px">Eliminar</button>
           </div>
         </div>
       </article>`;
@@ -6167,9 +6211,9 @@ function reopenCajaDay() {
   focusCajaNuevoGasto();
 }
 
-function renderCajaGasolina() {
-  const fromEl = document.getElementById("cajaGasFrom");
-  const toEl = document.getElementById("cajaGasTo");
+function renderCajaCategoryFolder({ category, fromId, toId, totalId, listId, emptyMsg }) {
+  const fromEl = document.getElementById(fromId);
+  const toEl = document.getElementById(toId);
   const today = localDateISO();
   if (fromEl && !fromEl.value) {
     const d = parseLocalDate(today);
@@ -6180,11 +6224,96 @@ function renderCajaGasolina() {
   const from = fromEl?.value || today;
   const to = toEl?.value || today;
   const items = expensesBetween(from, to)
-    .filter((e) => e.category === "gasolina")
+    .filter((e) => e.category === category)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
-  const totalEl = document.getElementById("cajaGasTotal");
+  const totalEl = document.getElementById(totalId);
   if (totalEl) totalEl.textContent = money(sumExpenses(items));
-  renderCajaExpenseList(document.getElementById("cajaGasList"), items, "No hay gastos de gasolina en este rango.");
+  renderCajaExpenseList(document.getElementById(listId), items, emptyMsg);
+}
+
+function renderCajaGasolina() {
+  renderCajaCategoryFolder({
+    category: "gasolina",
+    fromId: "cajaGasFrom",
+    toId: "cajaGasTo",
+    totalId: "cajaGasTotal",
+    listId: "cajaGasList",
+    emptyMsg: "No hay gastos de gasolina en este rango.",
+  });
+}
+
+function renderCajaUniformes() {
+  renderCajaCategoryFolder({
+    category: "uniformes",
+    fromId: "cajaUniformesFrom",
+    toId: "cajaUniformesTo",
+    totalId: "cajaUniformesTotal",
+    listId: "cajaUniformesList",
+    emptyMsg: "No hay gastos de uniformes en este rango.",
+  });
+}
+
+function renderCajaPagoDias() {
+  renderCajaCategoryFolder({
+    category: "servicios",
+    fromId: "cajaPagoDiasFrom",
+    toId: "cajaPagoDiasTo",
+    totalId: "cajaPagoDiasTotal",
+    listId: "cajaPagoDiasList",
+    emptyMsg: "No hay pagos de días en este rango.",
+  });
+}
+
+function renderCajaEliminados() {
+  const list = document.getElementById("cajaEliminadosList");
+  if (!list) return;
+  const items = [...(pettyCash.deletedExpenses || [])].sort((a, b) =>
+    String(b.deletedAt).localeCompare(String(a.deletedAt))
+  );
+  if (!items.length) {
+    list.innerHTML = `<p class="empty">No hay gastos en la carpeta de eliminados.</p>`;
+    return;
+  }
+  list.innerHTML = items
+    .map((e) => {
+      const when = e.deletedAt
+        ? new Date(e.deletedAt).toLocaleString("es-DO", { dateStyle: "medium", timeStyle: "short" })
+        : "—";
+      return `<article class="report-card caja-expense-card caja-deleted-card" data-id="${escapeHtml(e.id)}">
+        <div class="row">
+          <div style="flex:1;min-width:0">
+            <h3>${escapeHtml(e.recipient || "—")}</h3>
+            <span class="caja-code-pill">${escapeHtml(e.personCode || "—")}</span>
+            <p>${escapeHtml(e.purpose || "—")}</p>
+            <p style="margin-top:6px">${escapeHtml(e.date)} · Recibo ${escapeHtml(e.receiptNo || "—")} · ${escapeHtml(cajaCategoryLabel(e.category))}</p>
+            <p class="caja-delete-reason"><strong>Razón:</strong> ${escapeHtml(e.deleteReason || "Sin razón")}</p>
+            <p class="muted" style="margin-top:6px;font-size:12px">Eliminado ${escapeHtml(when)} por ${escapeHtml(e.deletedBy || "—")}</p>
+          </div>
+          <div style="text-align:right">
+            <div class="caja-amount" style="opacity:.7">${money(e.amount)}</div>
+            <span class="caja-cat-pill" style="margin-top:8px">No contabiliza</span>
+            <button class="btn ghost btn-print-caja-receipt" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:8px;padding:6px 8px;font-size:12px">Recibo</button>
+            ${e.checkPhoto ? `<button class="btn secondary btn-view-caja-check-del" type="button" data-id="${escapeHtml(e.id)}" style="width:auto;margin-top:6px;padding:6px 8px;font-size:12px">Ver cheque</button>` : ""}
+          </div>
+        </div>
+      </article>`;
+    })
+    .join("");
+  list.querySelectorAll(".btn-print-caja-receipt").forEach((btn) => {
+    btn.addEventListener("click", () => printCajaReceipt(btn.dataset.id));
+  });
+  list.querySelectorAll(".btn-view-caja-check-del").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const exp = (pettyCash.deletedExpenses || []).find((e) => e.id === btn.dataset.id);
+      if (!exp?.checkPhoto) return;
+      openMediaLightbox({
+        title: `Cheque · ${exp.personCode || ""} · ${exp.recipient || ""}`,
+        dataUrl: exp.checkPhoto,
+        mime: "image/jpeg",
+        name: exp.checkPhotoName || "cheque.jpg",
+      });
+    });
+  });
 }
 
 function renderCajaCierres() {
@@ -6293,6 +6422,9 @@ function renderCajaModule() {
   if (cajaTab === "hoy") renderCajaHoy();
   else if (cajaTab === "personas") renderCajaPersonas();
   else if (cajaTab === "gasolina") renderCajaGasolina();
+  else if (cajaTab === "uniformes") renderCajaUniformes();
+  else if (cajaTab === "pagodias") renderCajaPagoDias();
+  else if (cajaTab === "eliminados") renderCajaEliminados();
   else if (cajaTab === "cierres") renderCajaCierres();
   else if (cajaTab === "semana") renderCajaSemana();
   else if (cajaTab === "mes") renderCajaMes();
@@ -6300,8 +6432,14 @@ function renderCajaModule() {
   if (summary) {
     if (cajaTab === "personas") {
       summary.textContent = "Busca por código único para ver historial, recibos, cheques y suma por persona.";
+    } else if (cajaTab === "eliminados") {
+      summary.textContent = "Gastos eliminados con su razón. No se suman a totales ni cierres.";
+    } else if (cajaTab === "uniformes") {
+      summary.textContent = "Carpeta de uniformes: solo lo gastado en esa categoría.";
+    } else if (cajaTab === "pagodias") {
+      summary.textContent = "Carpeta de pago de días: solo lo gastado en esa categoría.";
     } else if (cajaTab === "hoy" || cajaTab === "gasolina" || cajaTab === "cierres") {
-      summary.textContent = "Gastos del día, gasolina y cierres. Cada persona tiene código único.";
+      summary.textContent = "Gastos del día, carpetas por categoría y cierres. Cada persona tiene código único.";
     }
   }
 }
@@ -6483,16 +6621,32 @@ function deleteCajaExpense(id) {
   if (!canAccessCajaChica()) return;
   const exp = (pettyCash.expenses || []).find((e) => e.id === id);
   if (!exp) return;
-  if (getClosingForDate(exp.date)) {
-    toast("No se puede borrar: el día ya está cerrado.");
+  const reason = window.prompt(
+    `Eliminar gasto de ${exp.recipient} por ${money(exp.amount)}.\n\nEscribe la razón del borrado (obligatorio):\nEl gasto pasará a la carpeta Eliminados y no se contabilizará.`,
+    ""
+  );
+  if (reason === null) return;
+  const cleanReason = String(reason).trim();
+  if (!cleanReason) {
+    toast("Debes indicar la razón del borrado.");
     return;
   }
-  if (!window.confirm(`¿Quitar el gasto de ${exp.recipient} por ${money(exp.amount)}?`)) return;
-  pettyCash.expenses = pettyCash.expenses.filter((e) => e.id !== id);
+  if (!window.confirm(`¿Confirmar eliminación?\nRazón: ${cleanReason}`)) return;
+  const archived = normalizeDeletedCajaExpense({
+    ...exp,
+    deletedAt: new Date().toISOString(),
+    deletedBy: currentUser ? currentUser.displayName || currentUser.username : "",
+    deleteReason: cleanReason,
+  });
+  pettyCash.expenses = (pettyCash.expenses || []).filter((e) => e.id !== id);
+  pettyCash.deletedExpenses = [archived, ...(pettyCash.deletedExpenses || []).filter((e) => e.id !== id)];
   savePettyCash(true);
-  logActivity("caja_delete", `Eliminó gasto caja: ${exp.recipient} ${money(exp.amount)}`);
+  logActivity(
+    "caja_delete",
+    `Eliminó gasto caja: ${exp.recipient} ${money(exp.amount)} [${exp.personCode || ""}] — ${cleanReason}`
+  );
   renderCajaModule();
-  toast("Gasto eliminado.");
+  toast("Gasto enviado a Eliminados (no contabiliza).");
 }
 
 function closeCajaDay() {
@@ -6538,7 +6692,9 @@ function closeCajaDay() {
 }
 
 function printCajaReceipt(id) {
-  const exp = (pettyCash.expenses || []).find((e) => e.id === id);
+  const exp =
+    (pettyCash.expenses || []).find((e) => e.id === id) ||
+    (pettyCash.deletedExpenses || []).find((e) => e.id === id);
   if (!exp) {
     toast("No se encontró el gasto.");
     return;
@@ -6628,12 +6784,44 @@ function printCajaSheet() {
   } else if (cajaTab === "personas") {
     printCajaPersonHistory(selectedCajaPersonId);
     return;
+  } else if (cajaTab === "eliminados") {
+    const dels = [...(pettyCash.deletedExpenses || [])].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
+    const rows = dels
+      .map(
+        (e) => `<tr>
+          <td>${escapeHtml(e.date)}</td>
+          <td>${escapeHtml(e.receiptNo || "—")}</td>
+          <td>${escapeHtml(e.personCode || "—")}</td>
+          <td>${escapeHtml(e.recipient)}</td>
+          <td class="right">${money(e.amount)}</td>
+          <td>${escapeHtml(e.deleteReason || "—")}</td>
+          <td>${escapeHtml(e.deletedBy || "—")}</td>
+        </tr>`
+      )
+      .join("");
+    openPrintWindow("Gastos eliminados", `
+      <h2>Carpeta de eliminados (no contabilizan)</h2>
+      <table>
+        <thead><tr><th>Fecha</th><th>Recibo</th><th>Código</th><th>Persona</th><th class="right">Monto</th><th>Razón</th><th>Eliminó</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="7">Sin eliminados</td></tr>`}</tbody>
+      </table>`);
+    return;
+  } else if (cajaTab === "uniformes") {
+    from = document.getElementById("cajaUniformesFrom")?.value || from;
+    to = document.getElementById("cajaUniformesTo")?.value || to;
+    title = "Caja chica — Uniformes";
+  } else if (cajaTab === "pagodias") {
+    from = document.getElementById("cajaPagoDiasFrom")?.value || from;
+    to = document.getElementById("cajaPagoDiasTo")?.value || to;
+    title = "Caja chica — Pago de días";
   } else {
     from = document.getElementById("cajaDate")?.value || from;
     to = from;
   }
   let items = expensesBetween(from, to);
   if (cajaTab === "gasolina") items = items.filter((e) => e.category === "gasolina");
+  if (cajaTab === "uniformes") items = items.filter((e) => e.category === "uniformes");
+  if (cajaTab === "pagodias") items = items.filter((e) => e.category === "servicios");
   items = items.sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.createdAt).localeCompare(String(b.createdAt)));
   const rows = items
     .map(
@@ -6680,6 +6868,10 @@ function bindCajaUi() {
   });
   document.getElementById("cajaGasFrom")?.addEventListener("change", renderCajaGasolina);
   document.getElementById("cajaGasTo")?.addEventListener("change", renderCajaGasolina);
+  document.getElementById("cajaUniformesFrom")?.addEventListener("change", renderCajaUniformes);
+  document.getElementById("cajaUniformesTo")?.addEventListener("change", renderCajaUniformes);
+  document.getElementById("cajaPagoDiasFrom")?.addEventListener("change", renderCajaPagoDias);
+  document.getElementById("cajaPagoDiasTo")?.addEventListener("change", renderCajaPagoDias);
   document.getElementById("cajaWeekPivot")?.addEventListener("change", renderCajaSemana);
   document.getElementById("cajaMonth")?.addEventListener("change", renderCajaMes);
   document.getElementById("cajaRecipient")?.addEventListener("input", updateCajaPersonCodeHint);
@@ -7609,14 +7801,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=42").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=43").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v42").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v43").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

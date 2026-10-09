@@ -1201,6 +1201,29 @@ body.lightbox-open {
   color: #fde68a;
 }
 
+.caja-cat-pill.uniformes {
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+.caja-cat-pill.pagodias {
+  background: rgba(52, 211, 153, 0.18);
+  color: #6ee7b7;
+}
+
+.caja-delete-reason {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  font-size: 13px;
+}
+
+.caja-deleted-card {
+  opacity: 0.95;
+}
+
 @media (max-width: 520px) {
   .caja-tabs {
     grid-template-columns: repeat(3, minmax(0, 1fr));

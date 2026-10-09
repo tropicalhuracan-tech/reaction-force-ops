@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=42" />
+  <link rel="stylesheet" href="styles.css?v=43" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -576,6 +576,9 @@
         <button class="emp-tab active" type="button" data-caja-tab="hoy">Hoy</button>
         <button class="emp-tab" type="button" data-caja-tab="personas">Personas</button>
         <button class="emp-tab" type="button" data-caja-tab="gasolina">Gasolina</button>
+        <button class="emp-tab" type="button" data-caja-tab="uniformes">Uniformes</button>
+        <button class="emp-tab" type="button" data-caja-tab="pagodias">Pago de días</button>
+        <button class="emp-tab" type="button" data-caja-tab="eliminados">Eliminados</button>
         <button class="emp-tab" type="button" data-caja-tab="cierres">Cierres</button>
         <button class="emp-tab" type="button" data-caja-tab="semana">Semana</button>
         <button class="emp-tab" type="button" data-caja-tab="mes">Mes</button>
@@ -601,11 +604,12 @@
             <label>Categoría
               <select id="cajaCategory">
                 <option value="gasolina">Gasolina</option>
+                <option value="uniformes">Uniformes</option>
                 <option value="transporte">Transporte / peaje</option>
                 <option value="comida">Alimentos / merienda</option>
                 <option value="materiales">Materiales / equipos</option>
                 <option value="mantenimiento">Mantenimiento</option>
-                <option value="servicios">Pago de día</option>
+                <option value="servicios">Pago de días</option>
                 <option value="otros" selected>Otros</option>
               </select>
             </label>
@@ -686,6 +690,38 @@
           </div>
         </div>
         <div id="cajaGasList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabUniformes" class="caja-tab-panel" hidden>
+        <div class="form-card finance-total">
+          <p class="muted">Total uniformes (filtro)</p>
+          <div id="cajaUniformesTotal" class="money-big secondary">RD$ 0</div>
+          <div class="coords-row" style="margin-top:12px">
+            <label>Desde<input id="cajaUniformesFrom" type="date" /></label>
+            <label>Hasta<input id="cajaUniformesTo" type="date" /></label>
+          </div>
+        </div>
+        <div id="cajaUniformesList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabPagoDias" class="caja-tab-panel" hidden>
+        <div class="form-card finance-total">
+          <p class="muted">Total pago de días (filtro)</p>
+          <div id="cajaPagoDiasTotal" class="money-big secondary">RD$ 0</div>
+          <div class="coords-row" style="margin-top:12px">
+            <label>Desde<input id="cajaPagoDiasFrom" type="date" /></label>
+            <label>Hasta<input id="cajaPagoDiasTo" type="date" /></label>
+          </div>
+        </div>
+        <div id="cajaPagoDiasList" class="card-list"></div>
+      </div>
+
+      <div id="cajaTabEliminados" class="caja-tab-panel" hidden>
+        <div class="form-card">
+          <h2>Gastos eliminados</h2>
+          <p class="muted tight">No se contabilizan en totales ni cierres. Quedan aquí con la razón del borrado.</p>
+        </div>
+        <div id="cajaEliminadosList" class="card-list"></div>
       </div>
 
       <div id="cajaTabCierres" class="caja-tab-panel" hidden>
@@ -976,7 +1012,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="cloud-config.js?v=41"></script>
   <script src="monorriel-data.js?v=41"></script>
-  <script src="cloud.js?v=42"></script>
-  <script src="app.js?v=42"></script>
+  <script src="cloud.js?v=43"></script>
+  <script src="app.js?v=43"></script>
 </body>
 </html>

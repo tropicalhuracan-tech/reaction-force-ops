@@ -21,7 +21,7 @@
         radioJson: { stringValue: JSON.stringify(radio || {}) },
         activityJson: { stringValue: JSON.stringify(activity || []) },
         lvaJson: { stringValue: JSON.stringify(lva || {}) },
-        pettyCashJson: { stringValue: JSON.stringify(pettyCash || { expenses: [], closings: [], people: [] }) },
+        pettyCashJson: { stringValue: JSON.stringify(pettyCash || { expenses: [], closings: [], people: [], deletedExpenses: [], epoch: 2 }) },
         updatedAt: { stringValue: new Date().toISOString() },
         app: { stringValue: "Reaction Force Security Ops" },
       },
@@ -83,7 +83,7 @@
         radio: {},
         activity: [],
         lva: {},
-        pettyCash: { expenses: [], closings: [], people: [] },
+        pettyCash: { expenses: [], closings: [], people: [], deletedExpenses: [], epoch: 2 },
         updatedAt: null,
         empty: true,
       };
