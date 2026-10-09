@@ -1765,6 +1765,12 @@ body.lightbox-open {
   width: 100%;
 }
 
+.app-version-badge {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
 .emp-hr-card {
   margin-top: 8px;
 }

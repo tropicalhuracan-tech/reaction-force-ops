@@ -1,22 +1,22 @@
-const CACHE = "rfs-ops-v45";
+const CACHE = "rfs-ops-v46";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=45",
+  "styles.css?v=46",
   "app.js",
-  "app.js?v=45",
+  "app.js?v=46",
   "hr.js",
-  "hr.js?v=45",
+  "hr.js?v=46",
   "cloud.js",
-  "cloud.js?v=45",
+  "cloud.js?v=46",
   "cloud-config.js",
-  "cloud-config.js?v=45",
+  "cloud-config.js?v=46",
   "monorriel-data.js",
-  "monorriel-data.js?v=45",
+  "monorriel-data.js?v=46",
   "manifest.json",
   "logo.jpg",
-  "logo.jpg?v=45",
+  "logo.jpg?v=46",
   "import-posts.json",
   "icons/icon-192.png",
   "icons/icon-256.png",
@@ -29,13 +29,16 @@ self.addEventListener("install", (event) => {
   self.skipWaiting();
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {

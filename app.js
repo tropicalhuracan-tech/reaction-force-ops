@@ -8066,14 +8066,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=45").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=46").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v45").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v46").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
