@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=39" />
+  <link rel="stylesheet" href="styles.css?v=40" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=39" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=40" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -56,7 +56,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=39" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=40" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -565,6 +565,8 @@
         <button id="btnCajaGoClose" class="btn secondary" type="button">Ir a cerrar el día</button>
       </div>
 
+      <button id="btnCajaNuevoGasto" class="btn primary" type="button" style="margin-bottom:10px">＋ Nuevo gasto de caja chica</button>
+
       <div class="emp-tabs caja-tabs" role="tablist">
         <button class="emp-tab active" type="button" data-caja-tab="hoy">Hoy</button>
         <button class="emp-tab" type="button" data-caja-tab="gasolina">Gasolina</button>
@@ -574,18 +576,14 @@
       </div>
 
       <div id="cajaTabHoy" class="caja-tab-panel">
-        <div class="form-card finance-total">
-          <div class="stats-grid">
-            <div class="stat-box"><span class="muted">Gastos hoy</span><strong id="cajaTodayCount">0</strong></div>
-            <div class="stat-box"><span class="muted">Gasolina hoy</span><strong id="cajaTodayGas">RD$ 0</strong></div>
-          </div>
-          <p class="muted" style="margin-top:14px">Total gastado hoy</p>
-          <div id="cajaTodayTotal" class="money-big">RD$ 0</div>
-          <p class="muted" style="margin-top:8px" id="cajaTodayStatus">Día abierto</p>
-        </div>
-
         <div class="form-card" id="cajaExpenseFormCard">
-          <h2>Registrar gasto</h2>
+          <h2>Nuevo gasto de caja chica</h2>
+          <p class="muted tight">Digita a quién se le dio, para qué y el monto.</p>
+          <div id="cajaClosedNotice" class="caja-banner" hidden style="margin-bottom:12px">
+            <p><strong>Este día ya está cerrado.</strong></p>
+            <p class="muted" style="margin:6px 0 10px">Para registrar otro gasto, reabre el día o cambia la fecha.</p>
+            <button id="btnReopenCajaDay" class="btn secondary" type="button">Reabrir este día</button>
+          </div>
           <label>A quién se le dio el dinero<input id="cajaRecipient" type="text" placeholder="Nombre de quien recibió" /></label>
           <label>Para qué se dio<textarea id="cajaPurpose" rows="2" placeholder="Motivo del gasto"></textarea></label>
           <div class="coords-row">
@@ -597,7 +595,7 @@
                 <option value="comida">Alimentos / merienda</option>
                 <option value="materiales">Materiales / equipos</option>
                 <option value="mantenimiento">Mantenimiento</option>
-                <option value="servicios">Servicios / pagos</option>
+                <option value="servicios">Pago de día</option>
                 <option value="otros" selected>Otros</option>
               </select>
             </label>
@@ -605,6 +603,16 @@
           <label>Fecha<input id="cajaDate" type="date" /></label>
           <label>Nota (opcional)<input id="cajaNote" type="text" placeholder="Detalle adicional" /></label>
           <button id="btnSaveCajaExpense" class="btn primary" type="button">Guardar gasto e imprimir recibo</button>
+        </div>
+
+        <div class="form-card finance-total">
+          <div class="stats-grid">
+            <div class="stat-box"><span class="muted">Gastos hoy</span><strong id="cajaTodayCount">0</strong></div>
+            <div class="stat-box"><span class="muted">Gasolina hoy</span><strong id="cajaTodayGas">RD$ 0</strong></div>
+          </div>
+          <p class="muted" style="margin-top:14px">Total gastado hoy</p>
+          <div id="cajaTodayTotal" class="money-big">RD$ 0</div>
+          <p class="muted" style="margin-top:8px" id="cajaTodayStatus">Día abierto</p>
         </div>
 
         <div class="form-card" id="cajaCloseFormCard">
@@ -907,9 +915,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=39"></script>
-  <script src="monorriel-data.js?v=39"></script>
-  <script src="cloud.js?v=39"></script>
-  <script src="app.js?v=39"></script>
+  <script src="cloud-config.js?v=40"></script>
+  <script src="monorriel-data.js?v=40"></script>
+  <script src="cloud.js?v=40"></script>
+  <script src="app.js?v=40"></script>
 </body>
 </html>

@@ -2393,6 +2393,7 @@ function clearUserForm() {
     monorriel: true,
     lavega: true,
     finance: false,
+    cajachica: false,
     reports: true,
     messages: true,
     radio: true,
@@ -5571,7 +5572,7 @@ const CAJA_CATEGORIES = [
   { key: "comida", label: "Alimentos / merienda" },
   { key: "materiales", label: "Materiales / equipos" },
   { key: "mantenimiento", label: "Mantenimiento" },
-  { key: "servicios", label: "Servicios / pagos" },
+  { key: "servicios", label: "Pago de día" },
   { key: "otros", label: "Otros" },
 ];
 
@@ -5785,6 +5786,18 @@ function renderCajaExpenseList(listEl, items, emptyMsg) {
   });
 }
 
+function setCajaExpenseFormEnabled(enabled) {
+  ["cajaRecipient", "cajaPurpose", "cajaAmount", "cajaCategory", "cajaNote", "btnSaveCajaExpense"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === "btnSaveCajaExpense") el.disabled = !enabled;
+    else el.disabled = !enabled;
+  });
+  // La fecha siempre se puede cambiar para registrar en otro día
+  const dateEl = document.getElementById("cajaDate");
+  if (dateEl) dateEl.disabled = false;
+}
+
 function renderCajaHoy() {
   const today = document.getElementById("cajaDate")?.value || localDateISO();
   const items = expensesOnDate(today).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -5807,9 +5820,50 @@ function renderCajaHoy() {
   );
   const formCard = document.getElementById("cajaExpenseFormCard");
   const closeCard = document.getElementById("cajaCloseFormCard");
-  if (formCard) formCard.hidden = !!closed;
+  const closedNotice = document.getElementById("cajaClosedNotice");
+  if (formCard) formCard.hidden = false;
   if (closeCard) closeCard.hidden = !!closed;
+  if (closedNotice) closedNotice.hidden = !closed;
+  setCajaExpenseFormEnabled(!closed);
   renderCajaExpenseList(document.getElementById("cajaTodayList"), items, "No hay gastos registrados para esta fecha.");
+}
+
+function focusCajaNuevoGasto() {
+  setCajaTab("hoy");
+  const dateEl = document.getElementById("cajaDate");
+  if (dateEl && !dateEl.value) dateEl.value = localDateISO();
+  // Si el día de hoy está cerrado, dejar la fecha en hoy para que vea el aviso y pueda reabrir
+  renderCajaHoy();
+  const form = document.getElementById("cajaExpenseFormCard");
+  if (form) {
+    form.hidden = false;
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  const recipient = document.getElementById("cajaRecipient");
+  if (recipient && !recipient.disabled) {
+    setTimeout(() => recipient.focus(), 250);
+  }
+}
+
+function reopenCajaDay() {
+  if (!canAccessCajaChica()) {
+    toast("No tienes permiso de caja chica.");
+    return;
+  }
+  const date = document.getElementById("cajaDate")?.value || localDateISO();
+  const closing = getClosingForDate(date);
+  if (!closing) {
+    toast("Ese día no está cerrado.");
+    return;
+  }
+  const ok = window.confirm(`¿Reabrir la caja del ${date} para poder registrar más gastos?`);
+  if (!ok) return;
+  pettyCash.closings = (pettyCash.closings || []).filter((c) => c.date !== date);
+  savePettyCash(true);
+  logActivity("caja_reopen", `Reabrió caja del ${date}`);
+  renderCajaModule();
+  toast("Día reabierto. Ya puedes digitar gastos.");
+  focusCajaNuevoGasto();
 }
 
 function renderCajaGasolina() {
@@ -6166,6 +6220,8 @@ function bindCajaUi() {
   document.querySelectorAll(".caja-tabs .emp-tab").forEach((btn) => {
     btn.addEventListener("click", () => setCajaTab(btn.dataset.cajaTab));
   });
+  document.getElementById("btnCajaNuevoGasto")?.addEventListener("click", focusCajaNuevoGasto);
+  document.getElementById("btnReopenCajaDay")?.addEventListener("click", reopenCajaDay);
   document.getElementById("btnSaveCajaExpense")?.addEventListener("click", saveCajaExpense);
   document.getElementById("btnCloseCajaDay")?.addEventListener("click", closeCajaDay);
   document.getElementById("btnCajaGoClose")?.addEventListener("click", () => {
