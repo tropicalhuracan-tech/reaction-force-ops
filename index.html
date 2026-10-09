@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=37" />
+  <link rel="stylesheet" href="styles.css?v=38" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -36,7 +36,7 @@
     <section id="loginView" class="view active scroll-view home-view">
       <div class="welcome-card login-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=37" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=38" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Iniciar sesión</h1>
         <p class="welcome-sub">Acceso por usuario</p>
@@ -44,7 +44,10 @@
           <label>Usuario<input id="loginUsername" type="text" autocomplete="username" placeholder="Tu usuario" /></label>
           <label>Clave<input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" /></label>
           <button id="btnAppLogin" class="btn primary" type="button">Entrar</button>
+          <button id="btnBiometricLogin" class="btn secondary" type="button" hidden>Entrar con Face ID / huella</button>
           <p id="loginError" class="error-text" hidden>Usuario o clave incorrectos.</p>
+          <p id="biometricHint" class="muted tight" style="margin-top:10px" hidden></p>
+          <button id="btnBiometricDisable" class="btn ghost" type="button" hidden style="margin-top:6px">Quitar Face ID de este teléfono</button>
           <p class="muted tight" style="margin-top:10px">El dueño crea usuarios en Admin y elige qué pestañas puede ver cada uno.</p>
         </div>
       </div>
@@ -53,7 +56,7 @@
 <section id="homeView" class="view scroll-view home-view">
       <div class="welcome-card">
         <div class="welcome-logo-wrap">
-          <img src="logo.jpg?v=37" alt="Reaction Force Security" class="welcome-logo" />
+          <img src="logo.jpg?v=38" alt="Reaction Force Security" class="welcome-logo" />
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
@@ -903,9 +906,9 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="cloud-config.js?v=37"></script>
-  <script src="monorriel-data.js?v=37"></script>
-  <script src="cloud.js?v=37"></script>
-  <script src="app.js?v=37"></script>
+  <script src="cloud-config.js?v=38"></script>
+  <script src="monorriel-data.js?v=38"></script>
+  <script src="cloud.js?v=38"></script>
+  <script src="app.js?v=38"></script>
 </body>
 </html>

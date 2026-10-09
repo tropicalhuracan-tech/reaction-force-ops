@@ -1638,3 +1638,12 @@ textarea { resize: vertical; }
 #lvaView .form-card h2 {
   margin-top: 0;
 }
+
+
+#btnBiometricLogin {
+  margin-top: 10px;
+}
+
+#btnBiometricDisable {
+  width: 100%;
+}

@@ -2071,27 +2071,263 @@ function requireLoginOrContinue() {
   return false;
 }
 
+
+/* ==== FACE ID / BIOMETRÍA (teléfonos) ==== */
+const BIOMETRIC_KEY = "rfs-ops-biometric";
+
+function bufferToBase64Url(buf) {
+  const bytes = new Uint8Array(buf);
+  let str = "";
+  bytes.forEach((b) => {
+    str += String.fromCharCode(b);
+  });
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBuffer(str) {
+  const pad = "=".repeat((4 - (str.length % 4)) % 4);
+  const base64 = (str + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+  return out.buffer;
+}
+
+function randomChallenge(len = 32) {
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return arr.buffer;
+}
+
+function getBiometricRpId() {
+  const host = window.location.hostname || "";
+  if (!host || host === "localhost" || host === "127.0.0.1") return host || "localhost";
+  return host;
+}
+
+function isBiometricPlatformAvailable() {
+  return !!(window.PublicKeyCredential && navigator.credentials && window.isSecureContext);
+}
+
+async function canUsePlatformAuthenticator() {
+  if (!isBiometricPlatformAvailable()) return false;
+  try {
+    if (typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function") {
+      return !!(await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+    }
+  } catch (_) {}
+  return true;
+}
+
+function loadBiometricEnrollment() {
+  try {
+    const raw = localStorage.getItem(BIOMETRIC_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || !data.userId || !data.credentialId) return null;
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveBiometricEnrollment(data) {
+  if (!data) localStorage.removeItem(BIOMETRIC_KEY);
+  else localStorage.setItem(BIOMETRIC_KEY, JSON.stringify(data));
+}
+
+function clearBiometricEnrollment() {
+  localStorage.removeItem(BIOMETRIC_KEY);
+}
+
+function completeAppLogin(found, via = "password") {
+  currentUser = found;
+  setSessionUserId(found.id);
+  const error = document.getElementById("loginError");
+  if (error) error.hidden = true;
+  const passEl = document.getElementById("loginPassword");
+  if (passEl) passEl.value = "";
+  if (found.role === "owner" || found.modules.admin) setAdminUnlocked(true);
+  else setAdminUnlocked(false);
+  logActivity("login", `Entró al sistema: ${found.displayName || found.username}${via === "biometric" ? " (Face ID/huella)" : ""}`, "login");
+  applyAccessControl();
+  refreshBiometricLoginUi();
+  switchView(firstAllowedView());
+  toast(`Bienvenido, ${found.displayName || found.username}`);
+}
+
+async function refreshBiometricLoginUi() {
+  const btn = document.getElementById("btnBiometricLogin");
+  const hint = document.getElementById("biometricHint");
+  const disableBtn = document.getElementById("btnBiometricDisable");
+  if (!btn) return;
+  const enrolled = loadBiometricEnrollment();
+  const available = await canUsePlatformAuthenticator();
+  const enrolledUser = enrolled ? appUsers.find((u) => u.id === enrolled.userId && u.active) : null;
+  const showLogin = !!(available && enrolled && enrolledUser && !currentUser);
+  btn.hidden = !showLogin;
+  if (disableBtn) disableBtn.hidden = !(available && enrolled && !currentUser);
+  if (hint) {
+    if (!available) {
+      hint.hidden = true;
+      hint.textContent = "";
+    } else if (enrolled && enrolledUser) {
+      hint.hidden = false;
+      hint.textContent = `Face ID / huella listo para: ${enrolledUser.displayName || enrolledUser.username}`;
+    } else {
+      hint.hidden = false;
+      hint.textContent = "En este teléfono puedes activar Face ID o huella después de entrar con tu clave.";
+    }
+  }
+}
+
+async function enrollBiometricForUser(user) {
+  if (!user) return false;
+  const available = await canUsePlatformAuthenticator();
+  if (!available) {
+    toast("Este teléfono no permite Face ID / huella en la app.");
+    return false;
+  }
+  const rpId = getBiometricRpId();
+  const userIdBytes = new TextEncoder().encode(String(user.id)).buffer;
+  try {
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge: randomChallenge(),
+        rp: { name: "Reaction Force Security", id: rpId },
+        user: {
+          id: userIdBytes,
+          name: user.username || user.id,
+          displayName: user.displayName || user.username || "Usuario",
+        },
+        pubKeyCredParams: [
+          { type: "public-key", alg: -7 },
+          { type: "public-key", alg: -257 },
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          userVerification: "required",
+          residentKey: "preferred",
+        },
+        timeout: 60000,
+        attestation: "none",
+      },
+    });
+    if (!cred || !cred.rawId) {
+      toast("No se pudo activar Face ID / huella.");
+      return false;
+    }
+    saveBiometricEnrollment({
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName || user.username,
+      credentialId: bufferToBase64Url(cred.rawId),
+      createdAt: new Date().toISOString(),
+    });
+    refreshBiometricLoginUi();
+    toast("Face ID / huella activado en este teléfono.");
+    return true;
+  } catch (err) {
+    console.error(err);
+    if (err && (err.name === "NotAllowedError" || err.name === "AbortError")) {
+      toast("Activación cancelada.");
+    } else {
+      toast("No se pudo activar Face ID / huella en este dispositivo.");
+    }
+    return false;
+  }
+}
+
+async function maybeOfferBiometricEnrollment(user) {
+  const available = await canUsePlatformAuthenticator();
+  if (!available || !user) return;
+  const enrolled = loadBiometricEnrollment();
+  if (enrolled && enrolled.userId === user.id) return;
+  const label = /iPhone|iPad|Mac/.test(navigator.userAgent) ? "Face ID / Touch ID" : "Face ID / huella";
+  const ok = window.confirm(
+    `¿Activar ${label} para entrar más rápido en este teléfono?\n\nUsuario: ${user.displayName || user.username}\nSolo funciona en este dispositivo.`
+  );
+  if (!ok) return;
+  await enrollBiometricForUser(user);
+}
+
+async function tryBiometricLogin() {
+  const error = document.getElementById("loginError");
+  if (error) error.hidden = true;
+  const enrolled = loadBiometricEnrollment();
+  if (!enrolled) {
+    toast("Primero entra con usuario y clave y activa Face ID / huella.");
+    return;
+  }
+  const found = appUsers.find((u) => u.id === enrolled.userId && u.active);
+  if (!found) {
+    clearBiometricEnrollment();
+    refreshBiometricLoginUi();
+    toast("Ese usuario ya no existe. Entra con clave otra vez.");
+    return;
+  }
+  const available = await canUsePlatformAuthenticator();
+  if (!available) {
+    toast("La biometría no está disponible ahora.");
+    return;
+  }
+  try {
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: randomChallenge(),
+        rpId: getBiometricRpId(),
+        allowCredentials: [
+          {
+            type: "public-key",
+            id: base64UrlToBuffer(enrolled.credentialId),
+            transports: ["internal"],
+          },
+        ],
+        userVerification: "required",
+        timeout: 60000,
+      },
+    });
+    if (!assertion) {
+      toast("No se pudo verificar Face ID / huella.");
+      return;
+    }
+    completeAppLogin(found, "biometric");
+  } catch (err) {
+    console.error(err);
+    if (err && (err.name === "NotAllowedError" || err.name === "AbortError")) {
+      toast("Face ID / huella cancelado.");
+    } else {
+      toast("No se pudo entrar con Face ID / huella.");
+    }
+  }
+}
+
+function disableBiometricOnThisDevice() {
+  const enrolled = loadBiometricEnrollment();
+  if (!enrolled) {
+    toast("No hay Face ID activado en este teléfono.");
+    return;
+  }
+  const ok = window.confirm("¿Quitar Face ID / huella de este teléfono?");
+  if (!ok) return;
+  clearBiometricEnrollment();
+  refreshBiometricLoginUi();
+  toast("Face ID / huella desactivado en este teléfono.");
+}
+/* ==== FIN FACE ID / BIOMETRÍA ==== */
+
 function tryAppLogin() {
   const user = document.getElementById("loginUsername").value.trim().toLowerCase();
   const pass = document.getElementById("loginPassword").value;
   const error = document.getElementById("loginError");
   const found = appUsers.find((u) => u.active && u.username === user && u.password === pass);
   if (!found) {
-    error.hidden = false;
+    if (error) error.hidden = false;
     toast("Usuario o clave incorrectos.");
     return;
   }
-  currentUser = found;
-  setSessionUserId(found.id);
-  error.hidden = true;
-  document.getElementById("loginPassword").value = "";
-  // Owner auto-unlock admin tools
-  if (found.role === "owner" || found.modules.admin) setAdminUnlocked(true);
-  else setAdminUnlocked(false);
-  logActivity("login", `Entró al sistema: ${found.displayName || found.username}`, "login");
-  applyAccessControl();
-  switchView(firstAllowedView());
-  toast(`Bienvenido, ${found.displayName || found.username}`);
+  completeAppLogin(found, "password");
+  maybeOfferBiometricEnrollment(found);
 }
 
 function logoutAppUser() {
@@ -2102,6 +2338,7 @@ function logoutAppUser() {
   setSessionUserId("");
   setAdminUnlocked(false);
   applyAccessControl();
+  refreshBiometricLoginUi();
   switchView("loginView");
   toast("Sesión cerrada.");
 }
@@ -6699,6 +6936,11 @@ function bindUi() {
   bindRadioUi();
 
   document.getElementById("btnAppLogin").addEventListener("click", tryAppLogin);
+  document.getElementById("btnBiometricLogin")?.addEventListener("click", () => {
+    tryBiometricLogin();
+  });
+  document.getElementById("btnBiometricDisable")?.addEventListener("click", disableBiometricOnThisDevice);
+
   document.getElementById("loginPassword").addEventListener("keydown", (e) => {
     if (e.key === "Enter") tryAppLogin();
   });
@@ -6824,20 +7066,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderMonorrielHome();
   applyAccessControl();
   requireLoginOrContinue();
+  refreshBiometricLoginUi();
 
   if (cloud.usedCloud && !added && currentUser) {
     toast("Datos sincronizados desde la nube.");
   }
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=37").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=38").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v37").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v38").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
