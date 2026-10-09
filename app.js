@@ -1302,11 +1302,11 @@ async function syncFromCloud() {
       applyRemoteLva(remote.lva);
     }
     if (remote.pettyCash && typeof remote.pettyCash === "object") {
-      const remotePetty = normalizePettyCash(remote.pettyCash);
-      if ((remotePetty.expenses && remotePetty.expenses.length) || (remotePetty.closings && remotePetty.closings.length)) {
-        applyRemotePettyCash(remotePetty);
-      } else if (!(pettyCash.expenses && pettyCash.expenses.length) && !(pettyCash.closings && pettyCash.closings.length)) {
-        pettyCash = remotePetty;
+      const remoteEpoch = Number(remote.pettyCash.epoch) || 1;
+      applyRemotePettyCash(remote.pettyCash);
+      // Si la nube aún trae datos de prueba (sin epoch de reinicio), fuerza guardar limpio
+      if (remoteEpoch < CAJA_RESET_EPOCH) {
+        savePettyCash(true);
       }
     }
     rebuildEmployeesFromPosts(employees);
