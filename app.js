@@ -7437,6 +7437,16 @@ function switchView(viewId) {
     // detailView no tiene tab; no marcar ninguno extra
     t.classList.toggle("active", t.dataset.view === viewId);
   });
+  const activeTab = document.querySelector(`.tabbar .tab.active[data-view="${viewId}"]`);
+  if (activeTab && typeof activeTab.scrollIntoView === "function") {
+    try {
+      activeTab.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    } catch (_) {
+      try {
+        activeTab.scrollIntoView(false);
+      } catch (_) {}
+    }
+  }
   applyAccessControl();
   if (viewId !== "mapView") closeSheet();
   if (viewId === "mapView" && map) setTimeout(() => map.invalidateSize(), 80);
@@ -8361,7 +8371,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=50").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=51").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -8377,7 +8387,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     // limpia caches viejas que dejaban el inicio vertical
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v50").forEach((k) => caches.delete(k));
+        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v51").forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }

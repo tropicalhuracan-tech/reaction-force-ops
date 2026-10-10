@@ -13,7 +13,7 @@
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-top: env(safe-area-inset-top, 0px);
-  --tabbar-h: 68px;
+  --tabbar-h: 96px;
   --topbar-h: 64px;
   font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
@@ -67,8 +67,8 @@ button.brand-btn:active {
 
 .tab-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 4px;
+  right: 4px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -79,6 +79,7 @@ button.brand-btn:active {
   font-weight: 800;
   line-height: 16px;
   text-align: center;
+  z-index: 1;
 }
 
 .brand-logo,
@@ -386,25 +387,62 @@ textarea { resize: vertical; }
 .sheet-actions { display: grid; gap: 8px; margin-top: 12px; }
 
 .tabbar {
-  display: grid;
-  grid-template-columns: repeat(13, minmax(0, 1fr));
-  gap: 2px;
-  padding: 8px 4px calc(8px + var(--safe-bottom));
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 10px calc(10px + var(--safe-bottom));
   background: #101012;
   border-top: 1px solid var(--line);
   z-index: 30;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.tabbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tabbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
 }
 
 .tab {
   position: relative;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
+  flex: 0 0 auto;
+  width: 76px;
+  min-width: 76px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  background: #1a1a1f;
   color: var(--muted);
-  padding: 10px 0;
+  padding: 8px 6px;
   font: inherit;
-  font-size: 8px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: center;
+  scroll-snap-align: start;
+  white-space: normal;
+  word-break: break-word;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.tab > span:not(.tab-badge) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 /* Inicio: logo completo + accesos horizontales (forzado) */
@@ -731,9 +769,12 @@ textarea { resize: vertical; }
 }
 
 .tab.active {
-  background: rgba(212, 20, 20, 0.16);
+  background: rgba(212, 20, 20, 0.28);
   color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(212, 20, 20, 0.35);
+  border-color: var(--red);
+  box-shadow:
+    inset 0 0 0 1px rgba(212, 20, 20, 0.55),
+    0 0 0 1px rgba(212, 20, 20, 0.25);
 }
 
 .marker-pin {
