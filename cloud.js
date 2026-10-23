@@ -96,6 +96,7 @@
     depuracion: true,
     contabilidad: true,
     suplidores: true,
+    vargas: true,
   };
 
   function baseUrl() {
@@ -321,6 +322,10 @@
     return { suppliers: [], payments: [], nextCodeSeq: 1 };
   }
 
+  function emptyVargas() {
+    return { reports: [] };
+  }
+
   function decodeLegacyMain(doc) {
     const fields = (doc && doc.fields) || {};
     return {
@@ -343,6 +348,8 @@
         : emptyHr(),
       depuracion: emptyDepuracion(),
       contabilidad: emptyContabilidad(),
+      suplidores: emptySuplidores(),
+      vargas: emptyVargas(),
       updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
       schemaVersion: (fields.schemaVersion && fields.schemaVersion.stringValue) || "1",
     };
@@ -1215,14 +1222,16 @@
         hr: emptyHr(),
         contabilidad: emptyContabilidad(),
         suplidores: emptySuplidores(),
+        vargas: emptyVargas(),
       };
     }
-    const [loans, employees, hr, contab, supl] = await Promise.all([
+    const [loans, employees, hr, contab, supl, varg] = await Promise.all([
       getDoc(partPath("loans")).catch(() => null),
       getDoc(partPath("employees")).catch(() => null),
       getDoc(partPath("hr")).catch(() => null),
       getDoc(partPath("contabilidad")).catch(() => null),
       getDoc(partPath("suplidores")).catch(() => null),
+      getDoc(partPath("vargas")).catch(() => null),
     ]);
     const mainFields = main.fields || {};
     const loanFields = (loans && loans.fields) || {};
@@ -1256,6 +1265,9 @@
       suplidores: supl && supl.fields && supl.fields.suplidoresJson
         ? parseObjectField(supl.fields, "suplidoresJson")
         : emptySuplidores(),
+      vargas: varg && varg.fields && varg.fields.vargasJson
+        ? parseObjectField(varg.fields, "vargasJson")
+        : emptyVargas(),
       partial: !loans || !employees,
     };
   }
@@ -1282,6 +1294,7 @@
     if (fieldLen(parts.depuracion, "depuracionJson") > 10) return true;
     if (fieldLen(parts.contabilidad, "contabilidadJson") > 10) return true;
     if (fieldLen(parts.suplidores, "suplidoresJson") > 10) return true;
+    if (fieldLen(parts.vargas, "vargasJson") > 10) return true;
     return false;
   }
 
@@ -1330,6 +1343,9 @@
       suplidores: ((parts.suplidores && parts.suplidores.fields) || {}).suplidoresJson
         ? parseObjectField((parts.suplidores && parts.suplidores.fields) || {}, "suplidoresJson")
         : emptySuplidores(),
+      vargas: ((parts.vargas && parts.vargas.fields) || {}).vargasJson
+        ? parseObjectField((parts.vargas && parts.vargas.fields) || {}, "vargasJson")
+        : emptyVargas(),
       updatedAt: (main.updatedAt && main.updatedAt.stringValue) || null,
       schemaVersion: (main.schemaVersion && main.schemaVersion.stringValue) || SCHEMA_VERSION,
     };
@@ -1406,6 +1422,7 @@
         depuracion: emptyDepuracion(),
         contabilidad: emptyContabilidad(),
         suplidores: emptySuplidores(),
+        vargas: emptyVargas(),
         updatedAt: null,
         empty: true,
         schemaVersion: SCHEMA_VERSION,
@@ -1466,6 +1483,7 @@
     contabilidad,
     suplidores,
     loanTrash,
+    vargas,
     options
   ) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
@@ -1476,6 +1494,7 @@
     const hrPack = await stripHr(hr);
     const depPack = await stripDepuracion(depuracion);
     const supPack = await stripSuplidores(suplidores);
+    const vargasToSave = vargas && typeof vargas === "object" ? vargas : emptyVargas();
     let contabToSave = contabilidad;
     try {
       const remoteContabDoc = await getDoc(partPath("contabilidad")).catch(() => null);
@@ -1571,6 +1590,10 @@
         suplidoresJson: { stringValue: JSON.stringify(supPack.light || emptySuplidores()) },
         updatedAt: { stringValue: updatedAt },
       }, ["suplidoresJson", "updatedAt"]),
+      patchDoc(partPath("vargas"), {
+        vargasJson: { stringValue: JSON.stringify(vargasToSave || emptyVargas()) },
+        updatedAt: { stringValue: updatedAt },
+      }, ["vargasJson", "updatedAt"]),
     ];
 
     await Promise.all(writes);

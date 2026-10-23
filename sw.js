@@ -1,11 +1,11 @@
-const CACHE = "rfs-ops-v175";
+const CACHE = "rfs-ops-v176";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=144",
+  "styles.css?v=176",
   "app.js",
-  "app.js?v=175",
+  "app.js?v=176",
   "hr.js",
   "hr.js?v=144",
   "depuracion.js",
@@ -13,11 +13,15 @@ const ASSETS = [
   "suplidores.js",
   "suplidores.js?v=175",
   "contabilidad.js",
-  "contabilidad.js?v=175",
+  "contabilidad.js?v=176",
+  "vargas.js",
+  "vargas.js?v=176",
+  "vargas-seed-data.js",
+  "vargas-seed-data.js?v=176",
   "quotes.js",
   "quotes.js?v=144",
   "cloud.js",
-  "cloud.js?v=175",
+  "cloud.js?v=176",
   "cloud-config.js",
   "cloud-config.js?v=144",
   "monorriel-data.js",
@@ -69,6 +73,7 @@ self.addEventListener("fetch", (event) => {
     path.startsWith("depuracion.js") ||
     path.startsWith("suplidores.js") ||
     path.startsWith("contabilidad.js") ||
+    path.startsWith("vargas") ||
     path.startsWith("quotes.js") ||
     path.includes("quote-assets") ||
     path.startsWith("cloud") ||
