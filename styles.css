@@ -2807,3 +2807,101 @@ body.lightbox-open {
   font-size: 10px;
   text-align: right;
 }
+
+/* ==== Ramón Vargas — reporte B/E ==== */
+#vargasView .vargas-toolbar-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 10px;
+  align-items: end;
+}
+#vargasView .vargas-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+#vargasView .vargas-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-height: min(70vh, 720px);
+  overflow-y: auto;
+}
+#vargasView .vargas-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+#vargasView .vargas-table th,
+#vargasView .vargas-table td {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 4px 6px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+#vargasView .vargas-table th {
+  background: rgba(212, 20, 20, 0.18);
+  font-weight: 800;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  text-align: center;
+  font-size: 11px;
+}
+#vargasView .vargas-table th.sticky-name,
+#vargasView .vargas-table td.sticky-name {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #141416;
+  min-width: 160px;
+  text-align: left;
+}
+#vargasView .vargas-table th.sticky-name {
+  z-index: 3;
+  background: #2a1515;
+}
+#vargasView .vargas-table th.vargas-day-excl {
+  color: #f59e0b;
+}
+#vargasView .vargas-day-cell {
+  text-align: center;
+  min-width: 2.2em;
+  outline: none;
+}
+#vargasView .vargas-day-cell.is-work {
+  background: rgba(34, 197, 94, 0.18);
+  font-weight: 700;
+}
+#vargasView .vargas-day-cell.is-excl {
+  opacity: 0.65;
+}
+#vargasView .vargas-bucket {
+  width: 3.2em;
+  text-align: center;
+  font-weight: 800;
+  padding: 2px 4px;
+}
+#vargasView .vargas-bucket-cell {
+  text-align: center;
+}
+#vargasView .vargas-days-total {
+  text-align: center;
+  font-weight: 800;
+}
+#vargasView .vargas-shift {
+  text-align: center;
+  font-weight: 700;
+  color: #fca5a5;
+}
+#vargasView .vargas-post {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 720px) {
+  #vargasView .vargas-toolbar-row {
+    grid-template-columns: 1fr;
+  }
+}

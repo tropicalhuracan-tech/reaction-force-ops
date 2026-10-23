@@ -2040,6 +2040,9 @@ async function mergeRemoteBundleBeforeSave() {
     if (remote.suplidores && typeof remote.suplidores === "object" && typeof applyRemoteSuplidoresData === "function") {
       applyRemoteSuplidoresData(remote.suplidores);
     }
+    if (remote.vargas && typeof remote.vargas === "object" && typeof applyRemoteVargasData === "function") {
+      applyRemoteVargasData(remote.vargas);
+    }
     return true;
   } catch (_) {
     return false;
@@ -2102,6 +2105,7 @@ async function saveCloudBundle(options) {
     cloudContabilidadPayload(),
     typeof suplidoresData !== "undefined" ? suplidoresData : { suppliers: [], payments: [], nextCodeSeq: 1 },
     typeof loanTrashIds !== "undefined" ? loanTrashIds : [],
+    typeof vargasData !== "undefined" ? vargasData : { reports: [] },
     options || {}
   );
 }
@@ -2304,6 +2308,13 @@ async function syncFromCloud() {
         }
       }
     }
+    if (typeof applyRemoteVargasData === "function") {
+      if (remote.vargas && typeof remote.vargas === "object") {
+        applyRemoteVargasData(remote.vargas);
+      } else if (typeof ensureVargasSeedLoaded === "function") {
+        ensureVargasSeedLoaded();
+      }
+    }
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     ensureLvaEmployeesImported();
@@ -2330,6 +2341,9 @@ async function syncFromCloud() {
     }
     if (typeof SUPLIDORES_KEY !== "undefined" && typeof suplidoresData !== "undefined") {
       localStorage.setItem(SUPLIDORES_KEY, JSON.stringify(suplidoresData));
+    }
+    if (typeof VARGAS_KEY !== "undefined" && typeof vargasData !== "undefined") {
+      localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
     }
     if (remote.updatedAt) lastKnownCloudUpdatedAt = remote.updatedAt;
     lastLivePullAt = Date.now();
@@ -9442,6 +9456,10 @@ function canAccessVargas() {
 
 function renderVargasModule() {
   if (!canAccessVargas()) return;
+  if (typeof window.RFSVargas !== "undefined" && typeof window.RFSVargas.renderVargasModule === "function") {
+    window.RFSVargas.renderVargasModule();
+    return;
+  }
   const summary = document.getElementById("vargasSummary");
   if (summary) {
     summary.textContent =
@@ -11709,6 +11727,7 @@ function exportBackup() {
     depuracion: typeof depuracionData !== "undefined" ? depuracionData : { candidates: [], settings: {} },
     contabilidad: typeof contabilidadData !== "undefined" ? contabilidadData : emptyContabilidadDataSafe(),
     suplidores: typeof suplidoresData !== "undefined" ? suplidoresData : { suppliers: [], payments: [], nextCodeSeq: 1 },
+    vargas: typeof vargasData !== "undefined" ? vargasData : { reports: [] },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -11836,6 +11855,10 @@ function restoreBackupMerge() {
         applyRemoteSuplidoresData(data.suplidores);
         saveSuplidoresData(true);
       }
+      if (data.vargas && typeof data.vargas === "object" && typeof applyRemoteVargasData === "function") {
+        applyRemoteVargasData(data.vargas);
+        if (typeof saveVargasData === "function") saveVargasData(true);
+      }
       ensureMonorrielEmployeesImported();
     ensureLvaEmployeesImported();
       savePosts();
@@ -11858,6 +11881,7 @@ function restoreBackupMerge() {
       if (typeof renderDepuracionModule === "function") renderDepuracionModule();
       if (typeof renderContabilidadModule === "function") renderContabilidadModule();
       if (typeof renderSuplidoresModule === "function") renderSuplidoresModule();
+      if (typeof renderVargasModule === "function") renderVargasModule();
       toast(`Respaldo aplicado: ${added} nuevos, ${updated} actualizados. Nada se borró.`);
     })
     .catch((err) => {
@@ -11924,6 +11948,12 @@ function restoreBackupReplace() {
         suplidoresData = normalizeSuplidoresData(data.suplidores);
         if (typeof SUPLIDORES_KEY !== "undefined") {
           localStorage.setItem(SUPLIDORES_KEY, JSON.stringify(suplidoresData));
+        }
+      }
+      if (data.vargas && typeof data.vargas === "object" && typeof normalizeVargasData === "function") {
+        vargasData = normalizeVargasData(data.vargas);
+        if (typeof VARGAS_KEY !== "undefined") {
+          localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
         }
       }
       rebuildEmployeesFromPosts(employees);
@@ -12233,6 +12263,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (typeof normalizeSuplidoresData === "function" && typeof emptySuplidoresData === "function") {
     suplidoresData = normalizeSuplidoresData(loadJsonObject(SUPLIDORES_KEY, emptySuplidoresData()));
   }
+  if (typeof normalizeVargasData === "function" && typeof emptyVargasData === "function") {
+    vargasData = normalizeVargasData(loadJsonObject(VARGAS_KEY, emptyVargasData()));
+    if (typeof ensureVargasSeedLoaded === "function") ensureVargasSeedLoaded();
+  }
   if (!radioState.streamUrl) radioState.streamUrl = DEFAULT_RADIO_STREAM;
   ensureOwnerUser();
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
@@ -12250,6 +12284,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   if (typeof SUPLIDORES_KEY !== "undefined" && typeof suplidoresData !== "undefined") {
     localStorage.setItem(SUPLIDORES_KEY, JSON.stringify(suplidoresData));
+  }
+  if (typeof VARGAS_KEY !== "undefined" && typeof vargasData !== "undefined") {
+    localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
   }
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
