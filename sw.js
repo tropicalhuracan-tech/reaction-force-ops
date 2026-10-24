@@ -1,11 +1,11 @@
-const CACHE = "rfs-ops-v186";
+const CACHE = "rfs-ops-v187";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
-  "styles.css?v=184",
+  "styles.css?v=187",
   "app.js",
-  "app.js?v=186",
+  "app.js?v=187",
   "hr.js",
   "hr.js?v=144",
   "depuracion.js",
@@ -21,7 +21,7 @@ const ASSETS = [
   "quotes.js",
   "quotes.js?v=144",
   "cloud.js",
-  "cloud.js?v=183",
+  "cloud.js?v=187",
   "cloud-config.js",
   "cloud-config.js?v=144",
   "monorriel-data.js",
@@ -64,6 +64,15 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   const path = url.pathname.split("/").pop() || "";
+
+  // version.json siempre de red (candado de actualización)
+  if (path === "version.json" || path.startsWith("version.json")) {
+    event.respondWith(
+      fetch(req, { cache: "no-store" }).catch(() => caches.match(req))
+    );
+    return;
+  }
+
   const isShell =
     path === "" ||
     path === "index.html" ||

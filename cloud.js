@@ -374,6 +374,88 @@
     );
   }
 
+  /** Une empleados locales + remotos por id y luego por identidad (nombre). */
+  function mergeEmployeesPreferUnion(localList, remoteList) {
+    const byId = new Map();
+    const put = (raw, preferIfTie) => {
+      if (!raw || typeof raw !== "object") return;
+      const name = String(raw.name || "").trim();
+      if (!name || name.toLowerCase() === "por asignar") return;
+      const id = String(raw.id || "").trim() || `tmp-${employeeIdentityKey(name)}`;
+      const row = { ...raw, id, name };
+      if (!byId.has(id)) {
+        byId.set(id, row);
+        return;
+      }
+      const prev = byId.get(id);
+      const ta = Date.parse(prev.updatedAt || "") || 0;
+      const tb = Date.parse(row.updatedAt || "") || 0;
+      const winner = tb > ta || (tb === ta && preferIfTie) ? row : prev;
+      const other = winner === row ? prev : row;
+      const merged = { ...other, ...winner };
+      Object.keys(other).forEach((k) => {
+        const v = other[k];
+        if (v == null || v === "") return;
+        if (Array.isArray(v)) {
+          merged[k] = [...new Set([...(Array.isArray(merged[k]) ? merged[k] : []), ...v].filter(Boolean))];
+        } else if (!merged[k]) {
+          merged[k] = v;
+        }
+      });
+      byId.set(id, merged);
+    };
+    (remoteList || []).forEach((e) => put(e, false));
+    (localList || []).forEach((e) => put(e, true));
+    return dedupeEmployeesByIdentity([...byId.values()]);
+  }
+
+  /** Une reportes de incidente por id (no reemplazar ciego). */
+  function mergeReportsPreferUnion(localList, remoteList) {
+    const map = new Map();
+    const put = (raw, preferIfTie) => {
+      if (!raw || typeof raw !== "object") return;
+      const id = String(raw.id || "").trim();
+      if (!id) return;
+      if (!map.has(id)) {
+        map.set(id, raw);
+        return;
+      }
+      const prev = map.get(id);
+      const ta = Date.parse(prev.updatedAt || prev.createdAt || "") || 0;
+      const tb = Date.parse(raw.updatedAt || raw.createdAt || "") || 0;
+      if (tb > ta || (tb === ta && preferIfTie)) map.set(id, raw);
+    };
+    (remoteList || []).forEach((r) => put(r, false));
+    (localList || []).forEach((r) => put(r, true));
+    return [...map.values()];
+  }
+
+  /** Une reportes Monorriel por id (y fecha+turno como respaldo). */
+  function mergeMonorrielPreferUnion(localList, remoteList) {
+    const map = new Map();
+    const keyOf = (r) => {
+      if (!r) return "";
+      if (r.id) return `id:${r.id}`;
+      return `dt:${String(r.date || "").slice(0, 10)}:${r.shift === "pm" ? "pm" : "am"}`;
+    };
+    const put = (raw, preferIfTie) => {
+      if (!raw || typeof raw !== "object") return;
+      const k = keyOf(raw);
+      if (!k) return;
+      if (!map.has(k)) {
+        map.set(k, raw);
+        return;
+      }
+      const prev = map.get(k);
+      const ta = Date.parse(prev.updatedAt || prev.createdAt || "") || 0;
+      const tb = Date.parse(raw.updatedAt || raw.createdAt || "") || 0;
+      if (tb > ta || (tb === ta && preferIfTie)) map.set(k, raw);
+    };
+    (remoteList || []).forEach((r) => put(r, false));
+    (localList || []).forEach((r) => put(r, true));
+    return [...map.values()];
+  }
+
   /** Une clientes locales + remotos por id para no perder altas al guardar. */
   function mergePostsPreferUnion(localPosts, remotePosts) {
     const map = new Map();
@@ -1262,16 +1344,24 @@
     return byName;
   }
 
-  /** Solo lee updatedAt del documento main (barato, para sync en vivo). */
+  /** Solo lee updatedAt / versión App del documento main (barato, para sync en vivo). */
   async function peekCloudUpdatedAt() {
     if (!projectId || !apiKey) return null;
     try {
       const main = await getDoc(partPath("main"));
-      if (!main) return { empty: true, updatedAt: null };
+      if (!main) return { empty: true, updatedAt: null, appBuild: 0, minAppBuild: 0 };
       const fields = main.fields || {};
+      const num = (f) => {
+        if (!f) return 0;
+        if (f.integerValue != null) return Number(f.integerValue) || 0;
+        if (f.stringValue != null) return Number(f.stringValue) || 0;
+        return 0;
+      };
       return {
         empty: false,
         updatedAt: (fields.updatedAt && fields.updatedAt.stringValue) || null,
+        appBuild: num(fields.appBuild),
+        minAppBuild: num(fields.minAppBuild),
       };
     } catch (_) {
       return null;
@@ -1569,8 +1659,69 @@
   ) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
     const opts = options && typeof options === "object" ? options : {};
+    const clientBuild = Math.max(0, Number(opts.clientBuild) || 0);
 
-    const empPack = await stripEmployees(employees);
+    // Candado: clientes viejos no pueden pisar la nube
+    try {
+      const peek = await peekCloudUpdatedAt();
+      const required = peek && peek.minAppBuild ? Number(peek.minAppBuild) : 0;
+      if (required > 0 && clientBuild > 0 && clientBuild < required) {
+        const err = new Error("APP_OUTDATED");
+        err.code = "APP_OUTDATED";
+        err.requiredBuild = required;
+        err.clientBuild = clientBuild;
+        throw err;
+      }
+    } catch (err) {
+      if (err && (err.code === "APP_OUTDATED" || String(err.message) === "APP_OUTDATED")) throw err;
+    }
+
+    // Empleados: fusionar con remoto antes de escribir (anti-pisotón)
+    let employeesToSave = Array.isArray(employees) ? employees : [];
+    try {
+      const remoteEmpDoc = await getDoc(partPath("employees")).catch(() => null);
+      const remoteEmployees =
+        remoteEmpDoc && remoteEmpDoc.fields && remoteEmpDoc.fields.employeesJson
+          ? parseArrayField(remoteEmpDoc.fields, "employeesJson")
+          : [];
+      if (remoteEmployees.length) {
+        employeesToSave = mergeEmployeesPreferUnion(employeesToSave, remoteEmployees);
+      }
+    } catch (err) {
+      console.warn("RFS: no se pudieron fusionar empleados remotos al guardar", err);
+    }
+
+    // Reportes incidente: fusionar
+    let reportsToSave = Array.isArray(reports) ? reports : [];
+    try {
+      const remoteMain = await getDoc(partPath("main")).catch(() => null);
+      const remoteReports =
+        remoteMain && remoteMain.fields && remoteMain.fields.reportsJson
+          ? parseArrayField(remoteMain.fields, "reportsJson")
+          : [];
+      if (remoteReports.length) {
+        reportsToSave = mergeReportsPreferUnion(reportsToSave, remoteReports);
+      }
+    } catch (err) {
+      console.warn("RFS: no se pudieron fusionar reportes remotos al guardar", err);
+    }
+
+    // Monorriel: fusionar
+    let monoToSave = Array.isArray(monorrielReports) ? monorrielReports : [];
+    try {
+      const remoteMain = await getDoc(partPath("main")).catch(() => null);
+      const remoteMono =
+        remoteMain && remoteMain.fields && remoteMain.fields.monorrielReportsJson
+          ? parseArrayField(remoteMain.fields, "monorrielReportsJson")
+          : [];
+      if (remoteMono.length) {
+        monoToSave = mergeMonorrielPreferUnion(monoToSave, remoteMono);
+      }
+    } catch (err) {
+      console.warn("RFS: no se pudieron fusionar Monorriel remotos al guardar", err);
+    }
+
+    const empPack = await stripEmployees(employeesToSave);
     const pettyPack = await stripPettyCash(pettyCash);
     const hrPack = await stripHr(hr);
     const depPack = await stripDepuracion(depuracion);
@@ -1610,15 +1761,19 @@
 
     const updatedAt = new Date().toISOString();
     const trashIds = [...new Set((loanTrash || []).map(String).filter(Boolean))].slice(0, 500);
+    // Publicar build mínima = esta App (solo la versión actual puede seguir escribiendo)
+    const publishBuild = clientBuild > 0 ? clientBuild : 0;
     const mainFields = {
       usersJson: { stringValue: JSON.stringify(users || []) },
       messagesJson: { stringValue: JSON.stringify(messages || []) },
       radioJson: { stringValue: JSON.stringify(radio || {}) },
-      reportsJson: { stringValue: JSON.stringify(reports || []) },
-      monorrielReportsJson: { stringValue: JSON.stringify(monorrielReports || []) },
+      reportsJson: { stringValue: JSON.stringify(reportsToSave || []) },
+      monorrielReportsJson: { stringValue: JSON.stringify(monoToSave || []) },
       schemaVersion: { stringValue: SCHEMA_VERSION },
       updatedAt: { stringValue: updatedAt },
       app: { stringValue: "Reaction Force Security Ops" },
+      appBuild: { integerValue: String(publishBuild || 0) },
+      minAppBuild: { integerValue: String(publishBuild || 0) },
       // Liberar campos legacy pesados del documento main
       postsJson: { stringValue: "[]" },
       employeesJson: { stringValue: "[]" },
@@ -1716,6 +1871,10 @@
     storageEnabled,
     storageBucket: () => storageBucket,
     decodeDoc: decodeLegacyMain,
+    mergeEmployeesPreferUnion,
+    mergePostsPreferUnion,
+    mergeReportsPreferUnion,
+    mergeMonorrielPreferUnion,
     loadSeparatedPayrollBundle,
     persistSeparatedPayrolls,
     SCHEMA_VERSION,
