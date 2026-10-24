@@ -326,6 +326,34 @@
     return { reports: [] };
   }
 
+  /** Une clientes locales + remotos por id para no perder altas al guardar. */
+  function mergePostsPreferUnion(localPosts, remotePosts) {
+    const map = new Map();
+    const put = (raw, preferIfTie) => {
+      if (!raw || typeof raw !== "object") return;
+      const id = String(raw.id || "").trim();
+      if (!id) return;
+      if (!map.has(id)) {
+        map.set(id, raw);
+        return;
+      }
+      const prev = map.get(id);
+      const ta = Date.parse(prev.updatedAt || prev.createdAt || "") || 0;
+      const tb = Date.parse(raw.updatedAt || raw.createdAt || "") || 0;
+      if (tb > ta || (tb === ta && preferIfTie)) {
+        const winner = { ...raw };
+        if (!winner.clientNumber && prev.clientNumber) winner.clientNumber = prev.clientNumber;
+        if ((prev.history || []).length > (winner.history || []).length) winner.history = prev.history;
+        map.set(id, winner);
+      } else if (!prev.clientNumber && raw.clientNumber) {
+        map.set(id, { ...prev, clientNumber: raw.clientNumber });
+      }
+    };
+    (remotePosts || []).forEach((p) => put(p, false));
+    (localPosts || []).forEach((p) => put(p, true));
+    return [...map.values()];
+  }
+
   function decodeLegacyMain(doc) {
     const fields = (doc && doc.fields) || {};
     return {
