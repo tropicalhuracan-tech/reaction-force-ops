@@ -411,6 +411,8 @@ function normalizeEmployee(e = {}) {
     inactiveReason: e.inactiveReason || "",
     inactiveAt: e.inactiveAt || "",
     hrApplicationId: String(e.hrApplicationId || "").trim(),
+    officeEmployeeId: String(e.officeEmployeeId || "").trim(),
+    salary: Math.max(0, Number(e.salary) || 0),
     hrProfile: normalizeEmployeeHrProfile(e.hrProfile || {}),
     updatedAt: e.updatedAt || new Date().toISOString(),
   };
@@ -1577,7 +1579,44 @@ function normalizePost(p = {}) {
     lat: p.lat === null || p.lat === undefined || p.lat === "" ? null : Number(p.lat),
     lng: p.lng === null || p.lng === undefined || p.lng === "" ? null : Number(p.lng),
     history: Array.isArray(p.history) ? p.history : [],
+    createdAt: p.createdAt || "",
+    updatedAt: p.updatedAt || "",
   };
+}
+
+/** Fusiona clientes/puestos por id; no pierde altas locales al sincronizar. */
+function mergePostsForCloud(localList, remoteList) {
+  const map = new Map();
+  const put = (raw, preferIfTie = false) => {
+    const p = normalizePost(raw || {});
+    if (!p.id) return;
+    if (!map.has(p.id)) {
+      map.set(p.id, p);
+      return;
+    }
+    const prev = map.get(p.id);
+    const ta = Date.parse(prev.updatedAt || prev.createdAt || "") || 0;
+    const tb = Date.parse(p.updatedAt || p.createdAt || "") || 0;
+    if (tb > ta || (tb === ta && preferIfTie)) {
+      // Conservar historial más largo y número de cliente si el ganador no lo trae
+      const winner = { ...p };
+      if (!winner.clientNumber && prev.clientNumber) winner.clientNumber = prev.clientNumber;
+      if ((prev.history || []).length > (winner.history || []).length) winner.history = prev.history;
+      if (!(winner.guards || []).some((g) => g && g.name) && (prev.guards || []).some((g) => g && g.name)) {
+        winner.guards = prev.guards;
+        winner.guardCount = prev.guardCount;
+      }
+      map.set(p.id, normalizePost(winner));
+    } else {
+      const winner = { ...prev };
+      if (!winner.clientNumber && p.clientNumber) winner.clientNumber = p.clientNumber;
+      if ((p.history || []).length > (winner.history || []).length) winner.history = p.history;
+      map.set(p.id, normalizePost(winner));
+    }
+  };
+  (remoteList || []).forEach((p) => put(p, false));
+  (localList || []).forEach((p) => put(p, true));
+  return [...map.values()];
 }
 
 /** Asigna números de cliente estables desde 101 sin reusar ni reordenar los ya asignados */
@@ -2014,6 +2053,12 @@ async function mergeRemoteBundleBeforeSave() {
       employees = mergeEmployeeListsForCloud(employees, remote.employees);
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     }
+    // No pisar clientes/puestos nuevos de otra PC o de esta (caso Universidad Isa)
+    if (Array.isArray(remote.posts)) {
+      posts = mergePostsForCloud(posts, remote.posts);
+      ensureClientNumbers(false);
+      localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
+    }
     // No pisar reportes Monorriel de otra PC (Ashley / supervisión)
     if (Array.isArray(remote.monorrielReports) || (monorrielReports && monorrielReports.length)) {
       monorrielReports = mergeMonorrielReportsForCloud(
@@ -2196,6 +2241,7 @@ async function syncFromCloud() {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureLvaEmployeesImported();
+      if (typeof ensureOfficeEmployeesImported === "function") ensureOfficeEmployeesImported();
       ensureOwnerUser();
       await saveCloudBundle();
       localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
@@ -2223,7 +2269,9 @@ async function syncFromCloud() {
       return { added: 0, usedCloud: true };
     }
 
-    posts = remote.posts.map(normalizePost);
+    // Fusionar clientes: no borrar altas locales (p.ej. Universidad Isa recién creada)
+    posts = mergePostsForCloud(localPosts, remote.posts || []);
+    ensureClientNumbers(false);
     reports = Array.isArray(remote.reports) ? remote.reports : [];
     // Fusionar empleados: no borrar altas locales (p.ej. nombres nuevos en reporte Monorriel)
     if (Array.isArray(remote.employees) && remote.employees.length) {
@@ -2318,6 +2366,7 @@ async function syncFromCloud() {
     rebuildEmployeesFromPosts(employees);
     ensureMonorrielEmployeesImported();
     ensureLvaEmployeesImported();
+    if (typeof ensureOfficeEmployeesImported === "function") ensureOfficeEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
@@ -5300,10 +5349,20 @@ function renderLoanEmployeePicker() {
     .filter((e) => e.name && isEmployeeActive(e))
     .filter((e) => {
       if (!needle) return true;
-      const blob = [e.name, e.phone, e.cedula].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const blob = [e.name, e.phone, e.cedula, ...(e.sites || []), ...(e.roles || [])]
+        .join(" ")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
       return blob.includes(needle);
     })
-    .slice(0, 30);
+    .sort((a, b) => {
+      const ao = (a.sites || []).some((s) => /oficina/i.test(s)) || !!a.officeEmployeeId ? 0 : 1;
+      const bo = (b.sites || []).some((s) => /oficina/i.test(s)) || !!b.officeEmployeeId ? 0 : 1;
+      if (ao !== bo && !needle) return ao - bo;
+      return String(a.name || "").localeCompare(String(b.name || ""), "es");
+    })
+    .slice(0, needle ? 40 : 40);
 
   if (!filtered.length) {
     list.innerHTML = `<p class="empty">No hay empleados para mostrar.</p>`;
@@ -5311,11 +5370,13 @@ function renderLoanEmployeePicker() {
     list.innerHTML = filtered
       .map((e) => {
         const sel = e.id === loanSelectedEmployeeId ? "selected" : "";
+        const isOffice = (e.sites || []).some((s) => /oficina/i.test(s)) || !!e.officeEmployeeId;
+        const siteHint = isOffice ? "Oficina" : (e.sites || []).slice(0, 2).join(", ") || "—";
         return `<button class="employee-card ${sel}" type="button" data-emp-id="${escapeHtml(e.id)}">
           <div class="row">
             <div>
-              <h3>${escapeHtml(e.name)}</h3>
-              <p>${escapeHtml(e.cedula || "Sin cédula")} · ${escapeHtml(e.phone || "Sin tel.")}</p>
+              <h3>${escapeHtml(e.name)}${isOffice ? ' <span class="muted" style="font-size:12px">(Oficina)</span>' : ""}</h3>
+              <p>${escapeHtml(e.cedula || "Sin cédula")} · ${escapeHtml(e.phone || "Sin tel.")} · ${escapeHtml(siteHint)}</p>
             </div>
           </div>
         </button>`;
@@ -7846,6 +7907,73 @@ function upsertEmployeeFromLva(staff) {
 }
 
 /** Sube el personal activo de La Vega a Empleados general con etiqueta (La Vega) */
+/** Trae personal de Contabilidad → Oficina a la lista Empleados (para préstamos, etc.). */
+function ensureOfficeEmployeesImported() {
+  if (typeof contabilidadData === "undefined" || !contabilidadData) return 0;
+  const rows = (contabilidadData.officeEmployees || []).filter(
+    (o) => o && o.active !== false && String(o.fullName || "").trim()
+  );
+  if (!rows.length) return 0;
+  let added = 0;
+  let changed = false;
+  rows.forEach((o) => {
+    const name = String(o.fullName || "").trim();
+    const key = employeeKey(name);
+    const cedula = String(o.cedula || "").replace(/\D/g, "");
+    const cedulaFmt =
+      cedula.length === 11 ? `${cedula.slice(0, 3)}-${cedula.slice(3, 10)}-${cedula.slice(10)}` : String(o.cedula || "");
+    const existing = employees.find(
+      (e) =>
+        e.id === o.id ||
+        e.officeEmployeeId === o.id ||
+        employeeKey(e.name) === key
+    );
+    if (existing) {
+      const idx = employees.findIndex((e) => e.id === existing.id);
+      const merged = normalizeEmployee({
+        ...existing,
+        id: existing.id || o.id,
+        name,
+        phone: o.phone || existing.phone || "",
+        cedula: cedulaFmt || existing.cedula || "",
+        salary: Math.max(0, Number(o.salary) || Number(existing.salary) || 0),
+        officeEmployeeId: o.id,
+        sites: [...new Set([...(existing.sites || []), "Oficina"])],
+        roles: [...new Set([...(existing.roles || []), "Oficina", o.position || "Oficina"].filter(Boolean))],
+        status: "active",
+        inactiveReason: "",
+        inactiveAt: "",
+        updatedAt: new Date().toISOString(),
+      });
+      const before = JSON.stringify(employees[idx]);
+      employees[idx] = merged;
+      if (JSON.stringify(merged) !== before) changed = true;
+      return;
+    }
+    employees.push(
+      normalizeEmployee({
+        id: o.id,
+        name,
+        phone: o.phone || "",
+        cedula: cedulaFmt,
+        salary: Math.max(0, Number(o.salary) || 0),
+        officeEmployeeId: o.id,
+        sites: ["Oficina"],
+        roles: ["Oficina", o.position || "Oficina"].filter(Boolean),
+        status: "active",
+        note: "Importado desde Contabilidad → Oficina",
+      })
+    );
+    added += 1;
+    changed = true;
+  });
+  if (changed) {
+    employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
+    saveEmployees();
+  }
+  return added;
+}
+
 function ensureLvaEmployeesImported() {
   const active = (lvaState.staff || []).filter((s) => s && s.active !== false && (s.name || "").trim());
   if (!active.length) return { added: 0, changed: false, lvaTouched: false };
@@ -10833,6 +10961,7 @@ function readFormPost() {
   const mapsUrl = document.getElementById("fMapsUrl").value.trim();
   const existing = editingId ? getPost(editingId) : null;
 
+  const nowIso = new Date().toISOString();
   return normalizePost({
     id: editingId || `p-${Date.now()}`,
     clientNumber: existing?.clientNumber || (editingId ? null : nextClientNumber()),
@@ -10855,6 +10984,8 @@ function readFormPost() {
     lat: hasCoords ? lat : existing?.lat ?? null,
     lng: hasCoords ? lng : existing?.lng ?? null,
     history: existing?.history || [],
+    createdAt: existing?.createdAt || nowIso,
+    updatedAt: nowIso,
   });
 }
 
@@ -11879,6 +12010,7 @@ function restoreBackupMerge() {
       }
       ensureMonorrielEmployeesImported();
     ensureLvaEmployeesImported();
+    if (typeof ensureOfficeEmployeesImported === "function") ensureOfficeEmployeesImported();
       savePosts();
       saveReports();
       saveEmployees();
@@ -11977,6 +12109,7 @@ function restoreBackupReplace() {
       rebuildEmployeesFromPosts(employees);
       ensureMonorrielEmployeesImported();
     ensureLvaEmployeesImported();
+    if (typeof ensureOfficeEmployeesImported === "function") ensureOfficeEmployeesImported();
       savePosts();
       saveReports();
       saveEmployees();
@@ -12309,6 +12442,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   rebuildEmployeesFromPosts(employees);
   ensureMonorrielEmployeesImported();
     ensureLvaEmployeesImported();
+    if (typeof ensureOfficeEmployeesImported === "function") ensureOfficeEmployeesImported();
   restoreSessionUser();
   applyAccessControl();
   if (!currentUser) {
