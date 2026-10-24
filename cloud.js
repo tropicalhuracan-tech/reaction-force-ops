@@ -326,6 +326,54 @@
     return { reports: [] };
   }
 
+  function employeeIdentityKey(name) {
+    const base = String(name || "")
+      .replace(/\s*\(monorriel\)\s*$/i, "")
+      .replace(/\s*\(la vega(?: autopista)?\)\s*$/i, "")
+      .trim();
+    return String(base)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase();
+  }
+
+  /** Una ficha por persona (nombre base); une sitios/roles/datos. */
+  function dedupeEmployeesByIdentity(list) {
+    const map = new Map();
+    const uglyId = (id) => /\(MONORRIEL\)|\(LA-VEGA|\(LA VEGA/i.test(String(id || ""));
+    (list || []).forEach((raw) => {
+      if (!raw || typeof raw !== "object") return;
+      const name = String(raw.name || "").trim();
+      if (!name || name.toLowerCase() === "por asignar") return;
+      const key = employeeIdentityKey(name);
+      if (!key) return;
+      if (!map.has(key)) {
+        map.set(key, { ...raw });
+        return;
+      }
+      const prev = map.get(key);
+      const merged = { ...prev };
+      Object.keys(raw).forEach((k) => {
+        const v = raw[k];
+        if (v == null || v === "") return;
+        if (Array.isArray(v)) {
+          merged[k] = [...new Set([...(Array.isArray(merged[k]) ? merged[k] : []), ...v].filter(Boolean))];
+        } else if (!merged[k]) {
+          merged[k] = v;
+        } else if (k === "updatedAt" && String(v) > String(merged[k] || "")) {
+          merged[k] = v;
+        }
+      });
+      if (uglyId(merged.id) && raw.id && !uglyId(raw.id)) merged.id = raw.id;
+      map.set(key, merged);
+    });
+    return [...map.values()].sort((a, b) =>
+      String(a.name || "").localeCompare(String(b.name || ""), "es")
+    );
+  }
+
   /** Une clientes locales + remotos por id para no perder altas al guardar. */
   function mergePostsPreferUnion(localPosts, remotePosts) {
     const map = new Map();
