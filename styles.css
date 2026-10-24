@@ -2842,6 +2842,43 @@ body.lightbox-open {
   text-align: right;
 }
 
+/* ==== Candado versión App (actualizar obligatorio) ==== */
+.app-version-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(5, 5, 6, 0.92);
+  backdrop-filter: blur(4px);
+}
+.app-version-gate[hidden] {
+  display: none !important;
+}
+.app-version-gate-card {
+  width: min(420px, 100%);
+  background: linear-gradient(180deg, #1a1a1e 0%, #101012 100%);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 14px;
+  padding: 22px 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+.app-version-gate-card h2 {
+  margin: 0 0 10px;
+  font-size: 1.25rem;
+  color: #fbbf24;
+}
+.app-version-gate-card p {
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+.app-version-gate-card .btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
 /* ==== Ramón Vargas — reporte B/E ==== */
 #vargasView .vargas-toolbar-row {
   display: grid;

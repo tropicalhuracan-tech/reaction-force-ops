@@ -9,6 +9,9 @@ const ADMIN_SESSION_KEY = "rfs-admin-unlocked";
 const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
+/** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
+const APP_BUILD = 187;
+const APP_VERSION_LABEL = "v187";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -1742,6 +1745,28 @@ function normalizePost(p = {}) {
   };
 }
 
+/** Fusiona reportes de incidente por id; no pierde altas locales. */
+function mergeReportsForCloud(localList, remoteList) {
+  if (window.RFSCloudApi && typeof window.RFSCloudApi.mergeReportsPreferUnion === "function") {
+    return window.RFSCloudApi.mergeReportsPreferUnion(localList, remoteList);
+  }
+  const map = new Map();
+  const put = (raw, preferIfTie) => {
+    if (!raw || !raw.id) return;
+    if (!map.has(raw.id)) {
+      map.set(raw.id, raw);
+      return;
+    }
+    const prev = map.get(raw.id);
+    const ta = Date.parse(prev.updatedAt || prev.createdAt || "") || 0;
+    const tb = Date.parse(raw.updatedAt || raw.createdAt || "") || 0;
+    if (tb > ta || (tb === ta && preferIfTie)) map.set(raw.id, raw);
+  };
+  (remoteList || []).forEach((r) => put(r, false));
+  (localList || []).forEach((r) => put(r, true));
+  return [...map.values()];
+}
+
 /** Fusiona clientes/puestos por id; no pierde altas locales al sincronizar. */
 function mergePostsForCloud(localList, remoteList) {
   const map = new Map();
@@ -2310,6 +2335,7 @@ function emptyContabilidadDataSafe() {
 }
 
 async function saveCloudBundle(options) {
+  const opts = Object.assign({ clientBuild: APP_BUILD }, options || {});
   return window.RFSCloudApi.saveCloud(
     posts,
     reports,
@@ -2328,7 +2354,7 @@ async function saveCloudBundle(options) {
     typeof suplidoresData !== "undefined" ? suplidoresData : { suppliers: [], payments: [], nextCodeSeq: 1 },
     typeof loanTrashIds !== "undefined" ? loanTrashIds : [],
     typeof vargasData !== "undefined" ? vargasData : { reports: [] },
-    options || {}
+    opts
   );
 }
 
@@ -2347,6 +2373,11 @@ async function pushMessagesToCloud() {
 
 async function pushToCloud() {
   if (!window.RFSCloudApi) return;
+  if (appVersionBlocked) {
+    setCloudStatus("Nube: bloqueada · actualiza la App");
+    showAppVersionGate(appVersionBlockReason || "Hay una versión nueva. Actualiza antes de guardar.");
+    return;
+  }
   if (cloudSaving) {
     cloudSavePending = true;
     return;
@@ -2377,10 +2408,18 @@ async function pushToCloud() {
     lastLivePullAt = Date.now();
     cloudReady = true;
     cloudRetryAttempt = 0;
-    setCloudStatus("Nube: guardado ✓ (todas las PCs)");
+    setCloudStatus("Nube: guardado ✓ (fusionado · no se pisa)");
   } catch (err) {
     console.error(err);
     const msg = String((err && err.message) || err || "");
+    if (msg === "APP_OUTDATED" || (err && err.code === "APP_OUTDATED")) {
+      appVersionBlocked = true;
+      const need = (err && err.requiredBuild) || "?";
+      appVersionBlockReason = `Esta App es ${APP_VERSION_LABEL} (build ${APP_BUILD}). La nube exige build ${need}.`;
+      showAppVersionGate(appVersionBlockReason);
+      setCloudStatus("Nube: bloqueada · App desactualizada");
+      return;
+    }
     if (msg.includes("429")) {
       scheduleCloudRetry("cuota temporal");
     } else {
@@ -2449,7 +2488,8 @@ async function syncFromCloud() {
     // Fusionar clientes: no borrar altas locales (p.ej. Universidad Isa recién creada)
     posts = mergePostsForCloud(localPosts, remote.posts || []);
     ensureClientNumbers(false);
-    reports = Array.isArray(remote.reports) ? remote.reports : [];
+    // Reportes: fusionar por id (nunca reemplazo ciego)
+    reports = mergeReportsForCloud(localReports, remote.reports || []);
     // Fusionar empleados: no borrar altas locales (p.ej. nombres nuevos en reporte Monorriel)
     if (Array.isArray(remote.employees) && remote.employees.length) {
       employees = mergeEmployeeListsForCloud(
@@ -4376,13 +4416,112 @@ function tryAppLogin() {
   maybeOfferBiometricEnrollment(found);
 }
 
+/** Candado de versión: App vieja no entra a secciones ni guarda en la nube. */
+let appVersionBlocked = false;
+let appVersionBlockReason = "";
+let appVersionCheckTimer = null;
+let publishedAppBuild = 0;
+
+function showAppVersionGate(detail) {
+  const gate = document.getElementById("appVersionGate");
+  const detailEl = document.getElementById("appVersionGateDetail");
+  if (detailEl) {
+    detailEl.textContent =
+      detail ||
+      `Tu App: ${APP_VERSION_LABEL} (build ${APP_BUILD}). Hay una versión más nueva publicada.`;
+  }
+  if (gate) gate.hidden = false;
+  document.body.classList.add("app-version-locked");
+}
+
+function hideAppVersionGate() {
+  const gate = document.getElementById("appVersionGate");
+  if (gate) gate.hidden = true;
+  document.body.classList.remove("app-version-locked");
+}
+
+async function fetchPublishedVersionInfo() {
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      build: Number(data.build) || 0,
+      minBuild: Number(data.minBuild) || Number(data.build) || 0,
+      label: String(data.label || ""),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+async function checkAppVersionGate(opts = {}) {
+  const forceShow = !!opts.forceShow;
+  let required = 0;
+  let source = "";
+
+  const published = await fetchPublishedVersionInfo();
+  if (published && published.build) {
+    publishedAppBuild = published.build;
+    required = Math.max(required, published.minBuild || published.build);
+    source = published.label || `v${published.build}`;
+  }
+
+  try {
+    if (window.RFSCloudApi && typeof window.RFSCloudApi.peekCloudUpdatedAt === "function") {
+      const peek = await window.RFSCloudApi.peekCloudUpdatedAt();
+      if (peek && !peek.empty) {
+        const cloudMin = Number(peek.minAppBuild) || 0;
+        const cloudBuild = Number(peek.appBuild) || 0;
+        if (cloudMin > required) {
+          required = cloudMin;
+          source = `nube build ${cloudMin}`;
+        } else if (cloudBuild > required) {
+          required = cloudBuild;
+          source = `nube build ${cloudBuild}`;
+        }
+      }
+    }
+  } catch (_) {}
+
+  if (required > 0 && APP_BUILD < required) {
+    appVersionBlocked = true;
+    appVersionBlockReason = `Tu App es ${APP_VERSION_LABEL} (build ${APP_BUILD}). Se requiere ${source || "build " + required}.`;
+    showAppVersionGate(appVersionBlockReason);
+    return false;
+  }
+
+  if (published && published.build && APP_BUILD < published.build) {
+    appVersionBlocked = true;
+    appVersionBlockReason = `Tu App es ${APP_VERSION_LABEL}. Publicada: ${published.label || "v" + published.build}.`;
+    showAppVersionGate(appVersionBlockReason);
+    return false;
+  }
+
+  appVersionBlocked = false;
+  appVersionBlockReason = "";
+  if (!forceShow) hideAppVersionGate();
+  return true;
+}
+
+function startAppVersionWatch() {
+  if (appVersionCheckTimer) return;
+  checkAppVersionGate().catch(() => {});
+  appVersionCheckTimer = setInterval(() => {
+    checkAppVersionGate().catch(() => {});
+  }, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkAppVersionGate().catch(() => {});
+  });
+}
+
 /** Recarga la app (SW + caché) sin cerrar sesión: botón ⟳ del topbar en todas las pestañas */
 async function refreshAppShell() {
   const btn = document.getElementById("btnRefreshApp");
   if (btn) btn.disabled = true;
   toast("Actualizando app…");
   try {
-    if (typeof flushCloudSave === "function") flushCloudSave();
+    if (typeof flushCloudSave === "function" && !appVersionBlocked) flushCloudSave();
   } catch (_) {}
   try {
     if ("serviceWorker" in navigator) {
@@ -11242,9 +11381,22 @@ function bindCajaUi() {
 function switchView(viewId) {
   if (!currentUser) {
     viewId = "loginView";
+  } else if (viewId !== "loginView" && appVersionBlocked) {
+    showAppVersionGate(appVersionBlockReason);
+    toast("Actualiza la App antes de entrar a las secciones.");
+    checkAppVersionGate({ forceShow: true }).catch(() => {});
+    return;
   } else if (viewId !== "loginView" && !canAccessView(viewId)) {
     toast("Tu usuario no tiene acceso a esa sección.");
     viewId = firstAllowedView();
+  }
+  // Revisión rápida al entrar a cualquier sección de trabajo
+  if (currentUser && viewId !== "loginView") {
+    checkAppVersionGate().then((ok) => {
+      if (!ok) {
+        /* gate ya visible */
+      }
+    }).catch(() => {});
   }
   closeMediaLightbox();
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === viewId));
@@ -12795,6 +12947,9 @@ function bindUi() {
   });
   document.getElementById("btnLogoutUser").addEventListener("click", logoutAppUser);
   document.getElementById("btnRefreshApp")?.addEventListener("click", refreshAppShell);
+  document.getElementById("btnForceAppUpdate")?.addEventListener("click", () => {
+    refreshAppShell();
+  });
   document.getElementById("btnSaveUser").addEventListener("click", saveUserFromForm);
   document.getElementById("btnCancelUserEdit").addEventListener("click", clearUserForm);
   document.getElementById("btnToggleUserPass")?.addEventListener("click", () => {
@@ -12937,7 +13092,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=175").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=187").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -12952,15 +13107,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     }).catch(() => {});
     if (window.caches) {
       caches.keys().then((keys) => {
-        keys.filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v117").forEach((k) => caches.delete(k));
+        keys
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v187")
+          .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
   }
 
+  startAppVersionWatch();
+
   // Nube en segundo plano: no bloquea Entrar
   (async () => {
     try {
+      await checkAppVersionGate();
       const cloud = await syncFromCloud();
+      await checkAppVersionGate();
       const added = await mergeImportedPosts();
       rebuildEmployeesFromPosts(employees);
       localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
