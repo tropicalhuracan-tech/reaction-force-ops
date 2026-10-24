@@ -918,6 +918,32 @@ function reactivateSelectedEmployee() {
 }
 
 /** Crea o reutiliza empleado Monorriel al escribir un nombre nuevo en el reporte */
+function findSimilarMonorrielEmployees(name, excludeId = null) {
+  const raw = String(name || "").trim();
+  if (raw.length < 3) return [];
+  return getMonorrielEmployees(true)
+    .filter((e) => e && e.id !== excludeId)
+    .map((e) => {
+      const sim = nameSimilarity(raw, e.name);
+      return { emp: e, score: sim.score, exact: sim.exact };
+    })
+    .filter((x) => x.score >= 0.72)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
+}
+
+/** Alerta antes de crear/asignar nombre Monorriel si hay parecidos. */
+function confirmMonoNameNotDuplicate(rawName, excludeId = null) {
+  const similar = findSimilarMonorrielEmployees(rawName, excludeId);
+  if (!similar.length) return true;
+  const msg =
+    "⚠ Nombres muy parecidos en Monorriel:\n" +
+    formatDupHint(similar) +
+    "\n\nPueden ser la misma persona (mala escritura).\n" +
+    "¿Continuar de todos modos?\n\nTip: en Personal Monorriel puedes marcarlos y usar Unificar.";
+  return window.confirm(msg);
+}
+
 function ensureEmployeeFromMonoName(rawName) {
   const base = String(rawName || "").trim();
   if (!base || base.toLowerCase() === "vacante") return null;
@@ -944,6 +970,11 @@ function ensureEmployeeFromMonoName(rawName) {
     employees[idx] = merged;
     saveEmployees();
     return employees[idx];
+  }
+  // Alerta nombres parecidos antes de crear otro Monorriel
+  if (!confirmMonoNameNotDuplicate(base)) {
+    toast("No se creó: revisa Personal Monorriel → Unificar si es el mismo.");
+    return null;
   }
   const emp = normalizeEmployee({
     name: display,
@@ -1497,19 +1528,31 @@ function saveEmployeeDetail() {
     return;
   }
   const current = employees[idx];
+  const isMono = document.getElementById("eMonorriel").checked;
   const similar = findSimilarEmployees(name, current.id);
   if (similar.some((m) => m.exact)) {
     toast("Ese nombre ya pertenece a otro empleado.");
     updateEmployeeNameDupHint("eName", "eNameDupHint", current.id);
     return;
   }
-  if (similar.length && employeeKey(name) !== employeeKey(current.name)) {
+  // Monorriel: alerta de nombres muy parecidos antes de guardar (misma persona mal escrita)
+  if (
+    (isMono || isMonorrielEmployee(current)) &&
+    employeeKey(name) !== employeeKey(current.name) &&
+    !confirmMonoNameNotDuplicate(name, current.id)
+  ) {
+    return;
+  }
+  if (
+    !(isMono || isMonorrielEmployee(current)) &&
+    similar.length &&
+    employeeKey(name) !== employeeKey(current.name)
+  ) {
     const msg = "El nuevo nombre se parece a:\n" + formatDupHint(similar) + "\n\n¿Guardar de todos modos?";
     if (!window.confirm(msg)) return;
   }
   const photo = currentEmpPhoto();
   const doc = currentEmpDoc();
-  const isMono = document.getElementById("eMonorriel").checked;
   const clearingPhoto = pendingEmpPhoto === "";
   const clearingDoc = pendingEmpDoc && pendingEmpDoc.dataUrl === "";
   const newPhotoData = !!(pendingEmpPhoto && String(pendingEmpPhoto).startsWith("data:"));
@@ -7503,30 +7546,280 @@ function deleteMonoReport() {
   toast("Reporte eliminado.");
 }
 
+let monoUnifySelected = new Set(); // ids marcados
+let monoUnifyKeeperId = ""; // el de doble check (principal)
+
+function findMonoSimilarClusters() {
+  const staff = getMonorrielEmployees(true);
+  const used = new Set();
+  const clusters = [];
+  for (let i = 0; i < staff.length; i += 1) {
+    if (used.has(staff[i].id)) continue;
+    const group = [staff[i]];
+    for (let j = i + 1; j < staff.length; j += 1) {
+      if (used.has(staff[j].id)) continue;
+      const sim = nameSimilarity(staff[i].name, staff[j].name);
+      if (sim.score >= 0.78) group.push(staff[j]);
+    }
+    if (group.length >= 2) {
+      group.forEach((e) => used.add(e.id));
+      clusters.push(group);
+    }
+  }
+  return clusters;
+}
+
+function updateMonoUnifyToolbar() {
+  const btn = document.getElementById("btnMonoUnify");
+  const count = document.getElementById("monoUnifyCount");
+  const n = monoUnifySelected.size;
+  const keeperOk = monoUnifyKeeperId && monoUnifySelected.has(monoUnifyKeeperId);
+  if (btn) btn.disabled = n < 2 || !keeperOk;
+  if (count) {
+    count.textContent = n
+      ? `${n} seleccionados` + (keeperOk ? " · Principal marcado ✓✓" : " · falta Principal (doble check)")
+      : "";
+  }
+}
+
+function renderMonoSimilarAlert() {
+  const box = document.getElementById("monoSimilarAlert");
+  if (!box) return;
+  const clusters = findMonoSimilarClusters();
+  if (!clusters.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const lines = clusters
+    .slice(0, 8)
+    .map((g) => `• ${g.map((e) => e.name.replace(/\s*\(Monorriel\)\s*$/i, "")).join(" ↔ ")}`)
+    .join("<br/>");
+  box.hidden = false;
+  box.innerHTML = `<strong style="color:#fbbf24">⚠ Nombres muy parecidos (${clusters.length} grupo(s))</strong>
+    <p class="muted tight" style="margin:6px 0 0">Pueden ser la misma persona. Márcalos, elige Principal (✓✓) y pulsa Unificar.</p>
+    <p style="margin:8px 0 0;font-size:13px;line-height:1.45">${lines}</p>`;
+}
+
 function renderMonoStaffList() {
   const list = document.getElementById("monoStaffList");
   if (!list) return;
   const staff = getMonorrielEmployees(true);
+  renderMonoSimilarAlert();
+  // limpiar selección de ids que ya no existen
+  const ids = new Set(staff.map((e) => e.id));
+  [...monoUnifySelected].forEach((id) => {
+    if (!ids.has(id)) monoUnifySelected.delete(id);
+  });
+  if (monoUnifyKeeperId && !ids.has(monoUnifyKeeperId)) monoUnifyKeeperId = "";
+
   if (!staff.length) {
     list.innerHTML = `<p class="empty">No hay personal Monorriel importado todavía.</p>`;
+    updateMonoUnifyToolbar();
     return;
   }
   list.innerHTML = staff
     .map((e) => {
-      return `<button class="employee-card" type="button" data-emp-id="${escapeHtml(e.id)}">
-        <div class="row">
-          <div>
-            <h3>${escapeHtml(e.name)}</h3>
-            <p>${escapeHtml(e.phone || "Sin teléfono")} · ${escapeHtml(e.cedula || "Sin cédula")}</p>
-            <p style="margin-top:6px">Completa datos en Empleados</p>
+      const checked = monoUnifySelected.has(e.id);
+      const isKeeper = monoUnifyKeeperId === e.id;
+      const base = monoBaseName(e.name) || e.name;
+      return `<div class="employee-card mono-staff-card${checked ? " mono-selected" : ""}${isKeeper ? " mono-keeper" : ""}" data-emp-id="${escapeHtml(e.id)}">
+        <div class="row" style="align-items:flex-start;gap:10px">
+          <label class="mono-check-wrap" title="Seleccionar para unificar">
+            <input type="checkbox" class="mono-unify-check" data-emp-id="${escapeHtml(e.id)}" ${checked ? "checked" : ""} />
+          </label>
+          <div style="flex:1;min-width:0">
+            <h3 style="margin:0 0 4px">${escapeHtml(base)}${isKeeper ? ' <span class="mono-keeper-tag">✓✓ Principal</span>' : ""}</h3>
+            <p class="muted tight">${escapeHtml(e.phone || "Sin teléfono")} · ${escapeHtml(e.cedula || "Sin cédula")}</p>
+            <div class="mono-staff-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+              <button type="button" class="btn ghost btn-sm mono-set-keeper" data-emp-id="${escapeHtml(e.id)}" ${checked ? "" : "disabled"} title="Doble check: este nombre se queda">
+                ${isKeeper ? "✓✓ Principal" : "Marcar Principal ✓✓"}
+              </button>
+              <button type="button" class="btn ghost btn-sm mono-open-emp" data-emp-id="${escapeHtml(e.id)}">Abrir ficha</button>
+            </div>
           </div>
         </div>
-      </button>`;
+      </div>`;
     })
     .join("");
-  list.querySelectorAll("[data-emp-id]").forEach((btn) => {
-    btn.addEventListener("click", () => openEmployeeDetail(btn.dataset.empId));
+
+  list.querySelectorAll(".mono-unify-check").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const id = cb.dataset.empId;
+      if (cb.checked) monoUnifySelected.add(id);
+      else {
+        monoUnifySelected.delete(id);
+        if (monoUnifyKeeperId === id) monoUnifyKeeperId = "";
+      }
+      // Si solo hay uno seleccionado, no hay keeper aún; si hay 2+ y no keeper, no auto
+      renderMonoStaffList();
+    });
   });
+  list.querySelectorAll(".mono-set-keeper").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      const id = btn.dataset.empId;
+      if (!monoUnifySelected.has(id)) {
+        monoUnifySelected.add(id);
+      }
+      monoUnifyKeeperId = id;
+      renderMonoStaffList();
+    });
+  });
+  list.querySelectorAll(".mono-open-emp").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      openEmployeeDetail(btn.dataset.empId);
+    });
+  });
+  updateMonoUnifyToolbar();
+}
+
+function remapMonorrielReportsToKeeper(keeper, otherIds, otherNames) {
+  const keepId = keeper.id;
+  const keepName = monoDisplayName(monoBaseName(keeper.name) || keeper.name);
+  const otherIdSet = new Set(otherIds);
+  const otherNameKeys = new Set(
+    (otherNames || []).map((n) => employeeKey(monoBaseName(n) || n)).filter(Boolean)
+  );
+  let touched = 0;
+  (monorrielReports || []).forEach((report) => {
+    (report.assignments || []).forEach((a) => {
+      if (!a) return;
+      const aKey = employeeKey(monoBaseName(a.employeeName) || a.employeeName);
+      if (otherIdSet.has(a.employeeId) || (aKey && otherNameKeys.has(aKey))) {
+        a.employeeId = keepId;
+        a.employeeName = keepName;
+        touched += 1;
+      }
+    });
+  });
+  return touched;
+}
+
+function remapMonorrielPayrollNames(keeper, otherNames) {
+  if (typeof contabilidadData === "undefined" || !contabilidadData) return 0;
+  const keepName = monoBaseName(keeper.name) || keeper.name;
+  const otherKeys = new Set(
+    (otherNames || []).map((n) => employeeKey(monoBaseName(n) || n)).filter(Boolean)
+  );
+  let n = 0;
+  (contabilidadData.payrolls || []).forEach((p) => {
+    if (!p || p.group !== "monorriel") return;
+    (p.lines || []).forEach((line) => {
+      if (!line) return;
+      const lk = employeeKey(monoBaseName(line.fullName) || line.fullName);
+      if (lk && otherKeys.has(lk)) {
+        line.fullName = keepName;
+        if (keeper.id) line.employeeId = keeper.id;
+        n += 1;
+      }
+    });
+  });
+  if (n && typeof saveContabilidadData === "function") saveContabilidadData(true);
+  return n;
+}
+
+/** Unifica fichas Monorriel: el Principal (doble check) se queda; los demás salen. */
+function unifyMonorrielEmployees() {
+  if (typeof canWriteEmployees === "function" && !canWriteEmployees()) {
+    toast("No tienes permiso para unificar empleados.");
+    return;
+  }
+  const selected = [...monoUnifySelected];
+  if (selected.length < 2) {
+    toast("Marca al menos 2 nombres.");
+    return;
+  }
+  if (!monoUnifyKeeperId || !monoUnifySelected.has(monoUnifyKeeperId)) {
+    toast("Marca Principal (✓✓) en el nombre que se queda.");
+    return;
+  }
+  const keeper = getEmployee(monoUnifyKeeperId);
+  if (!keeper || !isMonorrielEmployee(keeper)) {
+    toast("El principal debe ser personal Monorriel.");
+    return;
+  }
+  const others = selected
+    .filter((id) => id !== monoUnifyKeeperId)
+    .map((id) => getEmployee(id))
+    .filter((e) => e && isMonorrielEmployee(e));
+  if (!others.length) {
+    toast("Selecciona otros nombres además del Principal.");
+    return;
+  }
+
+  // Alerta si no son parecidos
+  const weak = others.filter((o) => nameSimilarity(keeper.name, o.name).score < 0.65);
+  if (weak.length) {
+    const msg =
+      "Algunos nombres no se parecen mucho al Principal:\n" +
+      weak.map((o) => `• ${o.name}`).join("\n") +
+      "\n\n¿Unificar de todos modos?";
+    if (!confirm(msg)) return;
+  }
+
+  const otherNames = others.map((o) => o.name);
+  const list =
+    `Principal (se queda):\n• ${monoBaseName(keeper.name) || keeper.name}\n\n` +
+    `Se unifican y salen de Monorriel:\n` +
+    others.map((o) => `• ${monoBaseName(o.name) || o.name}`).join("\n") +
+    `\n\n¿Confirmar Unificar?`;
+  if (!confirm(list)) return;
+
+  // Fusionar datos al keeper
+  let merged = keeper;
+  others.forEach((o) => {
+    merged = mergeEmployeeRecord(merged, o);
+  });
+  merged = applyMonorrielFlag(merged, true);
+  merged.id = keeper.id;
+  merged.name = monoDisplayName(monoBaseName(keeper.name) || keeper.name);
+  merged.status = "active";
+  merged.inactiveReason = "";
+  merged.inactiveAt = "";
+  merged.updatedAt = new Date().toISOString();
+  const kIdx = employees.findIndex((e) => e.id === keeper.id);
+  if (kIdx >= 0) employees[kIdx] = normalizeEmployee(merged);
+
+  const otherIds = others.map((o) => o.id);
+  const reportsTouched = remapMonorrielReportsToKeeper(employees[kIdx] || merged, otherIds, otherNames);
+  const payTouched = remapMonorrielPayrollNames(employees[kIdx] || merged, otherNames);
+
+  // Quitar Monorriel y pasar a inactivos (no borrar historial de préstamos)
+  others.forEach((o) => {
+    const idx = employees.findIndex((e) => e.id === o.id);
+    if (idx < 0) return;
+    let row = applyMonorrielFlag(employees[idx], false);
+    row = normalizeEmployee({
+      ...row,
+      status: "inactive",
+      inactiveReason: `Unificado con ${monoBaseName(merged.name) || merged.name}`,
+      inactiveAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      note: `${row.note || ""} · Unificado → ${merged.id}`.trim(),
+    });
+    employees[idx] = row;
+  });
+
+  saveEmployees();
+  if (typeof saveMonorrielReports === "function") saveMonorrielReports();
+  if (typeof logActivity === "function") {
+    logActivity(
+      "mono_unify",
+      `Unificó Monorriel: ${merged.name} ← ${others.map((o) => monoBaseName(o.name)).join(", ")}`
+    );
+  }
+
+  monoUnifySelected = new Set();
+  monoUnifyKeeperId = "";
+  renderMonoStaffList();
+  if (typeof renderEmployees === "function") renderEmployees();
+  toast(
+    `Unificado: se queda ${monoBaseName(merged.name)}. ${others.length} salieron` +
+      (reportsTouched ? ` · ${reportsTouched} asignaciones en reportes` : "") +
+      (payTouched ? ` · ${payTouched} en nómina` : "")
+  );
 }
 
 function monoEmployeeAttendanceKey(assignment) {
@@ -7806,6 +8099,13 @@ function bindMonorrielUi() {
       setMonoSummaryShiftTab(btn.dataset.monoSummaryShift);
       renderMonoEmployeeSummary();
     });
+  });
+  document.getElementById("btnMonoUnify")?.addEventListener("click", () => unifyMonorrielEmployees());
+  document.getElementById("btnMonoUnifyClear")?.addEventListener("click", () => {
+    monoUnifySelected = new Set();
+    monoUnifyKeeperId = "";
+    renderMonoStaffList();
+    toast("Selección limpiada.");
   });
 }
 /* ==== FIN MÓDULO MONORRIEL ==== */

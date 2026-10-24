@@ -12,7 +12,7 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="styles.css?v=177" />
+  <link rel="stylesheet" href="styles.css?v=184" />
 </head>
 <body>
   <div id="app" class="logged-out">
@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v183 · Dedupe empleados en nube</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v184 · Unificar personal Monorriel</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -482,7 +482,16 @@
       <div class="section-head">
         <button id="btnBackMonoFromStaff" class="btn ghost" type="button" style="width:auto;margin:0 0 10px;padding:8px 12px">← Volver</button>
         <h1>Personal Monorriel</h1>
-        <p class="muted">Ya están en Empleados. Completa teléfono, cédula y datos allí.</p>
+        <p class="muted">Marca 2 o más si son la misma persona (mal escritos). El de <strong>doble check</strong> (Principal) se queda; los otros se unifican.</p>
+      </div>
+      <div id="monoSimilarAlert" class="form-card" hidden style="border-color:#b45309;margin-bottom:10px"></div>
+      <div class="form-card mono-unify-bar" style="margin-bottom:10px">
+        <p id="monoUnifyHint" class="muted tight" style="margin:0 0 8px">Selecciona casillas · marca Principal (✓✓) en el nombre correcto · Unificar.</p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <button id="btnMonoUnify" class="btn primary" type="button" disabled>Unificar</button>
+          <button id="btnMonoUnifyClear" class="btn ghost" type="button">Limpiar selección</button>
+          <span id="monoUnifyCount" class="muted" style="font-size:13px"></span>
+        </div>
       </div>
       <div id="monoStaffList" class="card-list"></div>
     </section>
@@ -2014,6 +2023,6 @@
   <script src="contabilidad.js?v=179"></script>
   <script src="vargas.js?v=177"></script>
   <script src="quotes.js?v=144"></script>
-  <script src="app.js?v=183"></script>
+  <script src="app.js?v=184"></script>
 </body>
 </html>
