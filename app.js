@@ -6306,6 +6306,12 @@ function printCurrentView() {
   if (id === "monoReportDetailView") return printMonoReport();
   if (id === "monorrielView" || id === "monoStaffView") return printMonorrielIndexSheet();
   if (id === "lvaView") return printLvaActiveSheet();
+  if (id === "vargasView") {
+    if (typeof printVargasReport === "function") return printVargasReport();
+    if (typeof window.RFSVargas !== "undefined" && typeof window.RFSVargas.printVargasReport === "function") {
+      return window.RFSVargas.printVargasReport();
+    }
+  }
   if ((id === "nominaView" || id === "contabilidadView") && typeof printOpenPayrollSheet === "function") return printOpenPayrollSheet();
   if (id === "detailView") {
     const post = getPost(selectedId);
@@ -6326,7 +6332,7 @@ function printCurrentView() {
       <p><strong>Vigilantes:</strong> ${escapeHtml(guardsSummary(post))}</p>
       <p><strong>Nota:</strong> ${escapeHtml(post.note || "—")}</p>`);
   }
-  toast("Abre Clientes, Empleados, Préstamos, Finanzas, Monorriel o La Vega para imprimir.");
+  toast("Abre Clientes, Empleados, Préstamos, Finanzas, Monorriel, Vargas o La Vega para imprimir.");
 }
 
 function bindPrintUi() {
@@ -6342,6 +6348,16 @@ function bindPrintUi() {
     ["btnPrintMonorrielList", printMonorrielIndexSheet],
     ["btnPrintLvaList", printLvaActiveSheet],
     ["btnPrintLvaRoster", printLvaActiveSheet],
+    [
+      "btnPrintVargas",
+      () => {
+        if (typeof printVargasReport === "function") return printVargasReport();
+        if (typeof window.RFSVargas !== "undefined" && typeof window.RFSVargas.printVargasReport === "function") {
+          return window.RFSVargas.printVargasReport();
+        }
+        toast("Reporte Vargas no disponible.");
+      },
+    ],
   ];
   map.forEach(([id, fn]) => {
     const el = document.getElementById(id);

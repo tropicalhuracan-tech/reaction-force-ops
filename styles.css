@@ -2905,3 +2905,33 @@ body.lightbox-open {
     grid-template-columns: 1fr;
   }
 }
+
+/* Vargas — agregar / eliminar */
+#vargasView .vargas-add-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1.2fr 0.8fr 0.6fr;
+  gap: 10px;
+  align-items: end;
+}
+#vargasView .vargas-del-btn {
+  border: 0;
+  background: transparent;
+  color: #f87171;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+#vargasView .vargas-del-btn:hover {
+  background: rgba(248, 113, 113, 0.15);
+}
+#vargasView .vargas-del-cell {
+  text-align: center;
+  width: 36px;
+}
+@media (max-width: 720px) {
+  #vargasView .vargas-add-grid {
+    grid-template-columns: 1fr;
+  }
+}
