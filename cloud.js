@@ -1583,11 +1583,25 @@
     if (!opts.skipLva) {
       mainFields.lvaJson = { stringValue: JSON.stringify(lva || {}) };
     }
+    // Antes de escribir clientes: fusionar con la nube (no perder altas como Universidad Isa)
+    let postsToSave = Array.isArray(posts) ? posts : [];
+    try {
+      const remotePostsDoc = await getDoc(partPath("posts")).catch(() => null);
+      const remotePosts =
+        remotePostsDoc && remotePostsDoc.fields && remotePostsDoc.fields.postsJson
+          ? parseArrayField(remotePostsDoc.fields, "postsJson")
+          : [];
+      if (remotePosts.length) {
+        postsToSave = mergePostsPreferUnion(postsToSave, remotePosts);
+      }
+    } catch (err) {
+      console.warn("RFS: no se pudieron fusionar posts remotos al guardar", err);
+    }
     const mainMask = Object.keys(mainFields);
     const writes = [
       patchDoc(partPath("main"), mainFields, mainMask),
       patchDoc(partPath("posts"), {
-        postsJson: { stringValue: JSON.stringify(posts || []) },
+        postsJson: { stringValue: JSON.stringify(postsToSave || []) },
         updatedAt: { stringValue: updatedAt },
       }, ["postsJson", "updatedAt"]),
       patchDoc(partPath("employees"), {
