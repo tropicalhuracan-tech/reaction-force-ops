@@ -426,6 +426,9 @@ function normalizeEmployee(e = {}) {
     officeEmployeeId: String(e.officeEmployeeId || "").trim(),
     salary: Math.max(0, Number(e.salary) || 0),
     hrProfile: normalizeEmployeeHrProfile(e.hrProfile || {}),
+    monoUnifyAliases: Array.isArray(e.monoUnifyAliases)
+      ? [...new Set(e.monoUnifyAliases.map((a) => String(a || "").trim()).filter(Boolean))]
+      : [],
     updatedAt: e.updatedAt || new Date().toISOString(),
   };
 }
@@ -507,6 +510,13 @@ function mergeEmployeeRecord(base, incoming) {
     inactiveAt: preferFill(base.inactiveAt, incoming.inactiveAt),
     hrApplicationId: preferFill(base.hrApplicationId, incoming.hrApplicationId),
     hrProfile: mergeEmployeeHrProfile(base.hrProfile, incoming.hrProfile),
+    monoUnifyAliases: [
+      ...new Set(
+        [...(base.monoUnifyAliases || []), ...(incoming.monoUnifyAliases || [])]
+          .map((a) => String(a || "").trim())
+          .filter(Boolean)
+      ),
+    ],
     updatedAt: new Date().toISOString(),
   });
   out.key = employeeKey(out.name);
@@ -953,6 +963,14 @@ function ensureEmployeeFromMonoName(rawName) {
   let existing = employees.find(
     (e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase
   );
+  // Si ese nombre se unificó antes, reutilizar el Principal
+  if (!existing && keyBase) {
+    existing = employees.find(
+      (e) =>
+        Array.isArray(e.monoUnifyAliases) &&
+        e.monoUnifyAliases.some((a) => String(a) === keyBase || String(a) === key)
+    );
+  }
   if (existing) {
     const idx = employees.findIndex((e) => e.id === existing.id);
     let merged = applyMonorrielFlag(existing, true);
@@ -6712,7 +6730,14 @@ function ensureMonorrielEmployeesImported() {
     const keyBase = employeeKey(base);
     const roster = rosterByKey.get(keyBase) || rosterByKey.get(key);
     const salaryFromRoster = roster ? Math.max(0, Number(roster.salaryMonthly) || 0) : 0;
-    const existing = employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
+    let existing = employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
+    if (!existing && keyBase) {
+      existing = employees.find(
+        (e) =>
+          Array.isArray(e.monoUnifyAliases) &&
+          e.monoUnifyAliases.some((a) => String(a) === keyBase || String(a) === key)
+      );
+    }
     if (existing) {
       const idx = employees.findIndex((e) => e.id === existing.id);
       const merged = mergeEmployeeRecord(existing, {
@@ -6721,8 +6746,13 @@ function ensureMonorrielEmployeesImported() {
         roles: ["Monorriel"],
         salary: existing.salary > 0 ? existing.salary : salaryFromRoster,
       });
-      // Forzar etiqueta Monorriel en nombre si faltaba
-      if (!/\(monorriel\)/i.test(merged.name)) merged.name = display;
+      // Si era un alias unificado, conservar el nombre del Principal (no revivir el typo)
+      const isAliasOnly =
+        Array.isArray(existing.monoUnifyAliases) &&
+        existing.monoUnifyAliases.some((a) => String(a) === keyBase || String(a) === key) &&
+        employeeKey(monoBaseName(existing.name)) !== keyBase;
+      if (!isAliasOnly && !/\(monorriel\)/i.test(merged.name)) merged.name = display;
+      if (!/\(monorriel\)/i.test(merged.name)) merged.name = monoDisplayName(monoBaseName(merged.name) || merged.name);
       merged.sites = [...new Set([...(merged.sites || []), "Monorriel"])];
       merged.roles = [...new Set([...(merged.roles || []), "Monorriel"])];
       if (!(Number(merged.salary) > 0) && salaryFromRoster) merged.salary = salaryFromRoster;
@@ -7550,7 +7580,7 @@ let monoUnifySelected = new Set(); // ids marcados
 let monoUnifyKeeperId = ""; // el de doble check (principal)
 
 function findMonoSimilarClusters() {
-  const staff = getMonorrielEmployees(true);
+  const staff = getMonorrielEmployees(false);
   const used = new Set();
   const clusters = [];
   for (let i = 0; i < staff.length; i += 1) {
@@ -7604,7 +7634,8 @@ function renderMonoSimilarAlert() {
 function renderMonoStaffList() {
   const list = document.getElementById("monoStaffList");
   if (!list) return;
-  const staff = getMonorrielEmployees(true);
+  // Solo activos: los unificados (borrados) no deben reaparecer
+  const staff = getMonorrielEmployees(false);
   renderMonoSimilarAlert();
   // limpiar selección de ids que ya no existen
   const ids = new Set(staff.map((e) => e.id));
@@ -7762,9 +7793,9 @@ function unifyMonorrielEmployees() {
   const otherNames = others.map((o) => o.name);
   const list =
     `Principal (se queda):\n• ${monoBaseName(keeper.name) || keeper.name}\n\n` +
-    `Se unifican y salen de Monorriel:\n` +
+    `Se borran de la lista:\n` +
     others.map((o) => `• ${monoBaseName(o.name) || o.name}`).join("\n") +
-    `\n\n¿Confirmar Unificar?`;
+    `\n\nReportes, nómina y préstamos pasan al Principal.\n¿Confirmar Unificar?`;
   if (!confirm(list)) return;
 
   // Fusionar datos al keeper
@@ -7778,36 +7809,43 @@ function unifyMonorrielEmployees() {
   merged.status = "active";
   merged.inactiveReason = "";
   merged.inactiveAt = "";
+  // Alias de nombres borrados: si reaparece la mala escritura, se reusa el Principal
+  const aliasKeys = new Set([
+    ...((merged.monoUnifyAliases || []).map((k) => String(k || "").trim()).filter(Boolean)),
+    ...otherNames.map((n) => employeeKey(monoBaseName(n) || n)).filter(Boolean),
+  ]);
+  merged.monoUnifyAliases = [...aliasKeys];
   merged.updatedAt = new Date().toISOString();
   const kIdx = employees.findIndex((e) => e.id === keeper.id);
   if (kIdx >= 0) employees[kIdx] = normalizeEmployee(merged);
 
   const otherIds = others.map((o) => o.id);
+  const otherIdSet = new Set(otherIds);
   const reportsTouched = remapMonorrielReportsToKeeper(employees[kIdx] || merged, otherIds, otherNames);
   const payTouched = remapMonorrielPayrollNames(employees[kIdx] || merged, otherNames);
 
-  // Quitar Monorriel y pasar a inactivos (no borrar historial de préstamos)
-  others.forEach((o) => {
-    const idx = employees.findIndex((e) => e.id === o.id);
-    if (idx < 0) return;
-    let row = applyMonorrielFlag(employees[idx], false);
-    row = normalizeEmployee({
-      ...row,
-      status: "inactive",
-      inactiveReason: `Unificado con ${monoBaseName(merged.name) || merged.name}`,
-      inactiveAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      note: `${row.note || ""} · Unificado → ${merged.id}`.trim(),
+  // Préstamos / avances → Principal (antes de borrar fichas)
+  if (typeof loans !== "undefined" && Array.isArray(loans)) {
+    loans.forEach((l) => {
+      if (l && l.employeeId && otherIdSet.has(l.employeeId)) {
+        l.employeeId = keeper.id;
+        if (!String(l.employeeName || "").trim()) {
+          l.employeeName = monoBaseName(merged.name) || merged.name;
+        }
+      }
     });
-    employees[idx] = row;
-  });
+    if (typeof saveLoans === "function") saveLoans();
+  }
+
+  // Borrar de la lista los que no son Principal
+  employees = employees.filter((e) => e && !otherIdSet.has(e.id));
 
   saveEmployees();
   if (typeof saveMonorrielReports === "function") saveMonorrielReports();
   if (typeof logActivity === "function") {
     logActivity(
       "mono_unify",
-      `Unificó Monorriel: ${merged.name} ← ${others.map((o) => monoBaseName(o.name)).join(", ")}`
+      `Unificó Monorriel: ${merged.name} ← borrados ${others.map((o) => monoBaseName(o.name)).join(", ")}`
     );
   }
 
@@ -7816,7 +7854,7 @@ function unifyMonorrielEmployees() {
   renderMonoStaffList();
   if (typeof renderEmployees === "function") renderEmployees();
   toast(
-    `Unificado: se queda ${monoBaseName(merged.name)}. ${others.length} salieron` +
+    `Unificado: se queda ${monoBaseName(merged.name)}. ${others.length} borrado(s) de la lista` +
       (reportsTouched ? ` · ${reportsTouched} asignaciones en reportes` : "") +
       (payTouched ? ` · ${payTouched} en nómina` : "")
   );
