@@ -1225,19 +1225,21 @@
         vargas: emptyVargas(),
       };
     }
-    const [loans, employees, hr, contab, supl, varg] = await Promise.all([
+    const [loans, employees, hr, contab, supl, varg, postsDoc] = await Promise.all([
       getDoc(partPath("loans")).catch(() => null),
       getDoc(partPath("employees")).catch(() => null),
       getDoc(partPath("hr")).catch(() => null),
       getDoc(partPath("contabilidad")).catch(() => null),
       getDoc(partPath("suplidores")).catch(() => null),
       getDoc(partPath("vargas")).catch(() => null),
+      getDoc(partPath("posts")).catch(() => null),
     ]);
     const mainFields = main.fields || {};
     const loanFields = (loans && loans.fields) || {};
     const empFields = (employees && employees.fields) || {};
     const hrFields = (hr && hr.fields) || {};
     const contabFields = (contab && contab.fields) || {};
+    const postsFields = (postsDoc && postsDoc.fields) || {};
     let contabilidad = contabFields.contabilidadJson
       ? parseObjectField(contabFields, "contabilidadJson")
       : emptyContabilidad();
@@ -1251,6 +1253,9 @@
       empty: false,
       messages: parseArrayField(mainFields, "messagesJson"),
       lva: parseObjectField(mainFields, "lvaJson"),
+      posts: postsFields.postsJson
+        ? parseArrayField(postsFields, "postsJson")
+        : parseArrayField(mainFields, "postsJson"),
       loans: loanFields.loansJson
         ? parseArrayField(loanFields, "loansJson")
         : parseArrayField(mainFields, "loansJson"),

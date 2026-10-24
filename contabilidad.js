@@ -1540,6 +1540,11 @@ function saveOfficeEmpFromForm() {
     contabilidadData.officeEmployees.unshift(row);
   }
   saveContabilidadData(true);
+  if (typeof ensureOfficeEmployeesImported === "function") {
+    try {
+      ensureOfficeEmployeesImported();
+    } catch (_) {}
+  }
   clearOfficeEmpForm();
   renderContabilidadModule();
   toast("Empleado de oficina guardado.");
