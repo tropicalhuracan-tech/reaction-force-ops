@@ -4626,8 +4626,10 @@ const LOAN_TRASH_KEY = "rfs-ops-loan-trash";
 const LOAN_RATE_AUTH = "021112";
 const DEFAULT_LOAN_RATE = 0.1;
 const ADVANCE_PACKAGES = {
+  1000: { lend: 1000, collect: 1150 },
   2000: { lend: 2000, collect: 2250 },
   3000: { lend: 3000, collect: 3350 },
+  4000: { lend: 4000, collect: 4450 },
   5000: { lend: 5000, collect: 5550 },
 };
 
