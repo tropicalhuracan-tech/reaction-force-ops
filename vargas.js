@@ -217,12 +217,68 @@ function suggestVargasPayBucketsFromRosters(overwrite = false) {
 
 function setVargasEmployeePayBucket(sectionIdx, empIdx, value) {
   const report = getActiveVargasReport();
-  if (!report || !report.sections[sectionIdx]) return;
+  if (!report || !report.sections[sectionIdx]) return false;
   const emp = report.sections[sectionIdx].employees[empIdx];
-  if (!emp) return;
+  if (!emp) return false;
   emp.payBucket = normalizeVargasPayBucket(value);
   report.updatedAt = new Date().toISOString();
   saveVargasData(true);
+  return true;
+}
+
+/** Guarda/restaura scroll de la vista Vargas (página + tabla) tras re-render. */
+function captureVargasScroll() {
+  const view = document.getElementById("vargasView");
+  const wrap = document.querySelector("#vargasReportHost .vargas-table-wrap");
+  return {
+    viewTop: view ? view.scrollTop : 0,
+    wrapTop: wrap ? wrap.scrollTop : 0,
+    wrapLeft: wrap ? wrap.scrollLeft : 0,
+  };
+}
+
+function restoreVargasScroll(pos) {
+  if (!pos) return;
+  const apply = () => {
+    const view = document.getElementById("vargasView");
+    const wrap = document.querySelector("#vargasReportHost .vargas-table-wrap");
+    if (view) view.scrollTop = pos.viewTop;
+    if (wrap) {
+      wrap.scrollTop = pos.wrapTop;
+      wrap.scrollLeft = pos.wrapLeft;
+    }
+  };
+  apply();
+  requestAnimationFrame(apply);
+}
+
+/** Actualiza contadores sin reconstruir la tabla (no mueve el scroll). */
+function refreshVargasSummaryBar() {
+  const report = getActiveVargasReport();
+  const summary = document.getElementById("vargasSummary");
+  if (!report) return null;
+  const stats = vargasReportStats(report);
+  if (summary) {
+    summary.textContent = `${report.label || report.period} · ${stats.total} empleados · B ${stats.banco} · E ${stats.efectivo} · sin marca ${stats.sinMarca}`;
+  }
+  const shift = document.getElementById("vargasFilterShift");
+  if (shift) {
+    const optD = shift.querySelector('option[value="diurno"]');
+    const optN = shift.querySelector('option[value="nocturno"]');
+    if (optD) optD.textContent = `Diurno (${stats.diurno})`;
+    if (optN) optN.textContent = `Nocturno (${stats.nocturno})`;
+  }
+  return stats;
+}
+
+/** Si el filtro actual haría desaparecer la fila tras cambiar B/E. */
+function vargasBucketChangeLeavesFilter(newBucket) {
+  const f = vargasFilterBucket;
+  if (f === "all") return false;
+  const b = normalizeVargasPayBucket(newBucket);
+  if (f === "none") return !!b;
+  if (f === "B" || f === "E") return b !== f;
+  return false;
 }
 
 function addVargasEmployee(opts = {}) {
@@ -662,6 +718,7 @@ function reorganizeVargasToPayroll() {
 
 function renderVargasModule() {
   if (typeof canAccessVargas === "function" && !canAccessVargas()) return;
+  const scrollPos = captureVargasScroll();
   ensureVargasSeedLoaded();
   const report = getActiveVargasReport();
   const summary = document.getElementById("vargasSummary");
@@ -813,6 +870,7 @@ function renderVargasModule() {
   `;
 
   bindVargasUiHandlers();
+  restoreVargasScroll(scrollPos);
 }
 
 function escapeVargasHtml(s) {
@@ -861,8 +919,14 @@ function bindVargasUiHandlers() {
     sel.addEventListener("change", () => {
       const s = Number(sel.dataset.s);
       const e = Number(sel.dataset.e);
-      setVargasEmployeePayBucket(s, e, sel.value);
-      renderVargasModule();
+      const next = sel.value;
+      if (!setVargasEmployeePayBucket(s, e, next)) return;
+      // Si el filtro sigue mostrando la fila, no reconstruir (evita salto al inicio).
+      if (vargasBucketChangeLeavesFilter(next)) {
+        renderVargasModule();
+        return;
+      }
+      refreshVargasSummaryBar();
     });
   });
   document.querySelectorAll(".vargas-day-cell").forEach((cell) => {
