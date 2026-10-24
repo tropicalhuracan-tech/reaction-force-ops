@@ -225,6 +225,163 @@ function setVargasEmployeePayBucket(sectionIdx, empIdx, value) {
   saveVargasData(true);
 }
 
+function addVargasEmployee(opts = {}) {
+  const report = getActiveVargasReport();
+  if (!report) return { ok: false, reason: "no-report" };
+  const fullName = String(opts.fullName || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  const postName = String(opts.postName || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase() || "(SIN PUESTO)";
+  const shift = opts.shift === "nocturno" ? "nocturno" : "diurno";
+  const payBucket = normalizeVargasPayBucket(opts.payBucket);
+  if (!fullName) return { ok: false, reason: "no-name" };
+
+  let section = (report.sections || []).find(
+    (s) => s.shift === shift && String(s.postName || "").trim().toUpperCase() === postName
+  );
+  if (!section) {
+    section = { shift, postName, employees: [] };
+    report.sections = report.sections || [];
+    report.sections.push(section);
+  }
+  const dup = (section.employees || []).some((e) => vargasNameKey(e.fullName) === vargasNameKey(fullName));
+  if (dup) return { ok: false, reason: "duplicate" };
+
+  section.employees.push({
+    fullName,
+    marks: {},
+    payBucket,
+  });
+  report.updatedAt = new Date().toISOString();
+  saveVargasData(true);
+  return { ok: true, fullName, postName, shift };
+}
+
+function removeVargasEmployee(sectionIdx, empIdx) {
+  const report = getActiveVargasReport();
+  if (!report || !report.sections[sectionIdx]) return { ok: false };
+  const sec = report.sections[sectionIdx];
+  const emp = sec.employees && sec.employees[empIdx];
+  if (!emp) return { ok: false };
+  const name = emp.fullName;
+  sec.employees.splice(empIdx, 1);
+  if (!sec.employees.length) {
+    report.sections.splice(sectionIdx, 1);
+  }
+  report.updatedAt = new Date().toISOString();
+  saveVargasData(true);
+  return { ok: true, fullName: name };
+}
+
+function listVargasPostNames(report, shiftFilter) {
+  const set = new Set();
+  (report && report.sections ? report.sections : []).forEach((sec) => {
+    if (shiftFilter && shiftFilter !== "all" && sec.shift !== shiftFilter) return;
+    const p = String(sec.postName || "").trim();
+    if (p) set.add(p);
+  });
+  return [...set].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function buildVargasPrintHtml(report, rows) {
+  const dayNums = report.dayNums || [];
+  const dayHeads = dayNums
+    .map((d) => `<th class="vd">${d}${Number(d) === 31 ? "*" : ""}</th>`)
+    .join("");
+  const body = rows
+    .map((row, i) => {
+      const cells = dayNums
+        .map((d) => {
+          const val = formatVargasMarkCell(row.marks[String(d)]);
+          return `<td class="vd${vargasMarkIsWorked(row.marks[String(d)]) ? " wk" : ""}">${escapeVargasHtml(val)}</td>`;
+        })
+        .join("");
+      return `<tr>
+        <td class="right">${i + 1}</td>
+        <td>${row.shift === "nocturno" ? "N" : "D"}</td>
+        <td>${escapeVargasHtml(row.fullName)}</td>
+        <td>${escapeVargasHtml(row.postName)}</td>
+        <td class="center">${escapeVargasHtml(row.payBucket || "—")}</td>
+        <td class="center">${row.daysPayroll}</td>
+        ${cells}
+      </tr>`;
+    })
+    .join("");
+  const stats = vargasReportStats(report);
+  return `
+    <h2>${escapeVargasHtml(report.label || report.period)} · Corte ${report.half === 2 ? "16–30" : "01–15"}</h2>
+    <div class="meta">
+      <div><strong>Empleados:</strong><br/>${stats.total}</div>
+      <div><strong>Banco (B):</strong><br/>${stats.banco}</div>
+      <div><strong>Efectivo (E):</strong><br/>${stats.efectivo}</div>
+      <div><strong>Diurno / Nocturno:</strong><br/>${stats.diurno} / ${stats.nocturno}</div>
+    </div>
+    <table class="vargas-print-table">
+      <thead>
+        <tr>
+          <th class="right">#</th>
+          <th>T</th>
+          <th>Empleado</th>
+          <th>Puesto</th>
+          <th>B/E</th>
+          <th>Días</th>
+          ${dayHeads}
+        </tr>
+      </thead>
+      <tbody>${body || `<tr><td colspan="${6 + dayNums.length}">Sin empleados</td></tr>`}</tbody>
+    </table>
+    <p class="footer">* Día 31 se muestra en el reporte pero no entra en nómina. Días = trabajados sin contar el 31.</p>
+    <div class="sign-box">
+      <div class="sign-line">Ramón Vargas / Supervisión</div>
+      <div class="sign-line">Operaciones RFS</div>
+    </div>`;
+}
+
+function printVargasReport() {
+  if (typeof canAccessVargas === "function" && !canAccessVargas()) {
+    if (typeof toast === "function") toast("Sin acceso a Ramón Vargas.");
+    return;
+  }
+  const report = getActiveVargasReport();
+  if (!report) {
+    if (typeof toast === "function") toast("No hay reporte Vargas para imprimir.");
+    return;
+  }
+  if (typeof openPrintWindow !== "function") {
+    if (typeof toast === "function") toast("Impresión no disponible.");
+    return;
+  }
+  const rows = flattenVargasEmployees(report, {
+    shift: vargasFilterShift,
+    bucket: vargasFilterBucket,
+    search: vargasSearch,
+  });
+  const title = `Reporte Ramón Vargas — ${report.label || report.period}`;
+  const stamp = new Date().toISOString().slice(0, 10);
+  openPrintWindow(title, buildVargasPrintHtml(report, rows), {
+    pageSize: "legal",
+    orientation: "landscape",
+    wide: true,
+    autoPrint: false,
+    share: {
+      subject: title,
+      text: `Reporte Ramón Vargas ${report.label || report.period} · ${rows.length} empleados · Reaction Force Security`,
+      fileName: `vargas-reporte-${report.period}-h${report.half}-${stamp}.pdf`,
+    },
+    extraCss: `
+      .vargas-print-table{font-size:9px}
+      .vargas-print-table th,.vargas-print-table td{padding:3px 4px;white-space:nowrap}
+      .vargas-print-table th.vd,.vargas-print-table td.vd{text-align:center;min-width:1.4em}
+      .vargas-print-table td.wk{font-weight:700;background:#e8f8ee}
+      .center{text-align:center}
+    `,
+  });
+}
+
 function setVargasEmployeeMark(sectionIdx, empIdx, day, value) {
   const report = getActiveVargasReport();
   if (!report || !report.sections[sectionIdx]) return;
@@ -561,8 +718,16 @@ function renderVargasModule() {
         <td class="vargas-bucket-cell">${bucketSel}</td>
         <td class="vargas-days-total">${row.daysPayroll}</td>
         ${markCells}
+        <td class="vargas-del-cell">
+          <button type="button" class="vargas-del-btn" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-name="${escapeVargasAttr(row.fullName)}" title="Eliminar empleado" aria-label="Eliminar">✕</button>
+        </td>
       </tr>`;
     })
+    .join("");
+
+  const postNames = listVargasPostNames(report, "all");
+  const postOptions = postNames
+    .map((p) => `<option value="${escapeVargasAttr(p)}"></option>`)
     .join("");
 
   host.innerHTML = `
@@ -589,13 +754,42 @@ function renderVargasModule() {
       </div>
       <div class="vargas-actions">
         <button type="button" class="secondary" id="btnVargasSuggestBE">Sugerir B/E</button>
+        <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
         <button type="button" class="primary" id="btnVargasReorganizar">Reorganizar → nómina</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
-        Columna <strong>B/E</strong>: escribe o elige <strong>B</strong> (banco) o <strong>E</strong> (efectivo).
-        Al pulsar <strong>Reorganizar</strong> se actualizan las nóminas Reaction Banco / Efectivo con los días trabajados (sin día 31).
+        Columna <strong>B/E</strong>: elige <strong>B</strong> (banco) o <strong>E</strong> (efectivo).
+        <strong>Reorganizar</strong> actualiza las nóminas (sin día 31). Usa <strong>Imprimir / Compartir</strong> para PDF, WhatsApp o correo.
       </p>
     </div>
+
+    <div class="form-card" id="vargasAddBox">
+      <h2 style="margin:0 0 10px;font-size:16px">Agregar empleado</h2>
+      <div class="vargas-add-grid">
+        <label>Nombre
+          <input id="vargasAddName" type="text" autocomplete="name" placeholder="Nombre completo" />
+        </label>
+        <label>Puesto
+          <input id="vargasAddPost" type="text" list="vargasPostList" placeholder="Puesto / cliente" />
+          <datalist id="vargasPostList">${postOptions}</datalist>
+        </label>
+        <label>Turno
+          <select id="vargasAddShift">
+            <option value="diurno">Diurno</option>
+            <option value="nocturno">Nocturno</option>
+          </select>
+        </label>
+        <label>B/E
+          <select id="vargasAddBucket">
+            <option value="">—</option>
+            <option value="B">B Banco</option>
+            <option value="E">E Efectivo</option>
+          </select>
+        </label>
+      </div>
+      <button type="button" class="primary" id="btnVargasAddEmp" style="margin-top:12px">Agregar al reporte</button>
+    </div>
+
     <div class="form-card" style="padding:0; overflow:hidden">
       <div class="vargas-table-wrap">
         <table class="vargas-table">
@@ -607,10 +801,11 @@ function renderVargasModule() {
               <th>B/E</th>
               <th>Días</th>
               ${dayHeaders}
+              <th></th>
             </tr>
           </thead>
           <tbody>
-            ${body || `<tr><td colspan="${5 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
+            ${body || `<tr><td colspan="${6 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -692,6 +887,56 @@ function bindVargasUiHandlers() {
   if (btnReorg) {
     btnReorg.addEventListener("click", () => reorganizeVargasToPayroll());
   }
+  const btnPrint = document.getElementById("btnVargasPrint");
+  if (btnPrint) {
+    btnPrint.addEventListener("click", () => printVargasReport());
+  }
+  const btnAdd = document.getElementById("btnVargasAddEmp");
+  if (btnAdd) {
+    btnAdd.addEventListener("click", () => {
+      const nameEl = document.getElementById("vargasAddName");
+      const postEl = document.getElementById("vargasAddPost");
+      const shiftEl = document.getElementById("vargasAddShift");
+      const bucketEl = document.getElementById("vargasAddBucket");
+      const result = addVargasEmployee({
+        fullName: nameEl ? nameEl.value : "",
+        postName: postEl ? postEl.value : "",
+        shift: shiftEl ? shiftEl.value : "diurno",
+        payBucket: bucketEl ? bucketEl.value : "",
+      });
+      if (!result.ok) {
+        if (typeof toast === "function") {
+          toast(
+            result.reason === "duplicate"
+              ? "Ese empleado ya está en ese puesto."
+              : result.reason === "no-name"
+                ? "Escribe el nombre del empleado."
+                : "No se pudo agregar."
+          );
+        }
+        return;
+      }
+      if (typeof toast === "function") toast(`Agregado: ${result.fullName}`);
+      if (typeof logActivity === "function") {
+        logActivity("vargas_add", `Vargas + ${result.fullName} · ${result.postName} · ${result.shift}`);
+      }
+      renderVargasModule();
+    });
+  }
+  document.querySelectorAll(".vargas-del-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const name = btn.dataset.name || "este empleado";
+      if (!confirm(`¿Eliminar a ${name} del reporte Vargas?`)) return;
+      const s = Number(btn.dataset.s);
+      const e = Number(btn.dataset.e);
+      const result = removeVargasEmployee(s, e);
+      if (result.ok && typeof toast === "function") toast(`Eliminado: ${result.fullName}`);
+      if (result.ok && typeof logActivity === "function") {
+        logActivity("vargas_del", `Vargas − ${result.fullName}`);
+      }
+      renderVargasModule();
+    });
+  });
 }
 
 // Expose for cloud / app wiring
@@ -705,4 +950,7 @@ window.RFSVargas = {
   feedVargasPayrollFromReport,
   reorganizeVargasToPayroll,
   renderVargasModule,
+  addVargasEmployee,
+  removeVargasEmployee,
+  printVargasReport,
 };
