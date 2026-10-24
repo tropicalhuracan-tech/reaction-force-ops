@@ -61,7 +61,7 @@
         </div>
         <h1>Reaction Force Security</h1>
         <p class="welcome-sub">Operaciones</p>
-        <p id="appVersionBadge" class="muted app-version-badge">App v181 · Clientes seguros + oficina préstamos</p>
+        <p id="appVersionBadge" class="muted app-version-badge">App v182 · Empleados sin duplicados</p>
         <div class="welcome-actions" id="welcomeActions">
           <button class="welcome-action primary" type="button" data-go="mapView">Mapa</button>
           <button class="welcome-action" type="button" data-go="shiftsView">Clientes</button>
@@ -177,7 +177,10 @@
         <button class="emp-tab active" type="button" data-emp-filter="active">Activos</button>
         <button class="emp-tab" type="button" data-emp-filter="inactive">Eliminados / Inactivos</button>
       </div>
-      <button id="btnAddEmployee" class="btn primary" type="button">Agregar empleado nuevo</button>
+      <div class="emp-list-actions" style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px">
+        <button id="btnAddEmployee" class="btn primary" type="button" style="margin:0">Agregar empleado nuevo</button>
+        <button id="btnSaveAllEmployees" class="btn secondary" type="button" style="margin:0">Guardar todos</button>
+      </div>
       <label class="search-label">
         Buscar empleado
         <input id="employeeSearch" type="search" placeholder="Nombre, cédula o teléfono" />
@@ -2011,6 +2014,6 @@
   <script src="contabilidad.js?v=179"></script>
   <script src="vargas.js?v=177"></script>
   <script src="quotes.js?v=144"></script>
-  <script src="app.js?v=181"></script>
+  <script src="app.js?v=182"></script>
 </body>
 </html>

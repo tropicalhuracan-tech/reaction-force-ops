@@ -126,6 +126,18 @@ function employeeKey(name) {
     .toUpperCase();
 }
 
+/** Misma persona aunque el nombre lleve (Monorriel) / (La Vega). */
+function employeeIdentityKey(name) {
+  const base =
+    typeof monoBaseName === "function"
+      ? monoBaseName(name)
+      : String(name || "")
+          .replace(/\s*\(monorriel\)\s*$/i, "")
+          .replace(/\s*\(la vega(?: autopista)?\)\s*$/i, "")
+          .trim();
+  return employeeKey(base || name);
+}
+
 const MAX_ACTIVITY = 250;
 
 function levRatio(a, b) {
@@ -506,14 +518,17 @@ function rebuildEmployeesFromPosts(existingEmployees = employees) {
   const map = new Map();
   (existingEmployees || []).map(normalizeEmployee).forEach((e) => {
     if (!e.name || e.name.toLowerCase() === "por asignar") return;
-    map.set(employeeKey(e.name), e);
+    const key = employeeIdentityKey(e.name);
+    if (!key) return;
+    if (map.has(key)) map.set(key, mergeEmployeeRecord(map.get(key), e));
+    else map.set(key, e);
   });
 
   posts.forEach((post) => {
     (post.guards || []).forEach((g) => {
       const name = (g.name || "").trim();
       if (!name || name.toLowerCase() === "por asignar") return;
-      const key = employeeKey(name);
+      const key = employeeIdentityKey(name);
       const incoming = normalizeEmployee({
         name,
         phone: g.phone,
@@ -532,8 +547,88 @@ function rebuildEmployeesFromPosts(existingEmployees = employees) {
     });
   });
 
-  employees = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  employees = dedupeEmployeesList([...map.values()]);
   return employees;
+}
+
+function employeeRecordScore(e) {
+  if (!e) return 0;
+  let s = 0;
+  ["phone", "cedula", "companyEntryDate", "weapons", "serial", "photo", "photoUrl", "note"].forEach((f) => {
+    if (String(e[f] || "").trim()) s += 2;
+  });
+  s += (e.sites || []).length;
+  s += (e.roles || []).length;
+  if (e.officeEmployeeId) s += 3;
+  if (e.salary > 0) s += 1;
+  if (isEmployeeActive(e)) s += 1;
+  s += Math.min(5, Math.floor((Date.parse(e.updatedAt || "") || 0) / 1e12));
+  return s;
+}
+
+function pickCanonicalEmployeeId(a, b) {
+  const ugly = (id) => /\(MONORRIEL\)|\(LA-VEGA|\(LA VEGA/i.test(String(id || ""));
+  if (a && a.id && b && b.id) {
+    if (ugly(a.id) && !ugly(b.id)) return b.id;
+    if (ugly(b.id) && !ugly(a.id)) return a.id;
+    if (a.officeEmployeeId && a.id === a.officeEmployeeId) return a.id;
+    if (b.officeEmployeeId && b.id === b.officeEmployeeId) return b.id;
+  }
+  const sa = employeeRecordScore(a);
+  const sb = employeeRecordScore(b);
+  if (sb > sa) return (b && b.id) || (a && a.id) || "";
+  return (a && a.id) || (b && b.id) || "";
+}
+
+/** Une duplicados de la misma persona (nombre base). Devuelve lista limpia. */
+function dedupeEmployeesList(list) {
+  const map = new Map();
+  const idRemap = {};
+  (list || []).forEach((raw) => {
+    const e = normalizeEmployee(raw || {});
+    if (!e.name || e.name.toLowerCase() === "por asignar") return;
+    const key = employeeIdentityKey(e.name);
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, e);
+      return;
+    }
+    const prev = map.get(key);
+    const keepId = pickCanonicalEmployeeId(prev, e);
+    let merged = mergeEmployeeRecord(prev, e);
+    merged.id = keepId || merged.id;
+    if (prev.id && prev.id !== merged.id) idRemap[prev.id] = merged.id;
+    if (e.id && e.id !== merged.id) idRemap[e.id] = merged.id;
+    const wantMono =
+      (typeof isMonorrielEmployee === "function" && (isMonorrielEmployee(prev) || isMonorrielEmployee(e))) ||
+      (merged.sites || []).some((s) => /monorriel/i.test(s || ""));
+    const wantLva =
+      (typeof isLvaEmployee === "function" && (isLvaEmployee(prev) || isLvaEmployee(e))) ||
+      (merged.sites || []).some((s) => /la vega/i.test(s || ""));
+    if (wantMono && typeof applyMonorrielFlag === "function") merged = applyMonorrielFlag(merged, true);
+    if (wantLva && typeof applyLvaFlag === "function") merged = applyLvaFlag(merged, true);
+    merged.updatedAt = new Date().toISOString();
+    map.set(key, normalizeEmployee(merged));
+  });
+  const out = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  if (typeof loans !== "undefined" && Array.isArray(loans) && Object.keys(idRemap).length) {
+    loans.forEach((l) => {
+      if (l && l.employeeId && idRemap[l.employeeId]) l.employeeId = idRemap[l.employeeId];
+    });
+  }
+  return out;
+}
+
+function dedupeEmployeesNow(opts = {}) {
+  const before = (employees || []).length;
+  employees = dedupeEmployeesList(employees);
+  const after = employees.length;
+  const removed = Math.max(0, before - after);
+  if (removed || opts.forceSave) {
+    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+    if (opts.push !== false) queueCloudSave();
+  }
+  return { before, after, removed };
 }
 
 function employeeSearchNeedle() {
@@ -625,6 +720,8 @@ function renderEmployees() {
 
   const addBtn = document.getElementById("btnAddEmployee");
   if (addBtn) addBtn.hidden = !canWriteEmployees() || employeeListFilter === "inactive";
+  const saveAllBtn = document.getElementById("btnSaveAllEmployees");
+  if (saveAllBtn) saveAllBtn.hidden = !canWriteEmployees() || employeeListFilter === "inactive";
 
   if (!filtered.length) {
     list.innerHTML = pool.length
@@ -1713,8 +1810,28 @@ function saveReports() {
 }
 
 function saveEmployees() {
+  employees = dedupeEmployeesList(employees || []);
   localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
   queueCloudSave();
+}
+
+/** Guarda la lista completa de empleados en local + nube (tras limpiar duplicados). */
+function saveAllEmployees() {
+  if (typeof canWriteEmployees === "function" && !canWriteEmployees()) {
+    toast("No tienes permiso para guardar empleados.");
+    return;
+  }
+  const r = dedupeEmployeesNow({ forceSave: true, push: true });
+  flushCloudSave();
+  renderEmployees();
+  toast(
+    r.removed
+      ? `Guardado · ${r.after} empleados · se unieron ${r.removed} duplicado(s).`
+      : `Guardado · ${r.after} empleados en la nube.`
+  );
+  if (typeof logActivity === "function") {
+    logActivity("employees_save_all", `Guardar todos: ${r.after} (−${r.removed} dup)`);
+  }
 }
 
 function queueCloudSave() {
@@ -2007,26 +2124,25 @@ function scheduleCloudRetry(reason) {
   }, delay);
 }
 
-/** Fusiona listas de empleados por id/clave; gana el updatedAt más reciente. */
+/** Fusiona listas de empleados por identidad (nombre base) + id; evita duplicados Monorriel. */
 function mergeEmployeeListsForCloud(localList, remoteList) {
-  const map = new Map();
+  const byId = new Map();
   const put = (raw) => {
     const e = normalizeEmployee(raw || {});
     if (!e.name) return;
-    const key = e.id || employeeKey(e.name);
-    if (!key) return;
-    if (!map.has(key)) {
-      map.set(key, e);
+    const id = e.id || `tmp-${employeeIdentityKey(e.name)}`;
+    if (!byId.has(id)) {
+      byId.set(id, e);
       return;
     }
-    const prev = map.get(key);
+    const prev = byId.get(id);
     const ta = Date.parse(prev.updatedAt || "") || 0;
     const tb = Date.parse(e.updatedAt || "") || 0;
-    map.set(key, tb >= ta ? mergeEmployeeRecord(prev, e) : mergeEmployeeRecord(e, prev));
+    byId.set(id, tb >= ta ? mergeEmployeeRecord(prev, e) : mergeEmployeeRecord(e, prev));
   };
   (remoteList || []).forEach(put);
   (localList || []).forEach(put);
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return dedupeEmployeesList([...byId.values()]);
 }
 
 async function mergeRemoteBundleBeforeSave() {
@@ -2280,8 +2396,9 @@ async function syncFromCloud() {
         remote.employees.map(normalizeEmployee)
       );
     } else {
-      employees = localEmployees.map(normalizeEmployee);
+      employees = dedupeEmployeesList(localEmployees.map(normalizeEmployee));
     }
+    employees = dedupeEmployeesList(employees);
     // Préstamos: fusionar por id + papelera de borrados (evita que reaparezcan)
     if (typeof applyRemoteLoans === "function") {
       applyRemoteLoans(remote.loans, remote.loanTrash);
@@ -7918,7 +8035,7 @@ function ensureOfficeEmployeesImported() {
   let changed = false;
   rows.forEach((o) => {
     const name = String(o.fullName || "").trim();
-    const key = employeeKey(name);
+    const key = employeeIdentityKey(name);
     const cedula = String(o.cedula || "").replace(/\D/g, "");
     const cedulaFmt =
       cedula.length === 11 ? `${cedula.slice(0, 3)}-${cedula.slice(3, 10)}-${cedula.slice(10)}` : String(o.cedula || "");
@@ -7926,7 +8043,7 @@ function ensureOfficeEmployeesImported() {
       (e) =>
         e.id === o.id ||
         e.officeEmployeeId === o.id ||
-        employeeKey(e.name) === key
+        employeeIdentityKey(e.name) === key
     );
     if (existing) {
       const idx = employees.findIndex((e) => e.id === existing.id);
@@ -12268,6 +12385,8 @@ function bindUi() {
   document.getElementById("btnBackEmployees").addEventListener("click", () => switchView("employeesView"));
   document.getElementById("btnBackEmployeesFromNew").addEventListener("click", () => switchView("employeesView"));
   document.getElementById("btnAddEmployee").addEventListener("click", openNewEmployeeForm);
+  const btnSaveAllEmp = document.getElementById("btnSaveAllEmployees");
+  if (btnSaveAllEmp) btnSaveAllEmp.addEventListener("click", saveAllEmployees);
   document.getElementById("btnCreateEmployee").addEventListener("click", createEmployeeManual);
   document.getElementById("nName")?.addEventListener("input", () => updateEmployeeNameDupHint("nName", "nNameDupHint"));
   document.getElementById("eName")?.addEventListener("input", () => updateEmployeeNameDupHint("eName", "eNameDupHint", selectedEmployeeId));
