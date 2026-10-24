@@ -12518,18 +12518,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (added > 0) {
         await pushToCloud();
         toast(`Se importaron ${added} servicios y se subieron a la nube.`);
-      } else if (
-        cloud.usedCloud &&
-        (employees.length ||
-          loans.length ||
-          monorrielReports.length ||
-          appUsers.length ||
-          chatMessages.length ||
-          radioState.streamUrl ||
-          hasLocalLvaData())
-      ) {
-        await pushToCloud();
       }
+      // No empujar toda la nube al abrir: PCs con datos viejos podían borrar clientes nuevos.
       renderShifts();
       renderEmployees();
       renderLoans();
