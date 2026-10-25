@@ -1860,12 +1860,100 @@
     return patchDoc(partPath("main"), body, ["messagesJson", "updatedAt"]);
   }
 
+  /**
+   * App Reportes (supervisores): lee solo users + reports + posts.
+   * No carga empleados/nómina/etc. (más liviana y no provoca pisotones).
+   */
+  async function loadReportsAppBundle() {
+    if (!projectId || !apiKey) return null;
+    const [main, postsDoc] = await Promise.all([
+      getDoc(partPath("main")).catch(() => null),
+      getDoc(partPath("posts")).catch(() => null),
+    ]);
+    if (!main) {
+      return { empty: true, users: [], reports: [], posts: [] };
+    }
+    const mainFields = main.fields || {};
+    const postsFields = (postsDoc && postsDoc.fields) || {};
+    return {
+      empty: false,
+      users: parseArrayField(mainFields, "usersJson"),
+      reports: parseArrayField(mainFields, "reportsJson"),
+      posts: postsFields.postsJson
+        ? parseArrayField(postsFields, "postsJson")
+        : parseArrayField(mainFields, "postsJson"),
+      updatedAt: (mainFields.updatedAt && mainFields.updatedAt.stringValue) || null,
+    };
+  }
+
+  /**
+   * Guarda SOLO reportes (+ posts fusionados). No toca empleados, nómina, loans, etc.
+   */
+  async function saveReportsAppBundle(reports, posts, options) {
+    if (!projectId || !apiKey) throw new Error("cloud not configured");
+    const opts = options && typeof options === "object" ? options : {};
+    const updatedAt = new Date().toISOString();
+
+    let reportsToSave = Array.isArray(reports) ? reports : [];
+    let postsToSave = Array.isArray(posts) ? posts : [];
+    try {
+      const remoteMain = await getDoc(partPath("main")).catch(() => null);
+      const remoteReports =
+        remoteMain && remoteMain.fields && remoteMain.fields.reportsJson
+          ? parseArrayField(remoteMain.fields, "reportsJson")
+          : [];
+      if (remoteReports.length) {
+        reportsToSave = mergeReportsPreferUnion(reportsToSave, remoteReports);
+      }
+    } catch (err) {
+      console.warn("RFS Reportes: no se pudieron fusionar reportes remotos", err);
+    }
+    try {
+      const remotePostsDoc = await getDoc(partPath("posts")).catch(() => null);
+      const remotePosts =
+        remotePostsDoc && remotePostsDoc.fields && remotePostsDoc.fields.postsJson
+          ? parseArrayField(remotePostsDoc.fields, "postsJson")
+          : [];
+      if (remotePosts.length) {
+        postsToSave = mergePostsPreferUnion(postsToSave, remotePosts);
+      }
+    } catch (err) {
+      console.warn("RFS Reportes: no se pudieron fusionar posts remotos", err);
+    }
+
+    // Limitar historial de reportes en nube
+    reportsToSave = reportsToSave.slice(0, 120);
+
+    await Promise.all([
+      patchDoc(
+        partPath("main"),
+        {
+          reportsJson: { stringValue: JSON.stringify(reportsToSave) },
+          updatedAt: { stringValue: updatedAt },
+          reportesAppBuild: { integerValue: String(Math.max(0, Number(opts.clientBuild) || 0)) },
+        },
+        ["reportsJson", "updatedAt", "reportesAppBuild"]
+      ),
+      patchDoc(
+        partPath("posts"),
+        {
+          postsJson: { stringValue: JSON.stringify(postsToSave) },
+          updatedAt: { stringValue: updatedAt },
+        },
+        ["postsJson", "updatedAt"]
+      ),
+    ]);
+    return { ok: true, updatedAt, reports: reportsToSave, posts: postsToSave };
+  }
+
   window.RFSCloudApi = {
     loadCloud,
     loadCloudForMerge,
     peekCloudUpdatedAt,
     saveCloud,
     saveMessages,
+    loadReportsAppBundle,
+    saveReportsAppBundle,
     deleteMedia,
     deleteStoragePath,
     storageEnabled,

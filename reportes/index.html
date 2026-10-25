@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0b0b0c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Reportes RFS para supervisores en calle" />
+  <title>RFS Reportes</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="../icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="../icons/icon-180.png" />
+  <link rel="stylesheet" href="../styles.css?v=187" />
+  <style>
+    .rep-only-top { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .rep-install-hint { margin:10px 0 0; font-size:13px; color:#a1a1aa; }
+    #repVersionGate {
+      position:fixed; inset:0; z-index:10050; display:flex; align-items:center; justify-content:center;
+      padding:20px; background:rgba(5,5,6,.92);
+    }
+    #repVersionGate[hidden] { display:none !important; }
+    .rep-gate-card {
+      width:min(420px,100%); background:#141416; border:1px solid rgba(251,191,36,.45);
+      border-radius:14px; padding:22px 20px;
+    }
+    .rep-gate-card h2 { margin:0 0 10px; color:#fbbf24; }
+  </style>
+</head>
+<body>
+  <div id="app" class="logged-out">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../logo.jpg?v=144" alt="RFS" class="brand-logo" />
+        <div class="brand-text">
+          <strong>RFS Reportes</strong>
+          <span>Supervisión en calle</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="sessionUserLabel" class="session-user" hidden></span>
+        <button id="btnRefreshApp" class="icon-btn" type="button" aria-label="Actualizar" title="Actualizar" hidden>⟳</button>
+        <button id="btnLogoutUser" class="icon-btn" type="button" aria-label="Salir" title="Salir" hidden>⎋</button>
+      </div>
+    </header>
+
+    <section id="loginView" class="view active scroll-view home-view">
+      <div class="welcome-card login-card">
+        <div class="welcome-logo-wrap">
+          <img src="../logo.jpg?v=144" alt="Reaction Force Security" class="welcome-logo" />
+        </div>
+        <h1>Reportes</h1>
+        <p class="welcome-sub">App solo para supervisores · incidente / novedad / check-in</p>
+        <div class="form-card">
+          <label>Usuario<input id="loginUsername" type="text" autocomplete="username" placeholder="Tu usuario" /></label>
+          <label>Clave<input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" /></label>
+          <button id="btnAppLogin" class="btn primary" type="button">Entrar</button>
+          <p id="loginError" class="error-text" hidden>Usuario o clave incorrectos, o sin permiso de Reportes.</p>
+          <p class="muted tight" style="margin-top:10px">Misma cuenta de Operaciones. Solo se usa Reportes: no carga nómina ni el resto del sistema.</p>
+          <p class="rep-install-hint">En el celular: menú del navegador → <strong>Instalar app</strong> / Añadir a inicio.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="reportsView" class="view scroll-view">
+      <div class="section-head">
+        <div class="rep-only-top">
+          <div>
+            <h1>Reportes</h1>
+            <p id="repCloudStatus" class="muted">Nube: …</p>
+          </div>
+        </div>
+        <p>Escribe o dicta lo ocurrido; el sistema genera el informe ejecutivo (PDF / WhatsApp / correo).</p>
+      </div>
+      <div class="form-card">
+        <h2>Nuevo reporte</h2>
+        <label class="search-label">Buscar servicio
+          <input id="reportPostSearch" type="search" placeholder="Número, cliente o vigilante..." autocomplete="off" />
+        </label>
+        <label>Puesto / cliente<select id="reportPost"></select></label>
+        <label>Tipo
+          <select id="reportType">
+            <option value="incidente">Incidente</option>
+            <option value="novedad">Novedad del turno</option>
+            <option value="checkin">Check-in / supervisión</option>
+          </select>
+        </label>
+        <label>Detalle de lo ocurrido
+          <textarea id="reportText" rows="7" placeholder="Qué pasó, hora aprox., quién intervino, qué se hizo y cómo quedó el puesto."></textarea>
+        </label>
+        <div class="report-voice-box">
+          <p class="muted tight">Puedes <strong>dictar</strong> (Chrome/Edge, con micrófono). Habla, pulsa Detener y el texto se pega en el relato.</p>
+          <div class="cam-upload-row">
+            <button id="btnReportVoice" class="btn secondary cam-btn" type="button">🎙 Dictar nota de voz</button>
+            <p id="reportVoiceStatus" class="muted tight" hidden style="margin:0;align-self:center"></p>
+          </div>
+          <div id="reportVoiceList" class="report-voice-list"></div>
+        </div>
+        <div class="cam-upload-row">
+          <label class="photo-label">Elegir de galería / archivos
+            <input id="reportPhoto" type="file" accept="image/*" />
+          </label>
+          <button id="btnReportPhotoCamera" class="btn secondary cam-btn" type="button">Tomar con cámara</button>
+        </div>
+        <input id="reportPhotoCameraNative" type="file" accept="image/*" capture="environment" hidden />
+        <div id="photoPreviewWrap" class="photo-preview" hidden>
+          <img id="photoPreview" alt="Vista previa" />
+          <button id="btnClearPhoto" class="btn ghost" type="button">Quitar foto</button>
+        </div>
+        <button id="btnSaveReport" class="btn primary" type="button">Generar informe ejecutivo</button>
+      </div>
+      <div class="section-head tight"><h2>Historial</h2></div>
+      <div id="reportsList" class="card-list"></div>
+    </section>
+  </div>
+
+  <div id="repVersionGate" hidden>
+    <div class="rep-gate-card">
+      <h2>Actualización obligatoria</h2>
+      <p id="repVersionGateMsg">Hay una versión nueva de Reportes. Actualiza antes de continuar.</p>
+      <p id="repVersionGateDetail" class="muted tight"></p>
+      <button id="btnForceAppUpdate" class="btn primary" type="button">Actualizar ahora</button>
+    </div>
+  </div>
+
+  <script src="../cloud-config.js?v=144"></script>
+  <script src="../cloud.js?v=188"></script>
+  <script src="reportes-app.js?v=188"></script>
+</body>
+</html>
