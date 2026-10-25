@@ -1,16 +1,17 @@
-const CACHE = "rfs-reportes-v188";
+const CACHE = "rfs-reportes-v189";
 const ASSETS = [
   "./",
   "./index.html",
-  "./reportes-app.js?v=188",
+  "./reportes-app.js?v=189",
   "./manifest.json",
   "./version.json",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/icon-180.png",
   "../styles.css?v=187",
   "../cloud-config.js?v=144",
   "../cloud.js?v=188",
   "../logo.jpg?v=144",
-  "../icons/icon-192.png",
-  "../icons/icon-512.png",
 ];
 
 self.addEventListener("install", (event) => {

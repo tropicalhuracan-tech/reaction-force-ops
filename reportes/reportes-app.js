@@ -1,6 +1,6 @@
 /* RFS Reportes — App independiente para supervisores (build 188) */
-const APP_BUILD = 188;
-const APP_VERSION_LABEL = "v188-reportes";
+const APP_BUILD = 189;
+const APP_VERSION_LABEL = "v189-reportes";
 const OWNER_USERNAME = "admin";
 const TYPE_LABEL = { novedad: "Novedad", checkin: "Check-in", incidente: "Incidente" };
 const STATUS_LABEL = { ok: "En puesto", warn: "Pendiente", alert: "Incidente" };
@@ -1154,7 +1154,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderReports();
   }
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=188").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=189").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});
