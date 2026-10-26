@@ -10,8 +10,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 193;
-const APP_VERSION_LABEL = "v193";
+const APP_BUILD = 194;
+const APP_VERSION_LABEL = "v194";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -5004,6 +5004,7 @@ let loanTrashIds = [];
 let selectedLoanId = null;
 let loanSelectedEmployeeId = null;
 let loanRateUnlocked = false;
+let loansActiveTab = "listado"; // listado | resumen | cobro
 
 function normalizeLoanTrash(ids) {
   return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 500);
@@ -5489,15 +5490,27 @@ function importLoansSeedFromExcel(opts) {
 
   const next = dedupeLoansPreferSeed(buildNormalizedSeedLoans());
   const seedIds = new Set(next.map((l) => l.id).filter(Boolean));
+  const seedKeys = new Set(next.map(loanDedupeKey).filter(Boolean));
 
-  // Papelera: pruebas y cualquier cosa que no sea el Excel. Limpiar seed de trash (nube contaminada).
+  // Conservar adelantos y préstamos manuales. NUNCA mandar adelantos a papelera al reimportar.
+  const keepManual = (loans || []).filter((l) => {
+    if (!l || !l.id) return false;
+    if (seedIds.has(l.id) || isExcelSeedLoanId(l.id)) return false;
+    if (loanTrashIds.includes(l.id)) return false;
+    if (l.type === "advance") return true;
+    if (seedKeys.has(loanDedupeKey(l))) return false;
+    return true;
+  });
   (loans || []).forEach((l) => {
-    if (l && l.id && !seedIds.has(l.id)) loanTrashIds.push(l.id);
+    if (!l || !l.id) return;
+    if (seedIds.has(l.id) || isExcelSeedLoanId(l.id)) return;
+    if (l.type === "advance") return;
+    // Solo a papelera duplicados de prueba del Excel (mismo nombre+monto+fecha)
+    if (seedKeys.has(loanDedupeKey(l))) loanTrashIds.push(l.id);
   });
   loanTrashIds = purgeExcelSeedIdsFromTrash(loanTrashIds);
 
-  // Lista = solo Excel (sin duplicados de prueba)
-  loans = next;
+  loans = dedupeLoansPreferSeed([...next, ...keepManual]);
   localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
   persistLoanTrashLocal();
   protectExcelSeedLoans();
@@ -5774,7 +5787,17 @@ function saveNewLoan() {
   });
   loans.unshift(loan);
   saveLoans();
-  toast("Préstamo guardado.");
+  if (typeof logActivity === "function") {
+    logActivity(
+      "loan_create",
+      `${loanTypeLabel(loan.type)} · ${loan.employeeName} · ${money(loan.principal)} · por ${
+        typeof currentUser !== "undefined" && currentUser
+          ? currentUser.displayName || currentUser.username
+          : "?"
+      }`
+    );
+  }
+  toast(loan.type === "advance" ? "Adelanto guardado." : "Préstamo guardado.");
   openLoanDetail(loan.id);
 }
 
@@ -5945,6 +5968,19 @@ function renderLoansList() {
   });
 }
 
+function setLoansTab(tab) {
+  const next = tab === "resumen" || tab === "cobro" ? tab : "listado";
+  loansActiveTab = next;
+  document.querySelectorAll(".loans-tabs .emp-tab[data-loans-tab]").forEach((btn) => {
+    const on = btn.dataset.loansTab === next;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".loans-tab-panel[data-loans-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.loansPanel !== next;
+  });
+}
+
 function renderLoans() {
   try {
     protectExcelSeedLoans();
@@ -5954,6 +5990,7 @@ function renderLoans() {
   renderLoansPayrollBox();
   renderLoansList();
   renderLoansSummaryPanel();
+  setLoansTab(loansActiveTab || "listado");
 }
 
 function openLoanDetail(id) {
@@ -6539,6 +6576,19 @@ function printEmployeeDetailSheet() {
 }
 
 /** Resumen por préstamo/adelanto: cuotas pagadas, capital e interés a la fecha. */
+function loanNextDebitInstallment(loan) {
+  const schedule = Array.isArray(loan && loan.schedule) ? loan.schedule : [];
+  const next = schedule.find((s) => s && !s.paid) || null;
+  if (!next) {
+    return { amount: 0, n: null, dueDate: "", payment: 0 };
+  }
+  const amount =
+    typeof roundMoney === "function"
+      ? roundMoney(next.payment)
+      : Math.round((Number(next.payment) || 0) * 100) / 100;
+  return { amount, n: next.n, dueDate: next.dueDate || "", payment: amount };
+}
+
 function loanPaidBreakdown(loan) {
   const schedule = Array.isArray(loan && loan.schedule) ? loan.schedule : [];
   const paid = schedule.filter((s) => s && s.paid);
@@ -6557,6 +6607,7 @@ function loanPaidBreakdown(loan) {
       if (paidPrincipal < 0) paidPrincipal = 0;
     }
   }
+  const debit = loanNextDebitInstallment(loan);
   return {
     paidCount,
     totalCount,
@@ -6565,6 +6616,9 @@ function loanPaidBreakdown(loan) {
     paidTotal: typeof roundMoney === "function"
       ? roundMoney(paidPrincipal + paidInterest)
       : Math.round(paidPrincipal + paidInterest),
+    debitAmount: debit.amount,
+    debitN: debit.n,
+    debitDue: debit.dueDate,
   };
 }
 
@@ -6599,6 +6653,9 @@ function renderLoansSummaryPanel() {
   const rows = list
     .map((l) => {
       const b = loanPaidBreakdown(l);
+      const debitLabel = b.debitAmount
+        ? `${money(b.debitAmount)}${b.debitN ? ` · #${b.debitN}` : ""}`
+        : "—";
       return `<tr>
         <td>${escapeHtml(loanTypeLabel(l.type))}</td>
         <td>${escapeHtml(l.employeeName || "—")}</td>
@@ -6606,6 +6663,7 @@ function renderLoansSummaryPanel() {
         <td class="right">${b.paidCount}/${b.totalCount || "—"}</td>
         <td class="right">${money(b.paidInterest)}</td>
         <td class="right">${money(b.paidPrincipal)}</td>
+        <td class="right"><strong>${debitLabel}</strong></td>
         <td class="right">${money(l.remaining)}</td>
       </tr>`;
     })
@@ -6621,13 +6679,14 @@ function renderLoansSummaryPanel() {
             <th class="right">Cuotas pagadas</th>
             <th class="right">Interés pagado</th>
             <th class="right">Capital pagado</th>
+            <th class="right">Cuota a debitar</th>
             <th class="right">Pendiente</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
-    <p class="muted tight" style="margin-top:8px">${list.length} registro(s). Usa «Resumen PDF» para imprimir o descargar la lista.</p>`;
+    <p class="muted tight" style="margin-top:8px">${list.length} registro(s). «Cuota a debitar» = próxima cuota pendiente de nómina. Usa «Resumen PDF» para imprimir.</p>`;
 }
 
 function printLoansListSheet() {
@@ -6642,6 +6701,7 @@ function printLoansListSheet() {
       <td class="right">${b.paidCount} / ${b.totalCount || "—"}</td>
       <td class="right">${money(b.paidInterest)}</td>
       <td class="right">${money(b.paidPrincipal)}</td>
+      <td class="right">${b.debitAmount ? money(b.debitAmount) : "—"}</td>
       <td class="right">${money(l.remaining)}</td>
       <td>${escapeHtml(loanStatusLabel(l.status))}</td>
     </tr>`;
@@ -6650,21 +6710,23 @@ function printLoansListSheet() {
   const s = loansSummaryStats();
   const totInterest = list.reduce((a, l) => a + loanPaidBreakdown(l).paidInterest, 0);
   const totCapital = list.reduce((a, l) => a + loanPaidBreakdown(l).paidPrincipal, 0);
+  const totDebit = list.reduce((a, l) => a + (loanPaidBreakdown(l).debitAmount || 0), 0);
   openPrintWindow("Resumen préstamos y adelantos", `
     <h2>Activos: ${s.active} · Saldados: ${s.paid} · Vencidos: ${s.overdue} · Listados: ${list.length}</h2>
     <div class="meta">
       <div><strong>Por cobrar:</strong><br/>${money(s.toCollect)}</div>
       <div><strong>Capital pagado (a la fecha):</strong><br/>${money(totCapital)}</div>
       <div><strong>Interés pagado (a la fecha):</strong><br/>${money(totInterest)}</div>
-      <div><strong>Esta quincena:</strong><br/>${money(s.quincenaDue)}</div>
+      <div><strong>Cuotas a debitar (próximas):</strong><br/>${money(totDebit)}</div>
     </div>
     <table>
       <thead><tr>
         <th>Tipo</th><th>Nombre</th><th class="right">Monto</th>
         <th class="right">Cuotas pagadas</th><th class="right">Interés</th>
-        <th class="right">Capital</th><th class="right">Pendiente</th><th>Estado</th>
+        <th class="right">Capital</th><th class="right">Cuota a debitar</th>
+        <th class="right">Pendiente</th><th>Estado</th>
       </tr></thead>
-      <tbody>${rows || `<tr><td colspan="8">Sin préstamos</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="9">Sin préstamos</td></tr>`}</tbody>
     </table>`, {
     autoPrint: false,
     share: {
@@ -6867,7 +6929,7 @@ function bindLoansUi() {
     btnImportLoans.dataset.bound = "1";
     btnImportLoans.addEventListener("click", () => {
       const ok = window.confirm(
-        "Esto BORRA los préstamos actuales (pruebas) y carga el Excel de amortizaciones reales.\n¿Continuar?"
+        "Se actualiza el Excel de amortizaciones.\nLos ADELANTOS y préstamos manuales se conservan.\n¿Continuar?"
       );
       if (!ok) return;
       localStorage.removeItem(LOANS_SEED_FLAG_KEY);
@@ -6904,6 +6966,9 @@ function bindLoansUi() {
   document.getElementById("loanListSearch").addEventListener("input", () => {
     renderLoansList();
     renderLoansSummaryPanel();
+  });
+  document.querySelectorAll(".loans-tabs [data-loans-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => setLoansTab(btn.dataset.loansTab));
   });
 }
 /* ==== FIN MÓDULO PRÉSTAMOS ==== */
@@ -13257,7 +13322,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=193").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=194").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13273,7 +13338,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v193")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v194")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
