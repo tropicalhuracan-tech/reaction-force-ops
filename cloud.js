@@ -961,13 +961,36 @@
     if (bN > 0 && aN === 0) return b;
     let winner = String(b.updatedAt || "") > String(a.updatedAt || "") ? b : a;
     let other = winner === a ? b : a;
-    // Si el "más nuevo" tiene claramente menos montos tecleados, preferir el más completo
-    const scoreW = payrollLineMoneyScore(winner);
-    const scoreO = payrollLineMoneyScore(other);
-    if (scoreO > scoreW + 2 && payrollNamedCount(other) >= payrollNamedCount(winner)) {
-      const tmp = winner;
-      winner = other;
-      other = tmp;
+    // Nómina armada desde Vargas: su lista de empleados manda (no resucitar Excel viejo)
+    if (!!a.rosterFromVargas !== !!b.rosterFromVargas) {
+      const vargasSide = a.rosterFromVargas ? a : b;
+      const otherSide = a.rosterFromVargas ? b : a;
+      const otherStrictNewer =
+        String(otherSide.updatedAt || "") > String(vargasSide.updatedAt || "");
+      const otherAlsoShrunk =
+        payrollNamedCount(otherSide) <= payrollNamedCount(vargasSide);
+      if (!(otherStrictNewer && otherAlsoShrunk)) {
+        winner = vargasSide;
+        other = otherSide;
+      }
+    }
+    const wN = payrollNamedCount(winner);
+    const oN = payrollNamedCount(other);
+    // Poda / roster reducido: no resucitar empleados del doc más lleno
+    const winnerNewer = String(winner.updatedAt || "") >= String(other.updatedAt || "");
+    const intentionalShrink =
+      winnerNewer &&
+      wN < oN &&
+      (winner.rosterFromVargas || other.rosterFromVargas || oN - wN > 2);
+    if (!intentionalShrink && !winner.rosterFromVargas) {
+      // Solo preferir montos del otro si el tamaño de nómina es casi igual
+      const scoreW = payrollLineMoneyScore(winner);
+      const scoreO = payrollLineMoneyScore(other);
+      if (scoreO > scoreW + 2 && Math.abs(oN - wN) <= 2) {
+        const tmp = winner;
+        winner = other;
+        other = tmp;
+      }
     }
     const otherByKey = new Map();
     (other.lines || []).forEach((l) => {
