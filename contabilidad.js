@@ -325,6 +325,7 @@ function getPayrollFormulaProfile(p) {
     office,
     lavega,
     tanda,
+    keepFullName: payrollKeepsFullVargasNames(p),
     volaoPerExtraDay: mono
       ? mono.volaoPerExtraDay
       : LVA_PAYROLL_VOLAO_PER_EXTRA_DAY,
@@ -2143,7 +2144,15 @@ function payrollIsEfectivo(p) {
   return !!(p && p.group === "efectivo");
 }
 
-/** La Vega, Monorriel, LOTEDOM, Banco y Efectivo: mismas columnas / Unif-Rifa / Comida-Seg.vida / nombres cortos. */
+/** Reaction General / Banco / Efectivo: nombres y apellidos completos (reporte Vargas). */
+function payrollKeepsFullVargasNames(p) {
+  if (!p) return false;
+  const g = String(p.group || "").trim();
+  return g === "reaction" || g === "banco" || g === "efectivo";
+}
+
+/** La Vega, Monorriel, LOTEDOM, Banco y Efectivo: mismas columnas / Unif-Rifa / Comida-Seg.vida.
+ *  (Oficina/La Vega/Monorriel/LOTEDOM siguen con nombre corto; Reaction B/E usan nombre completo.) */
 function payrollUsesLvaParams(p) {
   if (!p) return false;
   if (payrollGroupUsesLvaParams(p.group)) return true;
@@ -2186,9 +2195,12 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
   const opts = options && typeof options === "object" ? options : {};
   const isOffice = !!opts.office;
   const isLavega = !!opts.lavega;
+  const keepFull = !!opts.keepFullName || !!opts.fullVargasNames;
   const rawName = String(person.name || person.fullName || "").trim();
-  // Oficina y La Vega: un nombre + un apellido (compacto para Carta horizontal).
-  const baseName = payrollShortEmployeeName(rawName) || payrollCleanEmployeeName(rawName) || rawName;
+  // Oficina / La Vega / Monorriel / LOTEDOM: nombre corto. Reaction Banco/Efectivo/General: completo (Vargas).
+  const baseName = keepFull
+    ? payrollCleanEmployeeName(rawName) || rawName
+    : payrollShortEmployeeName(rawName) || payrollCleanEmployeeName(rawName) || rawName;
   const post =
     person.position ||
     (person.postName ? String(person.postName).trim() : "") ||
@@ -3537,9 +3549,12 @@ function buildPayrollPrintHtml(p) {
     let uniformes = Number(l.uniformes) || 0;
     if (!isOffice && uniformes === 215) uniformes = LVA_PAYROLL_UNIFORMES;
     if (isOffice) uniformes = 0;
+    const keepFull = payrollKeepsFullVargasNames(p);
     const named = {
       ...l,
-      fullName: payrollShortEmployeeName(l.fullName) || payrollCleanEmployeeName(l.fullName) || l.fullName,
+      fullName: keepFull
+        ? payrollCleanEmployeeName(l.fullName) || l.fullName
+        : payrollShortEmployeeName(l.fullName) || payrollCleanEmployeeName(l.fullName) || l.fullName,
       uniformes,
       rifa: isOffice ? Number(l.rifa) || OFFICE_PAYROLL_RIFA : Number(l.rifa) || LVA_PAYROLL_RIFA,
       volaos: isOffice ? 0 : l.volaos,
@@ -4064,12 +4079,14 @@ function payrollReceiptCss(profile = "epson76") {
 function buildPayrollReceiptTicketHtml(p, line) {
   const opts = payrollComputeOpts(p);
   const l = computePayrollLineTotals(line, opts);
-  const name =
-    (typeof payrollShortEmployeeName === "function"
-      ? payrollShortEmployeeName(l.fullName)
-      : "") ||
-    String(l.fullName || "").trim() ||
-    "—";
+  const keepFull = typeof payrollKeepsFullVargasNames === "function" && payrollKeepsFullVargasNames(p);
+  const name = keepFull
+    ? String(l.fullName || "").trim() || "—"
+    : (typeof payrollShortEmployeeName === "function"
+        ? payrollShortEmployeeName(l.fullName)
+        : "") ||
+      String(l.fullName || "").trim() ||
+      "—";
   const days = String(l.daysWorked || "").trim();
   const fecha = payrollReceiptPayDateLabel(p);
   const groupMeta = payrollGroupMeta(p.group || "banco");
@@ -4774,15 +4791,24 @@ function renderNominaTab() {
       p.svdaMealSplit = true;
       cleaned = true;
     }
+    // Reaction Banco/Efectivo/General: no acortar; restaurar nombres del reporte Vargas si hay match.
+    const keepFullVargas = payrollKeepsFullVargasNames(p);
+    if (keepFullVargas && typeof expandPayrollNamesFromVargas === "function") {
+      try {
+        if (expandPayrollNamesFromVargas(p)) cleaned = true;
+      } catch (_) {}
+    }
     p.lines = (p.lines || []).map((l) => {
       let next = l;
-      const staff = staffById.get(l.employeeId);
-      const short = staff
-        ? payrollShortEmployeeName(staff.name)
-        : payrollShortEmployeeName(l.fullName);
-      if (short && short !== String(l.fullName || "").trim()) {
-        cleaned = true;
-        next = { ...next, fullName: short };
+      if (!keepFullVargas) {
+        const staff = staffById.get(l.employeeId);
+        const short = staff
+          ? payrollShortEmployeeName(staff.name)
+          : payrollShortEmployeeName(l.fullName);
+        if (short && short !== String(l.fullName || "").trim()) {
+          cleaned = true;
+          next = { ...next, fullName: short };
+        }
       }
       if (Number(next.uniformes) === 215) {
         cleaned = true;

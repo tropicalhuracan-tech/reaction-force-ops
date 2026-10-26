@@ -527,6 +527,53 @@ function vargasReportStats(report) {
   };
 }
 
+/**
+ * Restaura nombres y apellidos completos del reporte Vargas en una nómina
+ * Reaction / Banco / Efectivo (si el período/corte coinciden).
+ * No crea ni elimina filas; solo alarga el nombre cuando hay match.
+ */
+function expandPayrollNamesFromVargas(payroll, opts = {}) {
+  if (!payroll) return false;
+  if (typeof payrollKeepsFullVargasNames === "function" && !payrollKeepsFullVargasNames(payroll)) {
+    return false;
+  }
+  const g = String(payroll.group || "").trim();
+  if (g !== "reaction" && g !== "banco" && g !== "efectivo") return false;
+  const report = opts.report || getActiveVargasReport();
+  if (!report) return false;
+  const perP = String(payroll.period || "").slice(0, 7);
+  const perR = String(report.period || "").slice(0, 7);
+  if (!perP || perP !== perR) return false;
+  const halfP = payroll.half === 2 || payroll.half === "2" ? 2 : 1;
+  const halfR = report.half === 2 || report.half === "2" ? 2 : 1;
+  if (halfP !== halfR) return false;
+
+  let bucketFilter = "all";
+  if (g === "banco") bucketFilter = "B";
+  else if (g === "efectivo") bucketFilter = "E";
+  const rows = collectVargasPayrollRows(report, bucketFilter);
+  if (!rows.length) return false;
+
+  let changed = false;
+  (payroll.lines || []).forEach((line) => {
+    if (!line) return;
+    const cur = String(line.fullName || "").trim();
+    if (!cur) return;
+    const hit = rows.find((r) => vargasNamesMatch(r.fullName, cur));
+    if (!hit) return;
+    const next = String(hit.fullName || "").trim();
+    if (!next || next === cur) return;
+    // Preferir el nombre más completo del reporte (más tokens / más largo)
+    const curParts = cur.split(/\s+/).filter(Boolean).length;
+    const nextParts = next.split(/\s+/).filter(Boolean).length;
+    if (nextParts < curParts && next.length <= cur.length) return;
+    line.fullName = next;
+    line.fromVargasReport = true;
+    changed = true;
+  });
+  return changed;
+}
+
 /** Filas del reporte Vargas listas para nómina (días sin 31). */
 function collectVargasPayrollRows(report, bucketFilter = "all") {
   const rows = [];
@@ -596,6 +643,8 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
   const prune = opts.prune !== false;
   const formulaOpts =
     typeof payrollComputeOpts === "function" ? payrollComputeOpts(payroll) : {};
+  // Nombres completos del reporte (Reaction / Banco / Efectivo)
+  formulaOpts.keepFullName = true;
   const rosterKind = payroll.group === "efectivo" ? "efectivo" : "banco";
   const prevByName = new Map();
   (payroll.lines || []).forEach((l) => {
@@ -686,7 +735,12 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       }
       recomputed.daysFromVargas = true;
       recomputed.fromVargasReport = true;
+      recomputed.fullName = displayName;
       Object.assign(line, recomputed);
+    } else {
+      line.fullName = displayName;
+      line.daysFromVargas = true;
+      line.fromVargasReport = true;
     }
     nextLines.push(line);
   });
