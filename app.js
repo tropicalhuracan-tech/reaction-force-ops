@@ -10,8 +10,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 195;
-const APP_VERSION_LABEL = "v195";
+const APP_BUILD = 196;
+const APP_VERSION_LABEL = "v196";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -5290,6 +5290,7 @@ function normalizeLoan(raw = {}) {
     type,
     employeeId: raw.employeeId || "",
     employeeName: raw.employeeName || "",
+    matchHint: String(raw.matchHint || "").trim(),
     principal: roundMoney(raw.principal),
     collectAmount: roundMoney(raw.collectAmount),
     rate: Number(raw.rate) || 0,
@@ -6002,6 +6003,8 @@ function openLoanDetail(id) {
   selectedLoanId = id;
   document.getElementById("loanDetailTitle").textContent = loan.employeeName || "Préstamo";
   document.getElementById("loanDetailSub").textContent = `${loanTypeLabel(loan.type)} · ${loanStatusLabel(loan.status)}`;
+  const nameInput = document.getElementById("loanDetailName");
+  if (nameInput) nameInput.value = loan.employeeName || "";
   document.getElementById("loanDetailStats").innerHTML = `
     <div class="stats-grid">
       <div class="stat-box"><span class="muted">Capital</span><strong>${money(loan.principal)}</strong></div>
@@ -6059,6 +6062,50 @@ function markLoanInstallmentPaid(loanId, idx) {
   saveLoans();
   openLoanDetail(loanId);
   toast("Cuota marcada como pagada. Saldo actualizado.");
+}
+
+function saveLoanEmployeeName() {
+  if (!selectedLoanId) {
+    toast("Abre un préstamo primero.");
+    return;
+  }
+  const loan = getLoan(selectedLoanId);
+  if (!loan) {
+    toast("Préstamo no encontrado.");
+    return;
+  }
+  const input = document.getElementById("loanDetailName");
+  const next = String(input && input.value != null ? input.value : "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!next) {
+    toast("El nombre no puede quedar vacío.");
+    if (input) input.value = loan.employeeName || "";
+    return;
+  }
+  const prev = String(loan.employeeName || "").trim();
+  if (prev === next) {
+    toast("El nombre ya está así.");
+    return;
+  }
+  // Conservar nombre anterior para seguir coincidiendo si hace falta
+  const hints = new Set(
+    [loan.matchHint, prev]
+      .map((x) => String(x || "").trim())
+      .filter(Boolean)
+      .filter((x) => x.toLowerCase() !== next.toLowerCase())
+  );
+  loan.employeeName = next;
+  loan.matchHint = [...hints][0] || loan.matchHint || "";
+  loan.updatedAt = new Date().toISOString();
+  const pos = loans.findIndex((l) => l.id === selectedLoanId);
+  if (pos >= 0) loans[pos] = refreshLoanDerived(loan);
+  saveLoans();
+  if (typeof logActivity === "function") {
+    logActivity("loan_rename", `Préstamo: "${prev}" → "${next}"`);
+  }
+  openLoanDetail(selectedLoanId);
+  toast(`Nombre actualizado: ${next}`);
 }
 
 function deleteSelectedLoan() {
@@ -6956,6 +7003,17 @@ function bindLoansUi() {
   });
   document.getElementById("btnSaveLoan").addEventListener("click", saveNewLoan);
   document.getElementById("btnDeleteLoan").addEventListener("click", deleteSelectedLoan);
+  const btnSaveLoanName = document.getElementById("btnSaveLoanName");
+  if (btnSaveLoanName) btnSaveLoanName.addEventListener("click", saveLoanEmployeeName);
+  const loanNameInput = document.getElementById("loanDetailName");
+  if (loanNameInput) {
+    loanNameInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        saveLoanEmployeeName();
+      }
+    });
+  }
   document.getElementById("btnUnlockLoanRate").addEventListener("click", unlockLoanRate);
   document.getElementById("loanType").addEventListener("change", toggleLoanTypeFields);
   ["loanAdvancePackage", "loanPrincipal", "loanPeriods", "loanRate", "loanStartDate"].forEach((id) => {
@@ -13322,7 +13380,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=195").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=196").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13338,7 +13396,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v195")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v196")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
