@@ -2936,6 +2936,15 @@ body.lightbox-open {
 #vargasView .vargas-table th.vargas-day-excl {
   color: #f59e0b;
 }
+#vargasView .vargas-name[contenteditable="true"] {
+  outline: none;
+  cursor: text;
+  min-width: 160px;
+}
+#vargasView .vargas-name[contenteditable="true"]:focus {
+  background: rgba(250, 204, 21, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.45);
+}
 #vargasView .vargas-day-cell {
   text-align: center;
   min-width: 2.2em;

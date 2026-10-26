@@ -10,8 +10,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 190;
-const APP_VERSION_LABEL = "v190";
+const APP_BUILD = 191;
+const APP_VERSION_LABEL = "v191";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -7806,6 +7806,7 @@ function renderMonoStaffList() {
                 ${isKeeper ? "✓✓ Principal" : "Marcar Principal ✓✓"}
               </button>
               <button type="button" class="btn ghost btn-sm mono-open-emp" data-emp-id="${escapeHtml(e.id)}">Abrir ficha</button>
+              <button type="button" class="btn danger btn-sm mono-del-emp" data-emp-id="${escapeHtml(e.id)}" data-emp-name="${escapeHtml(base)}" title="Quitar de Monorriel (ya no trabaja)">Borrar</button>
             </div>
           </div>
         </div>
@@ -7842,7 +7843,55 @@ function renderMonoStaffList() {
       openEmployeeDetail(btn.dataset.empId);
     });
   });
+  list.querySelectorAll(".mono-del-emp").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      deleteMonorrielStaffEmployee(btn.dataset.empId, btn.dataset.empName);
+    });
+  });
   updateMonoUnifyToolbar();
+}
+
+/** Borra (inactiva) un empleado Monorriel que ya no está. Sale de la lista activa. */
+function deleteMonorrielStaffEmployee(empId, empName) {
+  if (typeof canWriteEmployees === "function" && !canWriteEmployees()) {
+    toast("No tienes permiso para borrar empleados.");
+    return;
+  }
+  const id = String(empId || "").trim();
+  if (!id) return;
+  const idx = employees.findIndex((e) => e && e.id === id);
+  if (idx < 0) {
+    toast("Empleado no encontrado.");
+    return;
+  }
+  const emp = employees[idx];
+  const label = empName || monoBaseName(emp.name) || emp.name || "este empleado";
+  if (
+    !confirm(
+      `¿Borrar a "${label}" de Monorriel?\n\n` +
+        `Pasará a Inactivos / Eliminados y dejará de aparecer en Personal Monorriel.\n` +
+        `Los reportes viejos se mantienen.`
+    )
+  ) {
+    return;
+  }
+  employees[idx] = normalizeEmployee({
+    ...emp,
+    status: "inactive",
+    inactiveReason: "Ya no trabaja · borrado desde Monorriel",
+    inactiveAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+  monoUnifySelected.delete(id);
+  if (monoUnifyKeeperId === id) monoUnifyKeeperId = "";
+  saveEmployees();
+  if (typeof logActivity === "function") {
+    logActivity("mono_staff_delete", `Monorriel borró: ${label}`);
+  }
+  renderMonoStaffList();
+  if (typeof renderEmployees === "function") renderEmployees();
+  toast(`Borrado de Monorriel: ${label}`);
 }
 
 function remapMonorrielReportsToKeeper(keeper, otherIds, otherNames) {
@@ -13092,7 +13141,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=190").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=191").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13108,7 +13157,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v190")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v191")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
