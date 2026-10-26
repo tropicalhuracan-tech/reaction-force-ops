@@ -568,6 +568,7 @@ function normalizePayroll(p = {}) {
     "lotedom",
     "banco",
     "efectivo",
+    "reaction",
     "general",
   ].includes(p.group)
     ? p.group
@@ -1612,13 +1613,14 @@ const PAYROLL_GROUP_META = {
   oficina: { label: "Oficina", short: "Oficina", title: "OFICINA" },
   monorriel: { label: "Monorriel", short: "Monorriel", title: "MONORRIEL" },
   lotedom: { label: "LOTEDOM", short: "LOTEDOM", title: "LOTEDOM" },
+  reaction: { label: "Reaction General (Vargas)", short: "Reaction", title: "REACTION GENERAL" },
   banco: { label: "Reaction Banco", short: "Banco", title: "REACTION BANCO" },
   efectivo: { label: "Reaction Efectivo", short: "Efectivo", title: "REACTION EFECTIVO" },
   general: { label: "General / Otros", short: "General", title: "GENERAL / OTROS" },
 };
 
 /** Grupos con fórmula La Vega (Unif/Rifa, Comida/Seg. vida, nombres cortos). */
-const PAYROLL_LVA_GROUPS = ["lavega", "monorriel", "lotedom", "banco", "efectivo"];
+const PAYROLL_LVA_GROUPS = ["lavega", "monorriel", "lotedom", "reaction", "banco", "efectivo"];
 
 function payrollGroupUsesLvaParams(group) {
   return PAYROLL_LVA_GROUPS.includes(group);
@@ -2073,7 +2075,8 @@ function getStaffForPayrollGroup(group, tandaId) {
   if (group === "lotedom") return getLotedomStaffForPayroll();
   if (group === "banco") return getReactionBancoStaffForPayroll();
   if (group === "efectivo") return getReactionEfectivoStaffForPayroll();
-  if (group === "general") return [];
+  // Reaction General se arma solo desde el reporte Vargas (no roster fijo).
+  if (group === "reaction" || group === "general") return [];
   return getLvaStaffForPayroll();
 }
 
@@ -2666,7 +2669,7 @@ function generatePayrollForSelection(opts = {}) {
   const labelShort =
     group === "monorriel" && tandaMeta ? `${meta.short} · ${tandaMeta.short}` : meta.short;
   const quiet = !!opts.quiet;
-  if (group !== "general" && !staff.length) {
+  if (group !== "general" && group !== "reaction" && !staff.length) {
     if (!quiet) {
       toast(
         group === "oficina"
@@ -2711,11 +2714,17 @@ function generatePayrollForSelection(opts = {}) {
     tanda: group === "monorriel" ? tanda : "",
   });
   let lines;
-  if (group === "general") {
+  if (group === "general" || group === "reaction") {
     const kept = (existing && existing.lines ? existing.lines : []).map((l) =>
-      computePayrollLineTotals(l)
+      computePayrollLineTotals(l, formulaOpts)
     );
-    lines = kept.length ? kept : Array.from({ length: 8 }, () => emptyPayrollLine());
+    // Reaction General vacía: se llena desde Vargas. General/Otros: plantilla 8 filas.
+    lines =
+      kept.length
+        ? kept
+        : group === "reaction"
+          ? []
+          : Array.from({ length: 8 }, () => emptyPayrollLine());
   } else {
     lines = staff.map((s) => {
       const prev =
@@ -4519,9 +4528,11 @@ function renderNominaTab() {
         ? "Falta el Excel de esta tanda."
         : group === "monorriel"
           ? `Hay ${nStaff} persona(s) en el Excel. Pulsa «Generar las 4 tandas» o «Generar / actualizar».${legacyHint}`
-          : `Pulsa «Generar / actualizar»${
-              group === "general" ? " para crear la plantilla" : ` (${nStaff} persona(s) disponibles)`
-            }.`
+          : group === "reaction"
+            ? "Ábrela desde Ramón Vargas → «1. Nómina general» (solo empleados del reporte)."
+            : `Pulsa «Generar / actualizar»${
+                group === "general" ? " para crear la plantilla" : ` (${nStaff} persona(s) disponibles)`
+              }.`
     }</p>`;
   } else {
     list.innerHTML = rows
