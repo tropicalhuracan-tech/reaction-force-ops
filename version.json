@@ -1,6 +1,6 @@
 {
-  "build": 194,
-  "label": "v194",
-  "minBuild": 194,
-  "note": "Préstamos: pestañas, cuota a debitar; reimport no borra adelantos"
+  "build": 195,
+  "label": "v195",
+  "minBuild": 195,
+  "note": "Préstamos: Reimportar Excel pequeño en esquina"
 }

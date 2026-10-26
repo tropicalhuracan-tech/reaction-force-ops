@@ -10,8 +10,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 194;
-const APP_VERSION_LABEL = "v194";
+const APP_BUILD = 195;
+const APP_VERSION_LABEL = "v195";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -6929,7 +6929,7 @@ function bindLoansUi() {
     btnImportLoans.dataset.bound = "1";
     btnImportLoans.addEventListener("click", () => {
       const ok = window.confirm(
-        "Se actualiza el Excel de amortizaciones.\nLos ADELANTOS y préstamos manuales se conservan.\n¿Continuar?"
+        "MANTENIMIENTO: reimportar Excel de amortizaciones.\nLos adelantos se conservan.\n¿Seguro?"
       );
       if (!ok) return;
       localStorage.removeItem(LOANS_SEED_FLAG_KEY);
@@ -13322,7 +13322,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=194").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=195").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13338,7 +13338,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v194")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v195")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
