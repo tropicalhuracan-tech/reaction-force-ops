@@ -1,6 +1,6 @@
 {
-  "build": 191,
-  "label": "v191",
-  "minBuild": 191,
-  "note": "Vargas: editar nombres; abrir nómina general; Monorriel borrar"
+  "build": 192,
+  "label": "v192",
+  "minBuild": 192,
+  "note": "Vargas: Banco/Efectivo solo del reporte (fix merge)"
 }

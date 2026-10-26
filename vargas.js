@@ -702,14 +702,16 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
     payroll.lines = [...byKey.values()];
   }
 
-  if (changed) {
+  // Marca siempre updatedAt al podar desde Vargas (aunque el contenido coincida)
+  if (changed || prune) {
     payroll.updatedAt = new Date().toISOString();
+    if (prune) payroll.rosterFromVargas = true;
     payroll.note = String(payroll.note || "");
     if (!/días desde Vargas|reporte Vargas/i.test(payroll.note)) {
       payroll.note = `${payroll.note} · Días desde Vargas`.replace(/^\s·\s*/, "").trim();
     }
   }
-  return { changed, linesTouched, removed, kept: nextLines.length };
+  return { changed: !!(changed || (prune && removed > 0)), linesTouched, removed, kept: nextLines.length };
 }
 
 /** 1) Nómina Reaction General: SOLO empleados del reporte Vargas. */
@@ -797,15 +799,18 @@ function sendVargasPayrollToBuckets(opts = {}) {
     if (result.changed) summary.updated += 1;
   });
 
-  if (summary.updated && typeof saveContabilidadData === "function") saveContabilidadData(true);
+  if (typeof saveContabilidadData === "function") saveContabilidadData(true);
   if (!quiet && typeof toast === "function") {
     toast(
       `Enviado: Banco ${summary.banco}` +
         (summary.removedB ? ` (−${summary.removedB})` : "") +
         ` · Efectivo ${summary.efectivo}` +
-        (summary.removedE ? ` (−${summary.removedE})` : "")
+        (summary.removedE ? ` (−${summary.removedE})` : "") +
+        ` · solo del reporte`
     );
   }
+  summary.period = period;
+  summary.half = half;
   return summary;
 }
 
@@ -919,8 +924,25 @@ function sendVargasToBucketsAction() {
   }
   // Asegura general al día antes de repartir
   syncVargasGeneralPayroll({ report, quiet: true });
-  sendVargasPayrollToBuckets({ report, quiet: false });
-  refreshVargasPayrollUi();
+  const sent = sendVargasPayrollToBuckets({ report, quiet: false });
+  const period = report.period;
+  const half = report.half === 2 || report.half === "2" ? 2 : 1;
+  const preferGroup = sent && sent.banco > 0 ? "banco" : sent && sent.efectivo > 0 ? "efectivo" : "banco";
+  let payroll = typeof findPayrollByGroup === "function" ? findPayrollByGroup(period, half, preferGroup, "") : null;
+  ["nominaMonthFilter", "contabMonthFilter"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && period) el.value = period;
+  });
+  const halfEl = document.getElementById("contabPayrollHalf");
+  if (halfEl) halfEl.value = String(half);
+  const groupEl = document.getElementById("contabPayrollGroup");
+  if (groupEl) groupEl.value = preferGroup;
+  if (payroll && payroll.id && typeof selectedPayrollId !== "undefined") selectedPayrollId = payroll.id;
+  if (typeof switchView === "function") switchView("nominaView");
+  else if (typeof openNominaView === "function") openNominaView();
+  if (typeof renderNominaTab === "function") {
+    try { renderNominaTab(); } catch (_) {}
+  }
 }
 
 function reorganizeVargasToPayroll() {

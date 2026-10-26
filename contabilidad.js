@@ -594,6 +594,7 @@ function normalizePayroll(p = {}) {
     showFeriado: office ? false : p.showFeriado === true,
     svdaMealSplit: p.svdaMealSplit === true,
     seedRevision: String(p.seedRevision || "").trim(),
+    rosterFromVargas: p.rosterFromVargas === true,
     lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, formulaOpts)) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
@@ -1028,7 +1029,15 @@ function applyRemoteContabilidadData(remote) {
       }
       let winner = String(row.updatedAt) > String(prev.updatedAt) ? row : prev;
       let other = winner === row ? prev : row;
-      if (moneyScore(other) > moneyScore(winner) + 2) {
+      const wN = payrollNamedLineCount(winner);
+      const oN = payrollNamedLineCount(other);
+      const winnerNewer = String(winner.updatedAt || "") >= String(other.updatedAt || "");
+      const intentionalShrink =
+        winnerNewer &&
+        wN < oN &&
+        (winner.rosterFromVargas || other.rosterFromVargas || oN - wN > 2);
+      // No devolver el roster viejo completo por tener más adelantos/préstamos
+      if (!intentionalShrink && moneyScore(other) > moneyScore(winner) + 2 && Math.abs(oN - wN) <= 2) {
         const tmp = winner;
         winner = other;
         other = tmp;
@@ -2725,6 +2734,19 @@ function generatePayrollForSelection(opts = {}) {
         : group === "reaction"
           ? []
           : Array.from({ length: 8 }, () => emptyPayrollLine());
+  } else if (
+    (group === "banco" || group === "efectivo") &&
+    existing &&
+    existing.rosterFromVargas &&
+    (existing.lines || []).some((l) => String((l && l.fullName) || "").trim())
+  ) {
+    // Ya repartida desde Vargas: no volver a sembrar el Excel completo
+    lines = (existing.lines || []).map((l) => computePayrollLineTotals(l, formulaOpts));
+    if (!quiet) {
+      toast(
+        "Banco/Efectivo ya vienen del reporte Vargas. Actualízalos con «2. Enviar a Banco / Efectivo»."
+      );
+    }
   } else {
     lines = staff.map((s) => {
       const prev =
@@ -2754,6 +2776,7 @@ function generatePayrollForSelection(opts = {}) {
     payDate,
     status: "draft",
     showFeriado: isOffice ? false : existing ? !!existing.showFeriado : false,
+    rosterFromVargas: !!(existing && existing.rosterFromVargas),
     lines,
     note: isOffice
       ? `Nómina Oficina · ${halfLabel(half)} · ${monthLabel(period)} · SFS ${OFFICE_PAYROLL_SFS} · con rifa · sin días/unif/volao/comida/feriado/extras`
