@@ -10,8 +10,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 197;
-const APP_VERSION_LABEL = "v197";
+const APP_BUILD = 198;
+const APP_VERSION_LABEL = "v198";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -5002,7 +5002,8 @@ const ADVANCE_PACKAGES = {
 let loans = [];
 let loanTrashIds = [];
 let selectedLoanId = null;
-let loanSelectedEmployeeId = null;
+let loanSelectedEmployeeId = null; // legacy; nuevos préstamos usan loanSelectedBorrowerKey
+let loanSelectedBorrowerKey = null;
 let loanRateUnlocked = false;
 let loansActiveTab = "listado"; // listado | resumen | cobro
 
@@ -5667,6 +5668,93 @@ function unlockLoanRate() {
   renderLoanPreview();
 }
 
+/**
+ * Candidatos para NUEVO préstamo: unión de nombres en todas las nóminas + empleados activos.
+ * Preferimos el nombre más completo (ej. Vargas) para que coincida al debitar en nómina.
+ * No modifica préstamos ya existentes.
+ */
+function collectLoanBorrowerCandidates() {
+  const byKey = new Map();
+  const upsert = ({ name, employeeId, cedula, phone, sources }) => {
+    const clean = String(name || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!clean) return;
+    const key = normalizePersonKey(clean);
+    if (!key) return;
+    const prev = byKey.get(key);
+    if (!prev) {
+      byKey.set(key, {
+        key,
+        name: clean,
+        employeeId: employeeId || "",
+        cedula: cedula || "",
+        phone: phone || "",
+        sources: new Set(sources || []),
+      });
+      return;
+    }
+    const prevParts = prev.name.split(/\s+/).filter(Boolean).length;
+    const nextParts = clean.split(/\s+/).filter(Boolean).length;
+    if (nextParts > prevParts || (nextParts === prevParts && clean.length > prev.name.length)) {
+      prev.name = clean;
+    }
+    if (!prev.employeeId && employeeId) prev.employeeId = employeeId;
+    if (!prev.cedula && cedula) prev.cedula = cedula;
+    if (!prev.phone && phone) prev.phone = phone;
+    (sources || []).forEach((s) => prev.sources.add(s));
+  };
+
+  try {
+    const payrolls =
+      typeof contabilidadData !== "undefined" && contabilidadData && Array.isArray(contabilidadData.payrolls)
+        ? contabilidadData.payrolls
+        : [];
+    payrolls.forEach((p) => {
+      if (!p) return;
+      const gMeta = typeof payrollGroupMeta === "function" ? payrollGroupMeta(p.group || "general") : null;
+      const gLabel = (gMeta && (gMeta.short || gMeta.label)) || p.group || "Nómina";
+      (p.lines || []).forEach((line) => {
+        if (!line) return;
+        const nm = String(line.fullName || "").trim();
+        if (!nm) return;
+        upsert({
+          name: nm,
+          employeeId: line.employeeId || "",
+          sources: [`Nómina ${gLabel}`],
+        });
+      });
+    });
+  } catch (_) {}
+
+  (typeof employees !== "undefined" && Array.isArray(employees) ? employees : []).forEach((e) => {
+    if (!e || !e.name || !isEmployeeActive(e)) return;
+    const isOffice = (e.sites || []).some((s) => /oficina/i.test(s)) || !!e.officeEmployeeId;
+    const siteHint = isOffice
+      ? "Oficina"
+      : (e.sites || []).slice(0, 2).join(", ") || "Lista empleados";
+    upsert({
+      name: e.name,
+      employeeId: e.id || "",
+      cedula: e.cedula || "",
+      phone: e.phone || "",
+      sources: [`Empleados · ${siteHint}`],
+    });
+  });
+
+  return [...byKey.values()]
+    .map((c) => ({
+      key: c.key,
+      name: c.name,
+      employeeId: c.employeeId,
+      cedula: c.cedula,
+      phone: c.phone,
+      sources: [...c.sources],
+      sourceLabel: [...c.sources].slice(0, 3).join(" · "),
+    }))
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));
+}
+
 function renderLoanEmployeePicker() {
   const list = document.getElementById("loanEmpPickList");
   const selected = document.getElementById("loanEmpSelected");
@@ -5676,59 +5764,63 @@ function renderLoanEmployeePicker() {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
-  const filtered = employees
-    .filter((e) => e.name && isEmployeeActive(e))
-    .filter((e) => {
+  const pool = collectLoanBorrowerCandidates();
+  const filtered = pool
+    .filter((c) => {
       if (!needle) return true;
-      const blob = [e.name, e.phone, e.cedula, ...(e.sites || []), ...(e.roles || [])]
+      const blob = [c.name, c.phone, c.cedula, c.sourceLabel, ...(c.sources || [])]
         .join(" ")
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase();
       return blob.includes(needle);
     })
-    .sort((a, b) => {
-      const ao = (a.sites || []).some((s) => /oficina/i.test(s)) || !!a.officeEmployeeId ? 0 : 1;
-      const bo = (b.sites || []).some((s) => /oficina/i.test(s)) || !!b.officeEmployeeId ? 0 : 1;
-      if (ao !== bo && !needle) return ao - bo;
-      return String(a.name || "").localeCompare(String(b.name || ""), "es");
-    })
-    .slice(0, needle ? 40 : 40);
+    .slice(0, needle ? 60 : 60);
 
   if (!filtered.length) {
-    list.innerHTML = `<p class="empty">No hay empleados para mostrar.</p>`;
+    list.innerHTML = `<p class="empty">No hay nombres en nóminas ni en empleados.</p>`;
   } else {
     list.innerHTML = filtered
-      .map((e) => {
-        const sel = e.id === loanSelectedEmployeeId ? "selected" : "";
-        const isOffice = (e.sites || []).some((s) => /oficina/i.test(s)) || !!e.officeEmployeeId;
-        const siteHint = isOffice ? "Oficina" : (e.sites || []).slice(0, 2).join(", ") || "—";
-        return `<button class="employee-card ${sel}" type="button" data-emp-id="${escapeHtml(e.id)}">
+      .map((c) => {
+        const sel = c.key === loanSelectedBorrowerKey ? "selected" : "";
+        const metaBits = [
+          c.cedula || "",
+          c.phone || "",
+          c.sourceLabel || "",
+        ].filter(Boolean);
+        return `<button class="employee-card ${sel}" type="button" data-borrower-key="${escapeHtml(c.key)}">
           <div class="row">
             <div>
-              <h3>${escapeHtml(e.name)}${isOffice ? ' <span class="muted" style="font-size:12px">(Oficina)</span>' : ""}</h3>
-              <p>${escapeHtml(e.cedula || "Sin cédula")} · ${escapeHtml(e.phone || "Sin tel.")} · ${escapeHtml(siteHint)}</p>
+              <h3>${escapeHtml(c.name)}</h3>
+              <p>${escapeHtml(metaBits.join(" · ") || "Sin datos extra")}</p>
             </div>
           </div>
         </button>`;
       })
       .join("");
-    list.querySelectorAll("[data-emp-id]").forEach((btn) => {
+    list.querySelectorAll("[data-borrower-key]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        loanSelectedEmployeeId = btn.dataset.empId;
+        loanSelectedBorrowerKey = btn.dataset.borrowerKey || null;
+        const hit = pool.find((c) => c.key === loanSelectedBorrowerKey);
+        loanSelectedEmployeeId = hit && hit.employeeId ? hit.employeeId : null;
         renderLoanEmployeePicker();
       });
     });
   }
 
-  const emp = employees.find((e) => e.id === loanSelectedEmployeeId);
-  selected.textContent = emp
-    ? `Seleccionado: ${emp.name}${emp.cedula ? ` · Cédula ${emp.cedula}` : ""}`
-    : "Ningún empleado seleccionado.";
+  const picked = pool.find((c) => c.key === loanSelectedBorrowerKey);
+  if (selected) {
+    selected.textContent = picked
+      ? `Seleccionado: ${picked.name}${picked.cedula ? ` · Cédula ${picked.cedula}` : ""}${
+          picked.sourceLabel ? ` · ${picked.sourceLabel}` : ""
+        }`
+      : "Ningún nombre seleccionado.";
+  }
 }
 
 function resetNewLoanForm() {
   loanSelectedEmployeeId = null;
+  loanSelectedBorrowerKey = null;
   loanRateUnlocked = false;
   document.getElementById("loanEmpSearch").value = "";
   document.getElementById("loanType").value = "advance";
@@ -5752,9 +5844,10 @@ function openNewLoan() {
 }
 
 function saveNewLoan() {
-  const emp = employees.find((e) => e.id === loanSelectedEmployeeId);
-  if (!emp) {
-    toast("Selecciona un empleado de la lista.");
+  const pool = collectLoanBorrowerCandidates();
+  const picked = pool.find((c) => c.key === loanSelectedBorrowerKey);
+  if (!picked || !picked.name) {
+    toast("Selecciona un nombre de la lista (nóminas + empleados).");
     return;
   }
   const preview = computeLoanPreview();
@@ -5770,11 +5863,13 @@ function saveNewLoan() {
     toast("Para bajar el 10% necesitas la clave de autorización.");
     return;
   }
+  // Nombre exacto de la lista (prioridad nómina) para que haga match al debitar.
+  // No altera préstamos ya existentes.
   const loan = refreshLoanDerived({
     id: `loan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     type: preview.type,
-    employeeId: emp.id,
-    employeeName: emp.name,
+    employeeId: picked.employeeId || "",
+    employeeName: picked.name,
     principal: preview.principal,
     collectAmount: preview.collectAmount,
     rate: preview.rate,
@@ -13380,7 +13475,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=197").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=198").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13396,7 +13491,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v197")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v198")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
