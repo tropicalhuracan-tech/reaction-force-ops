@@ -501,181 +501,355 @@ function vargasReportStats(report) {
   };
 }
 
-/**
- * Envía días del reporte Vargas a nóminas Reaction Banco / Efectivo
- * según la columna B/E. Conserva adelantos, préstamos y extras manuales.
- */
-function feedVargasPayrollFromReport(opts = {}) {
-  const report = opts.report || getActiveVargasReport();
-  if (!report) return { updated: 0, lines: 0, reason: "no-report" };
-  if (typeof findPayrollByGroup !== "function" || typeof buildPayrollLineFromPerson !== "function") {
-    return { updated: 0, lines: 0, reason: "no-payroll-api" };
-  }
-  const period = opts.period || report.period;
-  const half = opts.half != null ? (opts.half === 2 || opts.half === "2" ? 2 : 1) : report.half;
-  const createMissing = opts.createMissing !== false;
-  const quiet = opts.quiet !== false;
-
-  const byBucket = { B: [], E: [] };
+/** Filas del reporte Vargas listas para nómina (días sin 31). */
+function collectVargasPayrollRows(report, bucketFilter = "all") {
+  const rows = [];
+  const seen = new Set();
   (report.sections || []).forEach((sec) => {
     (sec.employees || []).forEach((emp) => {
       const bucket = normalizeVargasPayBucket(emp.payBucket);
-      if (bucket !== "B" && bucket !== "E") return;
-      const daysCount = countVargasPayrollDays(emp.marks, report.dayNums);
-      byBucket[bucket].push({
-        fullName: emp.fullName,
-        postName: sec.postName,
-        shift: sec.shift,
-        daysCount,
-      });
-    });
-  });
-
-  let payrollsTouched = 0;
-  let linesTouched = 0;
-  const summary = { banco: 0, efectivo: 0, skipped: 0 };
-
-  [
-    { key: "B", group: "banco", label: "Reaction Banco" },
-    { key: "E", group: "efectivo", label: "Reaction Efectivo" },
-  ].forEach(({ key, group, label }) => {
-    const rows = byBucket[key];
-    if (!rows.length) return;
-
-    let payroll = findPayrollByGroup(period, half, group, "");
-    if (!payroll && createMissing && typeof generatePayrollForSelection === "function") {
-      const gen = generatePayrollForSelection({
-        period,
-        half,
-        group,
-        quiet: true,
-        skipConfirm: true,
-      });
-      payroll = gen && gen.payroll;
-    }
-    if (!payroll) {
-      summary.skipped += rows.length;
-      return;
-    }
-
-    const formulaOpts =
-      typeof payrollComputeOpts === "function" ? payrollComputeOpts(payroll) : {};
-    const prevByName = new Map();
-    (payroll.lines || []).forEach((l) => {
-      if (!l) return;
-      const nk = vargasNameKey(l.fullName);
-      if (nk) prevByName.set(nk, l);
-    });
-
-    let changed = false;
-    rows.forEach((row) => {
+      if (bucketFilter === "B" && bucket !== "B") return;
+      if (bucketFilter === "E" && bucket !== "E") return;
+      if (bucketFilter === "marked" && bucket !== "B" && bucket !== "E") return;
       const displayName =
         typeof payrollCleanEmployeeName === "function"
-          ? payrollCleanEmployeeName(row.fullName)
-          : String(row.fullName || "").trim();
-      const nameKey = vargasNameKey(displayName);
-      let line =
-        prevByName.get(nameKey) ||
-        (payroll.lines || []).find((l) => vargasNamesMatch(l.fullName, displayName)) ||
-        null;
-
-      const rosterHit = findReactionRosterHit(displayName, group);
-      const keepAdelantos = line ? Math.max(0, Number(line.adelantos) || 0) : 0;
-      const keepPrestamos = line ? Math.max(0, Number(line.prestamos) || 0) : 0;
-      const keepExtrasManual = !!(line && line.horasExtrasManual);
-      const keepExtras = keepExtrasManual ? Math.max(0, Number(line.horasExtras) || 0) : null;
-
-      if (!line) {
-        const person = rosterHit
-          ? {
-              ...rosterHit,
-              name: displayName,
-              position: rosterHit.position || row.postName || label,
-              daysWorked: String(row.daysCount),
-            }
-          : {
-              id: "",
-              employeeId: "",
-              name: displayName,
-              position: row.postName || label,
-              salaryMonthly:
-                typeof LVA_PAYROLL_DEFAULT_MONTHLY !== "undefined" ? LVA_PAYROLL_DEFAULT_MONTHLY : 24000,
-              daysWorked: String(row.daysCount),
-            };
-        line = buildPayrollLineFromPerson(person, null, label, formulaOpts);
-        payroll.lines = payroll.lines || [];
-        payroll.lines.push(line);
-        prevByName.set(nameKey, line);
-        changed = true;
-        linesTouched += 1;
-      }
-
-      const nextDays = String(Math.max(0, row.daysCount));
-      const prevDays = String(line.daysWorked || "").trim();
-      if (prevDays !== nextDays || !line.daysFromVargas) {
-        line.daysWorked = nextDays;
-        line.daysFromVargas = true;
-        if (!String(line.fullName || "").trim()) line.fullName = displayName;
-        if (row.postName && (!line.position || /reaction/i.test(String(line.position)))) {
-          line.position = row.postName;
-        }
-        changed = true;
-        linesTouched += 1;
-      }
-
-      line.adelantos = keepAdelantos;
-      line.prestamos = keepPrestamos;
-      if (keepExtrasManual) {
-        line.horasExtras = keepExtras;
-        line.horasExtrasManual = true;
-      }
-      if (typeof computePayrollLineTotals === "function") {
-        let recomputed = computePayrollLineTotals(line, formulaOpts);
-        recomputed.adelantos = keepAdelantos;
-        recomputed.prestamos = keepPrestamos;
-        if (keepExtrasManual) {
-          recomputed.horasExtras = keepExtras;
-          recomputed.horasExtrasManual = true;
-          recomputed = computePayrollLineTotals(recomputed, formulaOpts);
-          recomputed.adelantos = keepAdelantos;
-          recomputed.prestamos = keepPrestamos;
-          recomputed.horasExtras = keepExtras;
-          recomputed.horasExtrasManual = true;
-        }
-        recomputed.daysFromVargas = true;
-        Object.assign(line, recomputed);
-      }
-
-      if (key === "B") summary.banco += 1;
-      else summary.efectivo += 1;
+          ? payrollCleanEmployeeName(emp.fullName)
+          : String(emp.fullName || "").trim();
+      const key = vargasNameKey(displayName);
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      rows.push({
+        fullName: displayName,
+        postName: sec.postName,
+        shift: sec.shift,
+        payBucket: bucket,
+        daysCount: countVargasPayrollDays(emp.marks, report.dayNums),
+      });
     });
+  });
+  return rows;
+}
 
-    if (changed) {
-      payroll.updatedAt = new Date().toISOString();
-      payroll.note = String(payroll.note || "");
-      if (!/días desde Vargas/i.test(payroll.note)) {
-        payroll.note = `${payroll.note} · Días desde Vargas`.replace(/^\s·\s*/, "").trim();
-      }
-      payrollsTouched += 1;
-    }
+/** Crea nómina vacía del grupo (sin sembrar roster viejo / mal escrito). */
+function ensureVargasPayrollShell(period, half, group, label) {
+  let payroll = findPayrollByGroup(period, half, group, "");
+  if (payroll) return payroll;
+  if (typeof normalizePayroll !== "function") return null;
+  const payDate =
+    typeof payrollPayDateFor === "function" ? payrollPayDateFor(period, half) : `${period}-20`;
+  payroll = normalizePayroll({
+    period,
+    half,
+    group,
+    tanda: "",
+    payDate,
+    status: "draft",
+    lines: [],
+    note: `Nómina ${label} · ${half === 2 ? "16–30" : "01–15"} · desde reporte Vargas`,
+    createdBy:
+      typeof currentUser !== "undefined" && currentUser
+        ? currentUser.displayName || currentUser.username
+        : "",
+  });
+  if (typeof contabilidadData !== "undefined" && contabilidadData) {
+    contabilidadData.payrolls = contabilidadData.payrolls || [];
+    contabilidadData.payrolls.unshift(payroll);
+  }
+  return payroll;
+}
+
+/**
+ * Aplica filas Vargas a una nómina.
+ * prune=true: deja SOLO a quienes están en el reporte (elimina mal escritos / sobrantes).
+ * Conserva adelantos, préstamos y extras manuales.
+ */
+function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
+  if (!payroll || typeof buildPayrollLineFromPerson !== "function") {
+    return { changed: false, linesTouched: 0, removed: 0, kept: 0 };
+  }
+  const prune = opts.prune !== false;
+  const formulaOpts =
+    typeof payrollComputeOpts === "function" ? payrollComputeOpts(payroll) : {};
+  const rosterKind = payroll.group === "efectivo" ? "efectivo" : "banco";
+  const prevByName = new Map();
+  (payroll.lines || []).forEach((l) => {
+    if (!l) return;
+    const nk = vargasNameKey(l.fullName);
+    if (nk) prevByName.set(nk, l);
   });
 
-  if (payrollsTouched && typeof saveContabilidadData === "function") {
-    saveContabilidadData(true);
+  const nextLines = [];
+  const usedKeys = new Set();
+  let linesTouched = 0;
+  let changed = false;
+
+  rows.forEach((row) => {
+    const displayName = String(row.fullName || "").trim();
+    const nameKey = vargasNameKey(displayName);
+    if (!nameKey || usedKeys.has(nameKey)) return;
+    usedKeys.add(nameKey);
+
+    let line =
+      prevByName.get(nameKey) ||
+      (payroll.lines || []).find((l) => vargasNamesMatch(l.fullName, displayName)) ||
+      null;
+
+    const rosterHit =
+      typeof findReactionRosterHit === "function"
+        ? findReactionRosterHit(displayName, rosterKind)
+        : null;
+    const keepAdelantos = line ? Math.max(0, Number(line.adelantos) || 0) : 0;
+    const keepPrestamos = line ? Math.max(0, Number(line.prestamos) || 0) : 0;
+    const keepExtrasManual = !!(line && line.horasExtrasManual);
+    const keepExtras = keepExtrasManual ? Math.max(0, Number(line.horasExtras) || 0) : null;
+
+    if (!line) {
+      const person = rosterHit
+        ? {
+            ...rosterHit,
+            name: displayName,
+            position: rosterHit.position || row.postName || label,
+            daysWorked: String(row.daysCount),
+          }
+        : {
+            id: "",
+            employeeId: "",
+            name: displayName,
+            position: row.postName || label,
+            salaryMonthly:
+              typeof LVA_PAYROLL_DEFAULT_MONTHLY !== "undefined" ? LVA_PAYROLL_DEFAULT_MONTHLY : 24000,
+            daysWorked: String(row.daysCount),
+          };
+      line = buildPayrollLineFromPerson(person, null, label, formulaOpts);
+      changed = true;
+      linesTouched += 1;
+    }
+
+    const nextDays = String(Math.max(0, Number(row.daysCount) || 0));
+    const prevDays = String(line.daysWorked || "").trim();
+    if (prevDays !== nextDays || !line.daysFromVargas || line.fullName !== displayName) {
+      line.daysWorked = nextDays;
+      line.daysFromVargas = true;
+      line.fromVargasReport = true;
+      line.fullName = displayName;
+      if (row.postName && (!line.position || /reaction/i.test(String(line.position)))) {
+        line.position = row.postName;
+      }
+      changed = true;
+      linesTouched += 1;
+    }
+
+    line.adelantos = keepAdelantos;
+    line.prestamos = keepPrestamos;
+    if (keepExtrasManual) {
+      line.horasExtras = keepExtras;
+      line.horasExtrasManual = true;
+    }
+    if (typeof computePayrollLineTotals === "function") {
+      let recomputed = computePayrollLineTotals(line, formulaOpts);
+      recomputed.adelantos = keepAdelantos;
+      recomputed.prestamos = keepPrestamos;
+      if (keepExtrasManual) {
+        recomputed.horasExtras = keepExtras;
+        recomputed.horasExtrasManual = true;
+        recomputed = computePayrollLineTotals(recomputed, formulaOpts);
+        recomputed.adelantos = keepAdelantos;
+        recomputed.prestamos = keepPrestamos;
+        recomputed.horasExtras = keepExtras;
+        recomputed.horasExtrasManual = true;
+      }
+      recomputed.daysFromVargas = true;
+      recomputed.fromVargasReport = true;
+      Object.assign(line, recomputed);
+    }
+    nextLines.push(line);
+  });
+
+  const removed = prune ? Math.max(0, (payroll.lines || []).length - nextLines.length) : 0;
+  if (prune) {
+    if (removed > 0) changed = true;
+    payroll.lines = nextLines;
+  } else {
+    // Solo agregar/actualizar; no podar
+    const byKey = new Map((payroll.lines || []).map((l) => [vargasNameKey(l.fullName), l]));
+    nextLines.forEach((l) => byKey.set(vargasNameKey(l.fullName), l));
+    payroll.lines = [...byKey.values()];
   }
+
+  if (changed) {
+    payroll.updatedAt = new Date().toISOString();
+    payroll.note = String(payroll.note || "");
+    if (!/días desde Vargas|reporte Vargas/i.test(payroll.note)) {
+      payroll.note = `${payroll.note} · Días desde Vargas`.replace(/^\s·\s*/, "").trim();
+    }
+  }
+  return { changed, linesTouched, removed, kept: nextLines.length };
+}
+
+/** 1) Nómina Reaction General: SOLO empleados del reporte Vargas. */
+function syncVargasGeneralPayroll(opts = {}) {
+  const report = opts.report || getActiveVargasReport();
+  if (!report) return { updated: 0, reason: "no-report" };
+  if (typeof findPayrollByGroup !== "function" || typeof buildPayrollLineFromPerson !== "function") {
+    return { updated: 0, reason: "no-payroll-api" };
+  }
+  const period = opts.period || report.period;
+  const half = opts.half != null ? (opts.half === 2 || opts.half === "2" ? 2 : 1) : report.half;
+  const quiet = opts.quiet !== false;
+  const rows = collectVargasPayrollRows(report, "all");
+  const payroll = ensureVargasPayrollShell(period, half, "reaction", "Reaction General");
+  if (!payroll) return { updated: 0, reason: "no-payroll" };
+
+  const result = applyVargasRowsToPayroll(payroll, rows, "Reaction General", { prune: true });
+  if (result.changed && typeof saveContabilidadData === "function") saveContabilidadData(true);
   if (!quiet && typeof toast === "function") {
     toast(
-      `Reorganizado: ${summary.banco} banco · ${summary.efectivo} efectivo` +
-        (summary.skipped ? ` · ${summary.skipped} sin nómina` : "")
+      `Nómina general: ${result.kept} del reporte` +
+        (result.removed ? ` · se quitaron ${result.removed} que no estaban` : "") +
+        (result.linesTouched ? ` · ${result.linesTouched} actualizado(s)` : "")
     );
   }
   return {
-    updated: payrollsTouched,
-    lines: linesTouched,
-    banco: summary.banco,
-    efectivo: summary.efectivo,
-    skipped: summary.skipped,
+    updated: result.changed ? 1 : 0,
+    kept: result.kept,
+    removed: result.removed,
+    lines: result.linesTouched,
+    payroll,
   };
+}
+
+/** 2) Envía a Banco / Efectivo según B/E; solo nombres del reporte (poda el resto). */
+function sendVargasPayrollToBuckets(opts = {}) {
+  const report = opts.report || getActiveVargasReport();
+  if (!report) return { updated: 0, reason: "no-report" };
+  if (typeof findPayrollByGroup !== "function" || typeof buildPayrollLineFromPerson !== "function") {
+    return { updated: 0, reason: "no-payroll-api" };
+  }
+  const period = opts.period || report.period;
+  const half = opts.half != null ? (opts.half === 2 || opts.half === "2" ? 2 : 1) : report.half;
+  const quiet = opts.quiet !== false;
+
+  const summary = { banco: 0, efectivo: 0, removedB: 0, removedE: 0, updated: 0 };
+  [
+    { filter: "B", group: "banco", label: "Reaction Banco", key: "banco", rem: "removedB" },
+    { filter: "E", group: "efectivo", label: "Reaction Efectivo", key: "efectivo", rem: "removedE" },
+  ].forEach(({ filter, group, label, key, rem }) => {
+    const rows = collectVargasPayrollRows(report, filter);
+    // Crear shell vacío aunque no haya filas, para poder podar sobrantes del roster viejo
+    const payroll = ensureVargasPayrollShell(period, half, group, label);
+    if (!payroll) return;
+    const result = applyVargasRowsToPayroll(payroll, rows, label, { prune: true });
+    summary[key] = result.kept;
+    summary[rem] = result.removed;
+    if (result.changed) summary.updated += 1;
+  });
+
+  if (summary.updated && typeof saveContabilidadData === "function") saveContabilidadData(true);
+  if (!quiet && typeof toast === "function") {
+    toast(
+      `Enviado: Banco ${summary.banco}` +
+        (summary.removedB ? ` (−${summary.removedB})` : "") +
+        ` · Efectivo ${summary.efectivo}` +
+        (summary.removedE ? ` (−${summary.removedE})` : "")
+    );
+  }
+  return summary;
+}
+
+/** Compat: general + envío B/E. */
+function feedVargasPayrollFromReport(opts = {}) {
+  const quiet = opts.quiet !== false;
+  const general = syncVargasGeneralPayroll({ ...opts, quiet: true });
+  const buckets = sendVargasPayrollToBuckets({ ...opts, quiet: true });
+  if (!quiet && typeof toast === "function") {
+    toast(
+      `General ${general.kept || 0}` +
+        (general.removed ? ` (−${general.removed})` : "") +
+        ` · Banco ${buckets.banco || 0}` +
+        (buckets.removedB ? ` (−${buckets.removedB})` : "") +
+        ` · Efectivo ${buckets.efectivo || 0}` +
+        (buckets.removedE ? ` (−${buckets.removedE})` : "")
+    );
+  }
+  return {
+    updated: (general.updated || 0) + (buckets.updated || 0),
+    kept: general.kept || 0,
+    removed: general.removed || 0,
+    banco: buckets.banco || 0,
+    efectivo: buckets.efectivo || 0,
+    skipped: 0,
+  };
+}
+
+function refreshVargasPayrollUi() {
+  if (typeof renderNominaTab === "function") {
+    try {
+      renderNominaTab();
+    } catch (_) {}
+  }
+  renderVargasModule();
+}
+
+function syncVargasGeneralPayrollAction() {
+  if (!canAccessVargas()) {
+    if (typeof toast === "function") toast("Sin acceso a Ramón Vargas.");
+    return;
+  }
+  const report = getActiveVargasReport();
+  if (!report) {
+    if (typeof toast === "function") toast("No hay reporte Vargas cargado.");
+    return;
+  }
+  const rows = collectVargasPayrollRows(report, "all");
+  if (
+    !confirm(
+      `¿Actualizar Nómina Reaction General?\n\n` +
+        `Período ${report.period} · corte ${report.half === 2 ? "16–30" : "01–15"}\n` +
+        `Empleados del reporte: ${rows.length}\n\n` +
+        `Solo quedan quienes están en este reporte.\n` +
+        `Nombres nuevos se agregan; los que no estén se eliminan de esa nómina.\n` +
+        `Día 31 no suma. Se conservan adelantos/préstamos.`
+    )
+  ) {
+    return;
+  }
+  syncVargasGeneralPayroll({ report, quiet: false });
+  refreshVargasPayrollUi();
+}
+
+function sendVargasToBucketsAction() {
+  if (!canAccessVargas()) {
+    if (typeof toast === "function") toast("Sin acceso a Ramón Vargas.");
+    return;
+  }
+  const report = getActiveVargasReport();
+  if (!report) {
+    if (typeof toast === "function") toast("No hay reporte Vargas cargado.");
+    return;
+  }
+  const stats = vargasReportStats(report);
+  if (!stats.banco && !stats.efectivo) {
+    if (typeof toast === "function") {
+      toast("Marca B o E en la columna Pago y vuelve a enviar.");
+    }
+    return;
+  }
+  if (
+    !confirm(
+      `¿Enviar a Banco / Efectivo?\n\n` +
+        `Período ${report.period} · corte ${report.half === 2 ? "16–30" : "01–15"}\n` +
+        `Banco (B): ${stats.banco}\nEfectivo (E): ${stats.efectivo}\n` +
+        `Sin marca: ${stats.sinMarca} (se quedan solo en General)\n\n` +
+        `En Banco/Efectivo solo quedan los del reporte con B o E.\n` +
+        `Sobrantes del roster viejo se eliminan de esas nóminas.`
+    )
+  ) {
+    return;
+  }
+  // Asegura general al día antes de repartir
+  syncVargasGeneralPayroll({ report, quiet: true });
+  sendVargasPayrollToBuckets({ report, quiet: false });
+  refreshVargasPayrollUi();
 }
 
 function reorganizeVargasToPayroll() {
@@ -689,30 +863,22 @@ function reorganizeVargasToPayroll() {
     return;
   }
   const stats = vargasReportStats(report);
-  if (!stats.banco && !stats.efectivo) {
-    if (typeof toast === "function") {
-      toast("Marca B (banco) o E (efectivo) en la columna Pago y vuelve a pulsar Reorganizar.");
-    }
-    return;
-  }
   if (
     !confirm(
-      `¿Reorganizar a nómina?\n\n` +
+      `¿Nómina general + enviar a B/E?\n\n` +
         `Período ${report.period} · corte ${report.half === 2 ? "16–30" : "01–15"}\n` +
-        `Banco (B): ${stats.banco}\nEfectivo (E): ${stats.efectivo}\n` +
-        `Sin marca: ${stats.sinMarca} (no se envían)\n\n` +
-        `El día 31 no entra en nómina. Se conservan adelantos/préstamos.`
+        `En reporte: ${stats.total}\n` +
+        `Banco (B): ${stats.banco} · Efectivo (E): ${stats.efectivo}\n` +
+        `Sin marca: ${stats.sinMarca} (solo General)\n\n` +
+        `1) Reaction General = solo el reporte\n` +
+        `2) Banco/Efectivo = según B/E (sin sobrantes)\n` +
+        `Día 31 no suma.`
     )
   ) {
     return;
   }
   const result = feedVargasPayrollFromReport({ report, quiet: false, createMissing: true });
-  if (typeof renderNominaTab === "function") {
-    try {
-      renderNominaTab();
-    } catch (_) {}
-  }
-  renderVargasModule();
+  refreshVargasPayrollUi();
   return result;
 }
 
@@ -812,11 +978,14 @@ function renderVargasModule() {
       <div class="vargas-actions">
         <button type="button" class="secondary" id="btnVargasSuggestBE">Sugerir B/E</button>
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
-        <button type="button" class="primary" id="btnVargasReorganizar">Reorganizar → nómina</button>
+        <button type="button" class="primary" id="btnVargasNominaGeneral">1. Nómina general</button>
+        <button type="button" class="primary" id="btnVargasEnviarBE">2. Enviar a Banco / Efectivo</button>
+        <button type="button" class="secondary" id="btnVargasReorganizar">Ambos (general + B/E)</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
-        Columna <strong>B/E</strong>: elige <strong>B</strong> (banco) o <strong>E</strong> (efectivo).
-        <strong>Reorganizar</strong> actualiza las nóminas (sin día 31). Usa <strong>Imprimir / Compartir</strong> para PDF, WhatsApp o correo.
+        <strong>1. Nómina general</strong> = solo quienes están en este reporte (quita mal escritos / sobrantes; agrega nombres nuevos del día).
+        Columna <strong>B/E</strong> y luego <strong>2. Enviar</strong> reparte a Banco o Efectivo.
+        Si falta alguien: <strong>Agregar empleado</strong> abajo y vuelve a actualizar. Día 31 no suma.
       </p>
     </div>
 
@@ -947,6 +1116,14 @@ function bindVargasUiHandlers() {
       renderVargasModule();
     });
   }
+  const btnGeneral = document.getElementById("btnVargasNominaGeneral");
+  if (btnGeneral) {
+    btnGeneral.addEventListener("click", () => syncVargasGeneralPayrollAction());
+  }
+  const btnEnviar = document.getElementById("btnVargasEnviarBE");
+  if (btnEnviar) {
+    btnEnviar.addEventListener("click", () => sendVargasToBucketsAction());
+  }
   const btnReorg = document.getElementById("btnVargasReorganizar");
   if (btnReorg) {
     btnReorg.addEventListener("click", () => reorganizeVargasToPayroll());
@@ -1012,6 +1189,8 @@ window.RFSVargas = {
   ensureVargasSeedLoaded,
   getActiveVargasReport,
   feedVargasPayrollFromReport,
+  syncVargasGeneralPayroll,
+  sendVargasPayrollToBuckets,
   reorganizeVargasToPayroll,
   renderVargasModule,
   addVargasEmployee,
