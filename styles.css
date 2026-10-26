@@ -3015,3 +3015,33 @@ body.lightbox-open {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Préstamos: reimport Excel discreto (solo mantenimiento) */
+#loansView .loans-reimport-corner {
+  display: flex;
+  justify-content: flex-end;
+  margin: 18px 0 8px;
+  opacity: 0.45;
+}
+#loansView .loans-reimport-corner:hover,
+#loansView .loans-reimport-corner:focus-within {
+  opacity: 0.85;
+}
+#loansView .btn-loans-reimport {
+  width: auto;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: 6px;
+  border: 1px solid rgba(161, 161, 170, 0.45);
+  background: transparent;
+  color: #a1a1aa;
+  cursor: pointer;
+}
+#loansView .btn-loans-reimport:hover {
+  border-color: #f59e0b;
+  color: #fbbf24;
+}
