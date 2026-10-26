@@ -1,6 +1,6 @@
 {
-  "build": 189,
-  "label": "v189-reportes",
-  "minBuild": 188,
-  "note": "Icono lobo escribiendo reporte"
+  "build": 193,
+  "label": "v193-reportes",
+  "minBuild": 193,
+  "note": "Compartir PDF WhatsApp/correo sin depender del opener"
 }

@@ -1,6 +1,6 @@
 {
-  "build": 192,
-  "label": "v192",
-  "minBuild": 192,
-  "note": "Vargas: Banco/Efectivo solo del reporte (fix merge)"
+  "build": 193,
+  "label": "v193",
+  "minBuild": 193,
+  "note": "Resumen préstamos PDF + Reportes compartir"
 }

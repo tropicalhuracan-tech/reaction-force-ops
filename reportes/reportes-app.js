@@ -1,5 +1,5 @@
 /* RFS Reportes — App independiente para supervisores (build 188) */
-const APP_BUILD = 189;
+const APP_BUILD = 193;
 const APP_VERSION_LABEL = "v189-reportes";
 const OWNER_USERNAME = "admin";
 const TYPE_LABEL = { novedad: "Novedad", checkin: "Check-in", incidente: "Incidente" };
@@ -528,6 +528,7 @@ function printIncidentReport(id) {
         : "body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:12px;line-height:1.4}",
     autoPrint: false,
     share: {
+      reportId: report.id,
       text: incidentReportShareCaption(report, post),
       subject: incidentReportShareCaption(report, post),
       fileName: incidentReportPdfFileName(report),
@@ -1050,33 +1051,160 @@ function finishReportVoiceSession() {
 function openPrintWindow(title, bodyHtml, options = {}) {
   const share = options.share || {};
   const win = window.open("", "_blank");
-  if (!win) { toast("Permite ventanas emergentes para imprimir."); return null; }
-  const reportId = share.reportId || "";
+  if (!win) {
+    toast("Permite ventanas emergentes para imprimir.");
+    return null;
+  }
+  const reportId = String(share.reportId || "");
+  const shareText = String(share.text || title || "");
+  const shareSubject = String(share.subject || title || "");
+  const fileName = String(share.fileName || "reporte-rfs.pdf");
+  const extraCss = options.extraCss ? String(options.extraCss) : "";
   win.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtml(title)}</title>
   <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;max-width:900px;margin:0 auto;font-size:12px;line-height:1.35}
-  .print-bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;background:#111;color:#fff;padding:12px;margin:-22px -22px 18px}
+  .print-bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#111;color:#fff;padding:12px;margin:-22px -22px 18px}
   .print-bar button{padding:11px 14px;font-weight:800;border:0;border-radius:10px;cursor:pointer}
-  .btn-back{background:#fff;color:#111}.btn-print{background:#d41414;color:#fff}.btn-wa{background:#25d366}.btn-mail{background:#3b82f6;color:#fff}.btn-pdf{background:#f5f5f5}
-  @media print{.no-print{display:none!important}}</style></head><body>
+  .btn-back{background:#fff;color:#111}.btn-print{background:#d41414;color:#fff}.btn-wa{background:#25d366;color:#053b1a}.btn-mail{background:#3b82f6;color:#fff}.btn-pdf{background:#f5f5f5;color:#111}
+  .status{font-size:12px;color:#fde68a;width:100%}
+  #rfsPrintRoot{background:#fff;color:#111}
+  @media print{.no-print{display:none!important}}
+  ${extraCss}</style></head><body>
   <div class="print-bar no-print">
     <button class="btn-back" id="btnPrintBack" type="button">← Volver</button>
     <button class="btn-print" id="btnPrintNow" type="button">Imprimir</button>
     <button class="btn-wa" id="btnPrintWhatsApp" type="button">WhatsApp PDF</button>
     <button class="btn-mail" id="btnPrintEmail" type="button">Correo PDF</button>
     <button class="btn-pdf" id="btnPrintPdf" type="button">Descargar PDF</button>
+    <div class="status" id="printShareStatus" hidden></div>
   </div>
   <div id="rfsPrintRoot">${bodyHtml}</div>
   <script>
-    document.getElementById('btnPrintBack').onclick=function(){window.close();};
-    document.getElementById('btnPrintNow').onclick=function(){window.print();};
-    function callOpener(fn){try{if(window.opener&&window.opener[fn])window.opener[fn]("${reportId}");}catch(e){}}
-    document.getElementById('btnPrintWhatsApp').onclick=function(){callOpener('shareIncidentWhatsApp');};
-    document.getElementById('btnPrintEmail').onclick=function(){callOpener('shareIncidentEmail');};
-    document.getElementById('btnPrintPdf').onclick=function(){callOpener('downloadIncidentReport');};
+    (function () {
+      var reportId = ${JSON.stringify(reportId)};
+      var shareCfg = {
+        text: ${JSON.stringify(shareText)},
+        subject: ${JSON.stringify(shareSubject)},
+        fileName: ${JSON.stringify(fileName)}
+      };
+      function setStatus(msg) {
+        var el = document.getElementById("printShareStatus");
+        if (!el) return;
+        if (!msg) { el.hidden = true; el.textContent = ""; return; }
+        el.hidden = false;
+        el.textContent = msg;
+      }
+      function loadPdfLib() {
+        if (window.html2pdf) return Promise.resolve(window.html2pdf);
+        return new Promise(function (resolve, reject) {
+          var s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js";
+          s.onload = function () {
+            if (window.html2pdf) resolve(window.html2pdf);
+            else reject(new Error("html2pdf"));
+          };
+          s.onerror = function () {
+            var s2 = document.createElement("script");
+            s2.src = "https://unpkg.com/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js";
+            s2.onload = function () {
+              if (window.html2pdf) resolve(window.html2pdf);
+              else reject(new Error("html2pdf"));
+            };
+            s2.onerror = function () { reject(new Error("cdn")); };
+            document.head.appendChild(s2);
+          };
+          document.head.appendChild(s);
+        });
+      }
+      function makePdfBlob() {
+        var root = document.getElementById("rfsPrintRoot");
+        if (!root) return Promise.reject(new Error("root"));
+        return loadPdfLib().then(function (html2pdf) {
+          var opt = {
+            margin: [10, 10, 10, 10],
+            filename: shareCfg.fileName || "reporte.pdf",
+            image: { type: "jpeg", quality: 0.95 },
+            html2canvas: { scale: 2, useCORS: true, logging: false },
+            jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+          };
+          return html2pdf().set(opt).from(root).outputPdf("blob");
+        });
+      }
+      function downloadBlob(blob, name) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = name || "reporte.pdf";
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      }
+      function tryNativeShare(file) {
+        if (!navigator.share) return Promise.resolve(false);
+        var payload = { title: shareCfg.subject || shareCfg.text, text: shareCfg.text, files: [file] };
+        try {
+          if (navigator.canShare && !navigator.canShare(payload)) {
+            return navigator.share({ title: payload.title, text: payload.text }).then(function () { return true; });
+          }
+        } catch (e0) {}
+        return navigator.share(payload).then(function () { return true; }).catch(function (err) {
+          if (err && err.name === "AbortError") return true;
+          return false;
+        });
+      }
+      function callOpener(fn) {
+        try {
+          if (window.opener && !window.opener.closed && typeof window.opener[fn] === "function" && reportId) {
+            window.opener[fn](reportId);
+            return true;
+          }
+        } catch (e1) {}
+        return false;
+      }
+      function sharePdf(mode) {
+        setStatus("Generando PDF…");
+        makePdfBlob().then(function (blob) {
+          var file = new File([blob], shareCfg.fileName || "reporte.pdf", { type: "application/pdf" });
+          if (mode === "pdf") {
+            downloadBlob(blob, file.name);
+            setStatus("PDF descargado.");
+            return;
+          }
+          return tryNativeShare(file).then(function (ok) {
+            if (ok) {
+              setStatus(mode === "wa" ? "Elige WhatsApp en el menú." : "Elige Correo / Gmail en el menú.");
+              return;
+            }
+            downloadBlob(blob, file.name);
+            if (mode === "wa") {
+              window.open("https://wa.me/?text=" + encodeURIComponent(shareCfg.text || ""), "_blank");
+              setStatus("PDF descargado. Adjúntalo en WhatsApp.");
+            } else {
+              window.location.href = "mailto:?subject=" + encodeURIComponent(shareCfg.subject || "") +
+                "&body=" + encodeURIComponent(shareCfg.text || "");
+              setStatus("PDF descargado. Adjúntalo al correo.");
+            }
+          });
+        }).catch(function (err) {
+          console.error(err);
+          // Fallback: intentar vía opener (app Reportes)
+          if (mode === "wa" && callOpener("shareIncidentWhatsApp")) return;
+          if (mode === "mail" && callOpener("shareIncidentEmail")) return;
+          if (mode === "pdf" && callOpener("downloadIncidentReport")) return;
+          setStatus("No se pudo crear el PDF. Revisa conexión e inténtalo de nuevo.");
+        });
+      }
+      document.getElementById("btnPrintBack").onclick = function () {
+        try { window.close(); } catch (e) {}
+      };
+      document.getElementById("btnPrintNow").onclick = function () { window.print(); };
+      document.getElementById("btnPrintWhatsApp").onclick = function () { sharePdf("wa"); };
+      document.getElementById("btnPrintEmail").onclick = function () { sharePdf("mail"); };
+      document.getElementById("btnPrintPdf").onclick = function () { sharePdf("pdf"); };
+    })();
   <\/script></body></html>`);
   win.document.close();
   return win;
 }
+
 
 function saveReport() {
   const postId = document.getElementById("reportPost").value;
@@ -1112,6 +1240,13 @@ function saveReport() {
   toast(`Informe ${number} generado.`);
   printIncidentReport(report.id);
 }
+
+
+window.shareIncidentWhatsApp = shareIncidentWhatsApp;
+window.shareIncidentEmail = shareIncidentEmail;
+window.downloadIncidentReport = downloadIncidentReport;
+window.shareIncidentPdf = shareIncidentPdf;
+window.printIncidentReport = printIncidentReport;
 
 function bindUi() {
   document.getElementById("btnAppLogin")?.addEventListener("click", login);
@@ -1154,7 +1289,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderReports();
   }
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js?v=189").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=193").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }).catch(() => {});

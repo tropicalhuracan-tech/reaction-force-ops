@@ -10,8 +10,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 192;
-const APP_VERSION_LABEL = "v192";
+const APP_BUILD = 193;
+const APP_VERSION_LABEL = "v193";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -5953,6 +5953,7 @@ function renderLoans() {
   renderLoansStats();
   renderLoansPayrollBox();
   renderLoansList();
+  renderLoansSummaryPanel();
 }
 
 function openLoanDetail(id) {
@@ -6537,30 +6538,141 @@ function printEmployeeDetailSheet() {
   printEmployeeHireSheet(emp);
 }
 
+/** Resumen por préstamo/adelanto: cuotas pagadas, capital e interés a la fecha. */
+function loanPaidBreakdown(loan) {
+  const schedule = Array.isArray(loan && loan.schedule) ? loan.schedule : [];
+  const paid = schedule.filter((s) => s && s.paid);
+  const paidCount = paid.length;
+  const totalCount = schedule.length || Number(loan && loan.periods) || 0;
+  let paidPrincipal = paid.reduce((a, s) => a + (Number(s.principal) || 0), 0);
+  let paidInterest = paid.reduce((a, s) => a + (Number(s.interest) || 0), 0);
+  // Adelanto: si no hay interés en cuotas, la ganancia cobrada cuenta como interés
+  if (loan && loan.type === "advance" && paidInterest <= 0 && paidCount > 0) {
+    const allPaid = totalCount > 0 && paidCount >= totalCount;
+    paidInterest = allPaid
+      ? Math.max(0, (Number(loan.collectAmount) || 0) - (Number(loan.principal) || 0))
+      : Math.max(0, Number(loan.profitCollected) || 0);
+    if (paidPrincipal <= 0) {
+      paidPrincipal = paid.reduce((a, s) => a + (Number(s.paidAmount) || Number(s.payment) || 0), 0) - paidInterest;
+      if (paidPrincipal < 0) paidPrincipal = 0;
+    }
+  }
+  return {
+    paidCount,
+    totalCount,
+    paidPrincipal: typeof roundMoney === "function" ? roundMoney(paidPrincipal) : Math.round(paidPrincipal),
+    paidInterest: typeof roundMoney === "function" ? roundMoney(paidInterest) : Math.round(paidInterest),
+    paidTotal: typeof roundMoney === "function"
+      ? roundMoney(paidPrincipal + paidInterest)
+      : Math.round(paidPrincipal + paidInterest),
+  };
+}
+
+function loansForSummaryList() {
+  const q = String((document.getElementById("loanListSearch") || {}).value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  return (loans || [])
+    .slice()
+    .sort((a, b) => String(a.employeeName || "").localeCompare(String(b.employeeName || ""), "es"))
+    .filter((l) => {
+      if (!q) return true;
+      const blob = [l.employeeName, loanTypeLabel(l.type), l.note, l.status]
+        .join(" ")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      return blob.includes(q);
+    });
+}
+
+function renderLoansSummaryPanel() {
+  const host = document.getElementById("loansSummaryPanel");
+  if (!host) return;
+  const list = loansForSummaryList();
+  if (!list.length) {
+    host.innerHTML = `<p class="muted">No hay préstamos/adelantos para el filtro actual.</p>`;
+    return;
+  }
+  const rows = list
+    .map((l) => {
+      const b = loanPaidBreakdown(l);
+      return `<tr>
+        <td>${escapeHtml(loanTypeLabel(l.type))}</td>
+        <td>${escapeHtml(l.employeeName || "—")}</td>
+        <td class="right">${money(l.principal)}</td>
+        <td class="right">${b.paidCount}/${b.totalCount || "—"}</td>
+        <td class="right">${money(b.paidInterest)}</td>
+        <td class="right">${money(b.paidPrincipal)}</td>
+        <td class="right">${money(l.remaining)}</td>
+      </tr>`;
+    })
+    .join("");
+  host.innerHTML = `
+    <div class="schedule-wrap">
+      <table class="schedule-table">
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Nombre</th>
+            <th class="right">Monto</th>
+            <th class="right">Cuotas pagadas</th>
+            <th class="right">Interés pagado</th>
+            <th class="right">Capital pagado</th>
+            <th class="right">Pendiente</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <p class="muted tight" style="margin-top:8px">${list.length} registro(s). Usa «Resumen PDF» para imprimir o descargar la lista.</p>`;
+}
+
 function printLoansListSheet() {
-  const rows = loans
-    .map((l) => `<tr>
-      <td>${escapeHtml(l.employeeName || "—")}</td>
+  const list = loansForSummaryList();
+  const rows = list
+    .map((l) => {
+      const b = loanPaidBreakdown(l);
+      return `<tr>
       <td>${escapeHtml(loanTypeLabel(l.type))}</td>
+      <td>${escapeHtml(l.employeeName || "—")}</td>
       <td class="right">${money(l.principal)}</td>
+      <td class="right">${b.paidCount} / ${b.totalCount || "—"}</td>
+      <td class="right">${money(b.paidInterest)}</td>
+      <td class="right">${money(b.paidPrincipal)}</td>
       <td class="right">${money(l.remaining)}</td>
-      <td class="right">${money(l.paidTotal)}</td>
       <td>${escapeHtml(loanStatusLabel(l.status))}</td>
-    </tr>`)
+    </tr>`;
+    })
     .join("");
   const s = loansSummaryStats();
-  openPrintWindow("Resumen de préstamos", `
-    <h2>Activos: ${s.active} · Saldados: ${s.paid} · Vencidos: ${s.overdue}</h2>
+  const totInterest = list.reduce((a, l) => a + loanPaidBreakdown(l).paidInterest, 0);
+  const totCapital = list.reduce((a, l) => a + loanPaidBreakdown(l).paidPrincipal, 0);
+  openPrintWindow("Resumen préstamos y adelantos", `
+    <h2>Activos: ${s.active} · Saldados: ${s.paid} · Vencidos: ${s.overdue} · Listados: ${list.length}</h2>
     <div class="meta">
       <div><strong>Por cobrar:</strong><br/>${money(s.toCollect)}</div>
-      <div><strong>Cobrado:</strong><br/>${money(s.collected)}</div>
-      <div><strong>Ganancia cobrada:</strong><br/>${money(s.profitCollected)}</div>
+      <div><strong>Capital pagado (a la fecha):</strong><br/>${money(totCapital)}</div>
+      <div><strong>Interés pagado (a la fecha):</strong><br/>${money(totInterest)}</div>
       <div><strong>Esta quincena:</strong><br/>${money(s.quincenaDue)}</div>
     </div>
     <table>
-      <thead><tr><th>Empleado</th><th>Tipo</th><th class="right">Capital</th><th class="right">Pendiente</th><th class="right">Cobrado</th><th>Estado</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="6">Sin préstamos</td></tr>`}</tbody>
-    </table>`);
+      <thead><tr>
+        <th>Tipo</th><th>Nombre</th><th class="right">Monto</th>
+        <th class="right">Cuotas pagadas</th><th class="right">Interés</th>
+        <th class="right">Capital</th><th class="right">Pendiente</th><th>Estado</th>
+      </tr></thead>
+      <tbody>${rows || `<tr><td colspan="8">Sin préstamos</td></tr>`}</tbody>
+    </table>`, {
+    autoPrint: false,
+    share: {
+      text: "Resumen préstamos y adelantos RFS",
+      subject: "Resumen préstamos y adelantos RFS",
+      fileName: `prestamos-resumen-${new Date().toISOString().slice(0, 10)}.pdf`,
+    },
+  });
 }
 
 function printFinanceSheet() {
@@ -6722,6 +6834,7 @@ function bindPrintUi() {
     ["btnPrintEmployees", printEmployeesSheet],
     ["btnPrintEmployeeDetail", printEmployeeDetailSheet],
     ["btnPrintLoansList", printLoansListSheet],
+    ["btnPrintLoansSummary", printLoansListSheet],
     ["btnPrintLoanDetail", () => printLoanSheet()],
     ["btnPrintLoanSheet", () => printLoanSheet()],
     ["btnPrintFinance", printFinanceSheet],
@@ -6788,7 +6901,10 @@ function bindLoansUi() {
     document.getElementById(id).addEventListener("change", renderLoanPreview);
   });
   document.getElementById("loanEmpSearch").addEventListener("input", renderLoanEmployeePicker);
-  document.getElementById("loanListSearch").addEventListener("input", renderLoansList);
+  document.getElementById("loanListSearch").addEventListener("input", () => {
+    renderLoansList();
+    renderLoansSummaryPanel();
+  });
 }
 /* ==== FIN MÓDULO PRÉSTAMOS ==== */
 
@@ -13141,7 +13257,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=192").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=193").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13157,7 +13273,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v192")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v193")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

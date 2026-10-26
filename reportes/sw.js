@@ -1,16 +1,16 @@
-const CACHE = "rfs-reportes-v189";
+const CACHE = "rfs-reportes-v193";
 const ASSETS = [
   "./",
   "./index.html",
-  "./reportes-app.js?v=189",
+  "./reportes-app.js?v=193",
   "./manifest.json",
   "./version.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-180.png",
-  "../styles.css?v=187",
+  "../styles.css?v=193",
   "../cloud-config.js?v=144",
-  "../cloud.js?v=188",
+  "../cloud.js?v=193",
   "../logo.jpg?v=144",
 ];
 
