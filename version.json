@@ -1,6 +1,6 @@
 {
-  "build": 193,
-  "label": "v193",
-  "minBuild": 193,
-  "note": "Resumen préstamos PDF + Reportes compartir"
+  "build": 194,
+  "label": "v194",
+  "minBuild": 194,
+  "note": "Préstamos: pestañas, cuota a debitar; reimport no borra adelantos"
 }
