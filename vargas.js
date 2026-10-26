@@ -226,6 +226,32 @@ function setVargasEmployeePayBucket(sectionIdx, empIdx, value) {
   return true;
 }
 
+/** Corrige el nombre en el reporte (misma fila / puesto). */
+function setVargasEmployeeName(sectionIdx, empIdx, value) {
+  const report = getActiveVargasReport();
+  if (!report || !report.sections[sectionIdx]) return { ok: false, reason: "no-section" };
+  const sec = report.sections[sectionIdx];
+  const emp = sec.employees && sec.employees[empIdx];
+  if (!emp) return { ok: false, reason: "no-emp" };
+  const next = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  if (!next) return { ok: false, reason: "no-name" };
+  const prev = String(emp.fullName || "").trim();
+  if (vargasNameKey(prev) === vargasNameKey(next) && prev === next) {
+    return { ok: true, fullName: next, unchanged: true };
+  }
+  const dup = (sec.employees || []).some(
+    (e, i) => i !== empIdx && vargasNameKey(e.fullName) === vargasNameKey(next)
+  );
+  if (dup) return { ok: false, reason: "duplicate", fullName: next };
+  emp.fullName = next;
+  report.updatedAt = new Date().toISOString();
+  saveVargasData(true);
+  return { ok: true, fullName: next, previous: prev };
+}
+
 /** Guarda/restaura scroll de la vista Vargas (página + tabla) tras re-render. */
 function captureVargasScroll() {
   const view = document.getElementById("vargasView");
@@ -532,7 +558,10 @@ function collectVargasPayrollRows(report, bucketFilter = "all") {
 
 /** Crea nómina vacía del grupo (sin sembrar roster viejo / mal escrito). */
 function ensureVargasPayrollShell(period, half, group, label) {
-  let payroll = findPayrollByGroup(period, half, group, "");
+  if (typeof contabilidadData === "undefined" || !contabilidadData) return null;
+  contabilidadData.payrolls = contabilidadData.payrolls || [];
+  let payroll =
+    typeof findPayrollByGroup === "function" ? findPayrollByGroup(period, half, group, "") : null;
   if (payroll) return payroll;
   if (typeof normalizePayroll !== "function") return null;
   const payDate =
@@ -551,10 +580,7 @@ function ensureVargasPayrollShell(period, half, group, label) {
         ? currentUser.displayName || currentUser.username
         : "",
   });
-  if (typeof contabilidadData !== "undefined" && contabilidadData) {
-    contabilidadData.payrolls = contabilidadData.payrolls || [];
-    contabilidadData.payrolls.unshift(payroll);
-  }
+  contabilidadData.payrolls.unshift(payroll);
   return payroll;
 }
 
@@ -701,7 +727,10 @@ function syncVargasGeneralPayroll(opts = {}) {
   if (!payroll) return { updated: 0, reason: "no-payroll" };
 
   const result = applyVargasRowsToPayroll(payroll, rows, "Reaction General", { prune: true });
-  if (result.changed && typeof saveContabilidadData === "function") saveContabilidadData(true);
+  // Guardar siempre si hay filas del reporte (aunque no haya "cambios" detectados)
+  if ((result.changed || result.kept > 0) && typeof saveContabilidadData === "function") {
+    saveContabilidadData(true);
+  }
   if (!quiet && typeof toast === "function") {
     toast(
       `Nómina general: ${result.kept} del reporte` +
@@ -715,7 +744,31 @@ function syncVargasGeneralPayroll(opts = {}) {
     removed: result.removed,
     lines: result.linesTouched,
     payroll,
+    period,
+    half,
   };
+}
+
+/** Abre Nómina en Reaction General del período/corte del reporte Vargas. */
+function openVargasGeneralPayrollView(payroll, period, half) {
+  const p = payroll || null;
+  const per = String(period || (p && p.period) || "").slice(0, 7);
+  const h = half === 2 || half === "2" || (p && (p.half === 2 || p.half === "2")) ? 2 : 1;
+  ["nominaMonthFilter", "contabMonthFilter"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && per) el.value = per;
+  });
+  const halfEl = document.getElementById("contabPayrollHalf");
+  if (halfEl) halfEl.value = String(h);
+  const groupEl = document.getElementById("contabPayrollGroup");
+  if (groupEl) groupEl.value = "reaction";
+  if (p && p.id && typeof selectedPayrollId !== "undefined") {
+    selectedPayrollId = p.id;
+  }
+  if (typeof switchView === "function") switchView("nominaView");
+  else if (typeof openNominaView === "function") openNominaView();
+  else if (typeof renderNominaModule === "function") renderNominaModule();
+  else if (typeof renderNominaTab === "function") renderNominaTab();
 }
 
 /** 2) Envía a Banco / Efectivo según B/E; solo nombres del reporte (poda el resto). */
@@ -813,8 +866,26 @@ function syncVargasGeneralPayrollAction() {
   ) {
     return;
   }
-  syncVargasGeneralPayroll({ report, quiet: false });
-  refreshVargasPayrollUi();
+  const synced = syncVargasGeneralPayroll({ report, quiet: false });
+  if (!synced || synced.reason) {
+    if (typeof toast === "function") {
+      toast(
+        synced && synced.reason === "no-payroll-api"
+          ? "Contabilidad aún no está lista. Abre Nómina y vuelve a intentar."
+          : synced && synced.reason === "no-payroll"
+            ? "No se pudo crear la nómina general."
+            : "No se pudo cargar el reporte a la nómina."
+      );
+    }
+    return;
+  }
+  // Primero fijar selectores y abrir Nómina (refreshVargas re-renderiza Vargas al final)
+  openVargasGeneralPayrollView(synced.payroll, synced.period || report.period, synced.half != null ? synced.half : report.half);
+  if (typeof renderNominaTab === "function") {
+    try {
+      renderNominaTab();
+    } catch (_) {}
+  }
 }
 
 function sendVargasToBucketsAction() {
@@ -936,7 +1007,7 @@ function renderVargasModule() {
         </select>`;
       return `<tr data-shift="${row.shift}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
-        <td class="sticky-name vargas-name">${escapeVargasHtml(row.fullName)}</td>
+        <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
         <td class="vargas-post">${escapeVargasHtml(row.postName)}</td>
         <td class="vargas-bucket-cell">${bucketSel}</td>
         <td class="vargas-days-total">${row.daysPayroll}</td>
@@ -983,8 +1054,8 @@ function renderVargasModule() {
         <button type="button" class="secondary" id="btnVargasReorganizar">Ambos (general + B/E)</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
-        <strong>1. Nómina general</strong> = solo quienes están en este reporte (quita mal escritos / sobrantes; agrega nombres nuevos del día).
-        Columna <strong>B/E</strong> y luego <strong>2. Enviar</strong> reparte a Banco o Efectivo.
+        Corrige nombres tocando la columna Empleado. <strong>1. Nómina general</strong> carga el reporte a Reaction General (16–30 u 01–15) y abre esa nómina para revisar.
+        Luego marca <strong>B/E</strong> y <strong>2. Enviar</strong> reparte a Banco o Efectivo.
         Si falta alguien: <strong>Agregar empleado</strong> abajo y vuelve a actualizar. Día 31 no suma.
       </p>
     </div>
@@ -1106,6 +1177,43 @@ function bindVargasUiHandlers() {
       setVargasEmployeeMark(s, e, day, cell.textContent);
     });
   });
+  document.querySelectorAll("td.vargas-name").forEach((cell) => {
+    cell.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        cell.blur();
+      }
+    });
+    cell.addEventListener("blur", () => {
+      const s = Number(cell.dataset.s);
+      const e = Number(cell.dataset.e);
+      const raw = String(cell.textContent || "").replace(/\s+/g, " ").trim();
+      const result = setVargasEmployeeName(s, e, raw);
+      if (!result.ok) {
+        const report = getActiveVargasReport();
+        const emp = report && report.sections[s] && report.sections[s].employees[e];
+        cell.textContent = emp ? emp.fullName : raw;
+        if (typeof toast === "function") {
+          toast(
+            result.reason === "duplicate"
+              ? "Ese nombre ya está en este puesto."
+              : result.reason === "no-name"
+                ? "El nombre no puede quedar vacío."
+                : "No se pudo guardar el nombre."
+          );
+        }
+        return;
+      }
+      cell.textContent = result.fullName;
+      if (!result.unchanged) {
+        // Actualizar data-name del botón borrar de la misma fila
+        const row = cell.closest("tr");
+        const del = row && row.querySelector(".vargas-del-btn");
+        if (del) del.dataset.name = result.fullName;
+        if (typeof toast === "function") toast(`Nombre: ${result.fullName}`);
+      }
+    });
+  });
   const btnSug = document.getElementById("btnVargasSuggestBE");
   if (btnSug) {
     btnSug.addEventListener("click", () => {
@@ -1195,5 +1303,7 @@ window.RFSVargas = {
   renderVargasModule,
   addVargasEmployee,
   removeVargasEmployee,
+  setVargasEmployeeName,
+  openVargasGeneralPayrollView,
   printVargasReport,
 };

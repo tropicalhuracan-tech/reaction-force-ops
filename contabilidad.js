@@ -1122,13 +1122,13 @@ function setContabTab(tab) {
 }
 
 function openNominaView() {
-  if (typeof showView === "function") showView("nominaView");
+  if (typeof switchView === "function") switchView("nominaView");
   else {
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     const el = document.getElementById("nominaView");
     if (el) el.classList.add("active");
+    renderNominaModule();
   }
-  renderNominaModule();
 }
 
 function renderNominaModule() {
