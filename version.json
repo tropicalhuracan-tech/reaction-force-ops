@@ -1,6 +1,6 @@
 {
-  "build": 199,
-  "label": "v199",
-  "minBuild": 199,
-  "note": "Monorriel: sync anti-borrado + doc propio en la nube"
+  "build": 200,
+  "label": "v200",
+  "minBuild": 200,
+  "note": "Reportes: borrados permanentes (papelera anti-resurrección)"
 }

@@ -1,6 +1,7 @@
 /** Claves estables: no borrar datos del usuario en actualizaciones */
 const POSTS_KEY = "rfs-ops-posts";
 const REPORTS_KEY = "rfs-ops-reports";
+const REPORT_TRASH_KEY = "rfs-ops-report-trash";
 const EMPLOYEES_KEY = "rfs-ops-employees";
 const USERS_KEY = "rfs-ops-users";
 const ACTIVITY_KEY = "rfs-ops-activity";
@@ -10,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 199;
-const APP_VERSION_LABEL = "v199";
+const APP_BUILD = 200;
+const APP_VERSION_LABEL = "v200";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -36,6 +37,7 @@ const TYPE_LABEL = {
 
 let posts = [];
 let reports = [];
+let reportTrashIds = [];
 let employees = [];
 let appUsers = [];
 let currentUser = null;
@@ -1745,14 +1747,42 @@ function normalizePost(p = {}) {
   };
 }
 
-/** Fusiona reportes de incidente por id; no pierde altas locales. */
-function mergeReportsForCloud(localList, remoteList) {
-  if (window.RFSCloudApi && typeof window.RFSCloudApi.mergeReportsPreferUnion === "function") {
-    return window.RFSCloudApi.mergeReportsPreferUnion(localList, remoteList);
+function normalizeReportTrash(ids) {
+  if (window.RFSCloudApi && typeof window.RFSCloudApi.normalizeReportTrash === "function") {
+    return window.RFSCloudApi.normalizeReportTrash(ids);
   }
+  return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 800);
+}
+
+function mergeReportTrash(localIds, remoteIds) {
+  if (window.RFSCloudApi && typeof window.RFSCloudApi.mergeReportTrash === "function") {
+    return window.RFSCloudApi.mergeReportTrash(localIds, remoteIds);
+  }
+  return normalizeReportTrash([...(localIds || []), ...(remoteIds || [])]);
+}
+
+function persistReportTrashLocal() {
+  reportTrashIds = normalizeReportTrash(reportTrashIds);
+  localStorage.setItem(REPORT_TRASH_KEY, JSON.stringify(reportTrashIds));
+}
+
+function applyRemoteReportTrash(remoteTrash) {
+  reportTrashIds = mergeReportTrash(reportTrashIds, remoteTrash);
+  persistReportTrashLocal();
+  reports = (reports || []).filter((r) => r && r.id && !reportTrashIds.includes(String(r.id)));
+}
+
+/** Fusiona reportes de incidente por id; respeta papelera (borrados no vuelven). */
+function mergeReportsForCloud(localList, remoteList, trashIds) {
+  const trash = trashIds != null ? trashIds : reportTrashIds;
+  if (window.RFSCloudApi && typeof window.RFSCloudApi.mergeReportsPreferUnion === "function") {
+    return window.RFSCloudApi.mergeReportsPreferUnion(localList, remoteList, trash);
+  }
+  const trashSet = new Set(normalizeReportTrash(trash));
   const map = new Map();
   const put = (raw, preferIfTie) => {
     if (!raw || !raw.id) return;
+    if (trashSet.has(String(raw.id))) return;
     if (!map.has(raw.id)) {
       map.set(raw.id, raw);
       return;
@@ -1891,7 +1921,9 @@ function savePosts() {
 }
 
 function saveReports() {
+  reports = (reports || []).filter((r) => r && r.id && !reportTrashIds.includes(String(r.id)));
   localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+  persistReportTrashLocal();
   queueCloudSave();
 }
 
@@ -2358,7 +2390,9 @@ async function saveCloudBundle(options) {
     typeof suplidoresData !== "undefined" ? suplidoresData : { suppliers: [], payments: [], nextCodeSeq: 1 },
     typeof loanTrashIds !== "undefined" ? loanTrashIds : [],
     typeof vargasData !== "undefined" ? vargasData : { reports: [] },
-    opts
+    Object.assign(opts, {
+      reportTrash: typeof reportTrashIds !== "undefined" ? reportTrashIds : [],
+    })
   );
 }
 
@@ -2506,8 +2540,12 @@ async function syncFromCloud() {
     // Fusionar clientes: no borrar altas locales (p.ej. Universidad Isa recién creada)
     posts = mergePostsForCloud(localPosts, remote.posts || []);
     ensureClientNumbers(false);
-    // Reportes: fusionar por id (nunca reemplazo ciego)
-    reports = mergeReportsForCloud(localReports, remote.reports || []);
+    // Reportes: fusionar por id + papelera (borrados no vuelven)
+    if (Array.isArray(remote.reportTrash)) {
+      reportTrashIds = mergeReportTrash(reportTrashIds, remote.reportTrash);
+      persistReportTrashLocal();
+    }
+    reports = mergeReportsForCloud(localReports, remote.reports || [], reportTrashIds);
     // Fusionar empleados: no borrar altas locales (p.ej. nombres nuevos en reporte Monorriel)
     if (Array.isArray(remote.employees) && remote.employees.length) {
       employees = mergeEmployeeListsForCloud(
@@ -2609,6 +2647,7 @@ async function syncFromCloud() {
     if (typeof ensureOfficeEmployeesImported === "function") ensureOfficeEmployeesImported();
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
     localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+    persistReportTrashLocal();
     localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
     localStorage.setItem(LOANS_KEY, JSON.stringify(loans));
     if (typeof LOAN_TRASH_KEY !== "undefined") {
@@ -3483,8 +3522,13 @@ function deleteIncidentReport(id) {
   if (!report) return;
   const label = report.number || report.siteName || "este reporte";
   if (!confirm(`¿Eliminar el reporte ${label}?`)) return;
+  reportTrashIds = mergeReportTrash(reportTrashIds, [id]);
+  persistReportTrashLocal();
   reports = reports.filter((r) => r.id !== id);
   saveReports();
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
   renderReports();
   if (typeof logActivity === "function") {
     logActivity(
@@ -12163,6 +12207,13 @@ function confirmDeletePost() {
   }
 
   posts = posts.filter((p) => p.id !== id);
+  const removedReportIds = (reports || [])
+    .filter((r) => r && r.postId === id && r.id)
+    .map((r) => String(r.id));
+  if (removedReportIds.length) {
+    reportTrashIds = mergeReportTrash(reportTrashIds, removedReportIds);
+    persistReportTrashLocal();
+  }
   reports = reports.filter((r) => r.postId !== id);
   savePosts();
   saveReports();
@@ -12947,6 +12998,7 @@ function exportBackup() {
     employees,
     loans,
     loanTrash: loanTrashIds,
+    reportTrash: reportTrashIds,
     monorrielReports,
     users: appUsers,
     messages: chatMessages,
@@ -13012,11 +13064,17 @@ function restoreBackupMerge() {
           added += 1;
         }
       });
+      if (Array.isArray(data.reportTrash)) {
+        reportTrashIds = mergeReportTrash(reportTrashIds, data.reportTrash);
+        persistReportTrashLocal();
+      }
       if (Array.isArray(data.reports)) {
         const reportIds = new Set(reports.map((r) => r.id));
         data.reports.forEach((r) => {
-          if (r && r.id && !reportIds.has(r.id)) reports.push(r);
+          if (!r || !r.id || reportTrashIds.includes(String(r.id))) return;
+          if (!reportIds.has(r.id)) reports.push(r);
         });
+        reports = reports.filter((r) => r && r.id && !reportTrashIds.includes(String(r.id)));
       }
       if (Array.isArray(data.employees)) {
         const byKey = new Map(employees.map((e) => [employeeKey(e.name), normalizeEmployee(e)]));
@@ -13471,7 +13529,10 @@ async function mergeImportedPosts() {
 document.addEventListener("DOMContentLoaded", async () => {
   // IMPORTANTE: nunca borrar datos del usuario
   posts = loadPreservingUserData(POSTS_KEY, LEGACY_POST_KEYS).map(normalizePost);
-  reports = loadPreservingUserData(REPORTS_KEY, LEGACY_REPORT_KEYS);
+  reportTrashIds = normalizeReportTrash(loadJson(REPORT_TRASH_KEY, []));
+  reports = loadPreservingUserData(REPORTS_KEY, LEGACY_REPORT_KEYS).filter(
+    (r) => r && r.id && !reportTrashIds.includes(String(r.id))
+  );
   employees = loadJson(EMPLOYEES_KEY, []).map(normalizeEmployee);
   loanTrashIds = normalizeLoanTrash(loadJson(LOAN_TRASH_KEY, []));
   loans = loadJson(LOANS_KEY, [])
@@ -13567,7 +13628,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=199").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=200").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13583,7 +13644,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v199")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v200")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
