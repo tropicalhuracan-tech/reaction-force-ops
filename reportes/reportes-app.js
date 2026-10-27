@@ -1,16 +1,18 @@
 /* RFS Reportes — App independiente para supervisores (build 188) */
-const APP_BUILD = 193;
-const APP_VERSION_LABEL = "v189-reportes";
+const APP_BUILD = 200;
+const APP_VERSION_LABEL = "v200-reportes";
 const OWNER_USERNAME = "admin";
 const TYPE_LABEL = { novedad: "Novedad", checkin: "Check-in", incidente: "Incidente" };
 const STATUS_LABEL = { ok: "En puesto", warn: "Pendiente", alert: "Incidente" };
 const POSTS_KEY = "rfs-rep-posts";
 const REPORTS_KEY = "rfs-rep-reports";
+const REPORT_TRASH_KEY = "rfs-rep-report-trash";
 const USERS_KEY = "rfs-rep-users";
 const SESSION_KEY = "rfs-rep-session-user";
 
 let posts = [];
 let reports = [];
+let reportTrashIds = [];
 let appUsers = [];
 let currentUser = null;
 let pendingPhotoDataUrl = null;
@@ -38,6 +40,22 @@ function loadJson(key, fallback) {
   } catch (_) {
     return fallback;
   }
+}
+function normalizeReportTrash(ids) {
+  if (window.RFSCloudApi && typeof window.RFSCloudApi.normalizeReportTrash === "function") {
+    return window.RFSCloudApi.normalizeReportTrash(ids);
+  }
+  return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 800);
+}
+function mergeReportTrash(localIds, remoteIds) {
+  if (window.RFSCloudApi && typeof window.RFSCloudApi.mergeReportTrash === "function") {
+    return window.RFSCloudApi.mergeReportTrash(localIds, remoteIds);
+  }
+  return normalizeReportTrash([...(localIds || []), ...(remoteIds || [])]);
+}
+function persistReportTrashLocal() {
+  reportTrashIds = normalizeReportTrash(reportTrashIds);
+  localStorage.setItem(REPORT_TRASH_KEY, JSON.stringify(reportTrashIds));
 }
 function getPost(id) { return posts.find((p) => p.id === id); }
 function emptyGuard() { return { name: "", phone: "", cedula: "", weapons: "", serial: "", companyEntryDate: "" }; }
@@ -138,11 +156,18 @@ function setCloudStatus(t) {
   if (el) el.textContent = t;
 }
 function saveLocal() {
+  reports = (reports || []).filter((r) => r && r.id && !reportTrashIds.includes(String(r.id)));
   localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
   localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
   localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+  persistReportTrashLocal();
 }
-function saveReports() { localStorage.setItem(REPORTS_KEY, JSON.stringify(reports)); queueCloudSave(); }
+function saveReports() {
+  reports = (reports || []).filter((r) => r && r.id && !reportTrashIds.includes(String(r.id)));
+  localStorage.setItem(REPORTS_KEY, JSON.stringify(reports));
+  persistReportTrashLocal();
+  queueCloudSave();
+}
 function savePosts() { localStorage.setItem(POSTS_KEY, JSON.stringify(posts)); queueCloudSave(); }
 
 let cloudTimer = null;
@@ -157,8 +182,14 @@ async function pushToCloud() {
   cloudBusy = true;
   setCloudStatus("Nube: guardando…");
   try {
-    const saved = await window.RFSCloudApi.saveReportsAppBundle(reports, posts, { clientBuild: APP_BUILD });
+    const saved = await window.RFSCloudApi.saveReportsAppBundle(reports, posts, {
+      clientBuild: APP_BUILD,
+      reportTrash: reportTrashIds,
+    });
     if (saved && Array.isArray(saved.reports)) reports = saved.reports;
+    if (saved && Array.isArray(saved.reportTrash)) {
+      reportTrashIds = normalizeReportTrash(saved.reportTrash);
+    }
     if (saved && Array.isArray(saved.posts)) posts = saved.posts.map(normalizePost);
     saveLocal();
     setCloudStatus("Nube: guardado ✓ (solo reportes)");
@@ -189,10 +220,14 @@ async function syncFromCloud() {
   } else {
     posts = remotePosts;
   }
+  if (Array.isArray(remote.reportTrash)) {
+    reportTrashIds = mergeReportTrash(reportTrashIds, remote.reportTrash);
+    persistReportTrashLocal();
+  }
   if (window.RFSCloudApi.mergeReportsPreferUnion) {
-    reports = window.RFSCloudApi.mergeReportsPreferUnion(reports, remoteReports);
+    reports = window.RFSCloudApi.mergeReportsPreferUnion(reports, remoteReports, reportTrashIds);
   } else {
-    reports = remoteReports;
+    reports = (remoteReports || []).filter((r) => r && r.id && !reportTrashIds.includes(String(r.id)));
   }
   saveLocal();
   setCloudStatus(`Nube: activa ✓ · ${posts.length} servicios · ${reports.length} reportes`);
@@ -863,8 +898,13 @@ function deleteIncidentReport(id) {
   if (!report) return;
   const label = report.number || report.siteName || "este reporte";
   if (!confirm(`¿Eliminar el reporte ${label}?`)) return;
+  reportTrashIds = mergeReportTrash(reportTrashIds, [id]);
+  persistReportTrashLocal();
   reports = reports.filter((r) => r.id !== id);
   saveReports();
+  try {
+    if (typeof pushToCloud === "function") pushToCloud().catch(() => {});
+  } catch (_) {}
   renderReports();
   if (typeof logActivity === "function") {
     logActivity(
@@ -1270,7 +1310,10 @@ function bindUi() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   posts = loadJson(POSTS_KEY, []).map(normalizePost);
-  reports = loadJson(REPORTS_KEY, []);
+  reportTrashIds = normalizeReportTrash(loadJson(REPORT_TRASH_KEY, []));
+  reports = loadJson(REPORTS_KEY, []).filter(
+    (r) => r && r.id && !reportTrashIds.includes(String(r.id))
+  );
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
   bindUi();
   await checkVersionGate();

@@ -411,12 +411,22 @@
   }
 
   /** Une reportes de incidente por id (no reemplazar ciego). */
-  function mergeReportsPreferUnion(localList, remoteList) {
+  function normalizeReportTrash(ids) {
+    return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 800);
+  }
+
+  function mergeReportTrash(localIds, remoteIds) {
+    return normalizeReportTrash([...(localIds || []), ...(remoteIds || [])]);
+  }
+
+  /** Une reportes por id; respeta papelera para que un borrado no resurja. */
+  function mergeReportsPreferUnion(localList, remoteList, trashIds) {
+    const trash = new Set(normalizeReportTrash(trashIds));
     const map = new Map();
     const put = (raw, preferIfTie) => {
       if (!raw || typeof raw !== "object") return;
       const id = String(raw.id || "").trim();
-      if (!id) return;
+      if (!id || trash.has(id)) return;
       if (!map.has(id)) {
         map.set(id, raw);
         return;
@@ -574,6 +584,7 @@
     return {
       posts: parseArrayField(fields, "postsJson"),
       reports: parseArrayField(fields, "reportsJson"),
+      reportTrash: parseArrayField(fields, "reportTrashJson"),
       employees: parseArrayField(fields, "employeesJson"),
       loans: parseArrayField(fields, "loansJson"),
       loanTrash: parseArrayField(fields, "loanTrashJson"),
@@ -1595,6 +1606,7 @@
     return {
       posts: posts.postsJson ? parseArrayField(posts, "postsJson") : (legacy && legacy.posts) || [],
       reports: parseArrayField(main, "reportsJson"),
+      reportTrash: parseArrayField(main, "reportTrashJson"),
       employees: employees.employeesJson
         ? parseArrayField(employees, "employeesJson")
         : (legacy && legacy.employees) || [],
@@ -1688,6 +1700,7 @@
       return {
         posts: [],
         reports: [],
+        reportTrash: [],
         employees: [],
         loans: [],
         loanTrash: [],
@@ -1802,7 +1815,8 @@
       console.warn("RFS: no se pudieron fusionar empleados remotos al guardar", err);
     }
 
-    // Reportes incidente: fusionar
+    // Reportes incidente: fusionar + papelera (borrados no resucitan)
+    let reportTrashToSave = normalizeReportTrash(opts.reportTrash || []);
     let reportsToSave = Array.isArray(reports) ? reports : [];
     try {
       const remoteMain = await getDoc(partPath("main")).catch(() => null);
@@ -1810,11 +1824,15 @@
         remoteMain && remoteMain.fields && remoteMain.fields.reportsJson
           ? parseArrayField(remoteMain.fields, "reportsJson")
           : [];
-      if (remoteReports.length) {
-        reportsToSave = mergeReportsPreferUnion(reportsToSave, remoteReports);
-      }
+      const remoteTrash =
+        remoteMain && remoteMain.fields && remoteMain.fields.reportTrashJson
+          ? parseArrayField(remoteMain.fields, "reportTrashJson")
+          : [];
+      reportTrashToSave = mergeReportTrash(reportTrashToSave, remoteTrash);
+      reportsToSave = mergeReportsPreferUnion(reportsToSave, remoteReports, reportTrashToSave);
     } catch (err) {
       console.warn("RFS: no se pudieron fusionar reportes remotos al guardar", err);
+      reportsToSave = mergeReportsPreferUnion(reportsToSave, [], reportTrashToSave);
     }
 
     // Monorriel: fusionar desde doc propio + main (nunca subir [] si la nube tiene datos)
@@ -1897,6 +1915,7 @@
       messagesJson: { stringValue: JSON.stringify(messages || []) },
       radioJson: { stringValue: JSON.stringify(radio || {}) },
       reportsJson: { stringValue: JSON.stringify(reportsToSave || []) },
+      reportTrashJson: { stringValue: JSON.stringify(reportTrashToSave || []) },
       monorrielReportsJson: { stringValue: JSON.stringify(monoToSave || []) },
       schemaVersion: { stringValue: SCHEMA_VERSION },
       updatedAt: { stringValue: updatedAt },
@@ -2005,7 +2024,7 @@
       getDoc(partPath("posts")).catch(() => null),
     ]);
     if (!main) {
-      return { empty: true, users: [], reports: [], posts: [] };
+      return { empty: true, users: [], reports: [], reportTrash: [], posts: [] };
     }
     const mainFields = main.fields || {};
     const postsFields = (postsDoc && postsDoc.fields) || {};
@@ -2013,6 +2032,7 @@
       empty: false,
       users: parseArrayField(mainFields, "usersJson"),
       reports: parseArrayField(mainFields, "reportsJson"),
+      reportTrash: parseArrayField(mainFields, "reportTrashJson"),
       posts: postsFields.postsJson
         ? parseArrayField(postsFields, "postsJson")
         : parseArrayField(mainFields, "postsJson"),
@@ -2030,17 +2050,22 @@
 
     let reportsToSave = Array.isArray(reports) ? reports : [];
     let postsToSave = Array.isArray(posts) ? posts : [];
+    let reportTrashToSave = normalizeReportTrash(opts.reportTrash || []);
     try {
       const remoteMain = await getDoc(partPath("main")).catch(() => null);
       const remoteReports =
         remoteMain && remoteMain.fields && remoteMain.fields.reportsJson
           ? parseArrayField(remoteMain.fields, "reportsJson")
           : [];
-      if (remoteReports.length) {
-        reportsToSave = mergeReportsPreferUnion(reportsToSave, remoteReports);
-      }
+      const remoteTrash =
+        remoteMain && remoteMain.fields && remoteMain.fields.reportTrashJson
+          ? parseArrayField(remoteMain.fields, "reportTrashJson")
+          : [];
+      reportTrashToSave = mergeReportTrash(reportTrashToSave, remoteTrash);
+      reportsToSave = mergeReportsPreferUnion(reportsToSave, remoteReports, reportTrashToSave);
     } catch (err) {
       console.warn("RFS Reportes: no se pudieron fusionar reportes remotos", err);
+      reportsToSave = mergeReportsPreferUnion(reportsToSave, [], reportTrashToSave);
     }
     try {
       const remotePostsDoc = await getDoc(partPath("posts")).catch(() => null);
@@ -2063,10 +2088,11 @@
         partPath("main"),
         {
           reportsJson: { stringValue: JSON.stringify(reportsToSave) },
+          reportTrashJson: { stringValue: JSON.stringify(reportTrashToSave) },
           updatedAt: { stringValue: updatedAt },
           reportesAppBuild: { integerValue: String(Math.max(0, Number(opts.clientBuild) || 0)) },
         },
-        ["reportsJson", "updatedAt", "reportesAppBuild"]
+        ["reportsJson", "reportTrashJson", "updatedAt", "reportesAppBuild"]
       ),
       patchDoc(
         partPath("posts"),
@@ -2077,7 +2103,7 @@
         ["postsJson", "updatedAt"]
       ),
     ]);
-    return { ok: true, updatedAt, reports: reportsToSave, posts: postsToSave };
+    return { ok: true, updatedAt, reports: reportsToSave, posts: postsToSave, reportTrash: reportTrashToSave };
   }
 
   window.RFSCloudApi = {
@@ -2096,6 +2122,8 @@
     mergeEmployeesPreferUnion,
     mergePostsPreferUnion,
     mergeReportsPreferUnion,
+    mergeReportTrash,
+    normalizeReportTrash,
     mergeMonorrielPreferUnion,
     loadSeparatedPayrollBundle,
     persistSeparatedPayrolls,
