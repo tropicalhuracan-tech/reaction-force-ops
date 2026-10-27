@@ -10,8 +10,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 198;
-const APP_VERSION_LABEL = "v198";
+const APP_BUILD = 199;
+const APP_VERSION_LABEL = "v199";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2263,11 +2263,15 @@ async function mergeRemoteBundleBeforeSave() {
     }
     // No pisar reportes Monorriel de otra PC (Ashley / supervisión)
     if (Array.isArray(remote.monorrielReports) || (monorrielReports && monorrielReports.length)) {
+      const beforeMono = monorrielReports || [];
       monorrielReports = mergeMonorrielReportsForCloud(
-        monorrielReports,
+        beforeMono,
         remote.monorrielReports || []
       );
       restoreMonorrielReportsFromSafetyNet();
+      if (beforeMono.length > (monorrielReports || []).length) {
+        monorrielReports = mergeMonorrielReportsForCloud(monorrielReports, beforeMono);
+      }
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       persistMonorrielReportsSafetyNet(monorrielReports);
     }
@@ -2453,7 +2457,21 @@ async function syncFromCloud() {
     const localMono = monorrielReports;
     const localUsers = appUsers;
 
-    if (remote.empty || (!remote.posts.length && !remote.reports.length)) {
+    // Nunca tratar la nube como vacía si ya hay Monorriel/empleados/usuarios/préstamos/etc.
+    // (antes: !posts && !reports podía pisar Monorriel al subir datos locales vacíos)
+    const remoteHasCore =
+      !remote.empty &&
+      ((remote.posts && remote.posts.length) ||
+        (remote.employees && remote.employees.length) ||
+        (remote.users && remote.users.length) ||
+        (remote.monorrielReports && remote.monorrielReports.length) ||
+        (remote.loans && remote.loans.length) ||
+        (remote.reports && remote.reports.length) ||
+        (remote.messages && remote.messages.length) ||
+        (remote.contabilidad &&
+          remote.contabilidad.payrolls &&
+          remote.contabilidad.payrolls.length));
+    if (!remoteHasCore) {
       rebuildEmployeesFromPosts(localEmployees);
       ensureMonorrielEmployeesImported();
       ensureLvaEmployeesImported();
@@ -2510,6 +2528,10 @@ async function syncFromCloud() {
     // Monorriel reportes: fusionar (id + fecha/turno) y recuperar red de seguridad local
     monorrielReports = mergeMonorrielReportsForCloud(localMono, remote.monorrielReports || []);
     restoreMonorrielReportsFromSafetyNet();
+    // Si el remoto vino vacío/parcial pero teníamos datos locales, no quedarnos cortos
+    if ((localMono || []).length > (monorrielReports || []).length) {
+      monorrielReports = mergeMonorrielReportsForCloud(monorrielReports, localMono);
+    }
     persistMonorrielReportsSafetyNet(monorrielReports);
     const remoteUsers = Array.isArray(remote.users) ? remote.users.map(normalizeUser) : [];
     if (remoteUsers.length) {
@@ -7288,7 +7310,82 @@ function normalizeMonoReport(raw = {}) {
 
 const MONORRIEL_REPORTS_SAFETY_KEY = "rfs-ops-monorriel-reports-safety";
 
-/** Fusiona reportes Monorriel por id (updatedAt gana) y por fecha+turno. */
+/** Cuántos puestos con nombre (riqueza del reporte). */
+function monoReportCoveredCount(r) {
+  if (!r) return 0;
+  if (Number(r.covered) > 0) return Number(r.covered) || 0;
+  return (r.assignments || []).filter((a) => String((a && a.employeeName) || "").trim()).length;
+}
+
+/** Une asignaciones puesto a puesto: nunca tira un nombre por otro vacío. */
+function mergeMonoAssignmentsLists(aList, bList, preferB) {
+  const map = new Map();
+  const put = (list, isB) => {
+    (list || []).forEach((a) => {
+      if (!a || !a.postId) return;
+      const name = String(a.employeeName || "").trim();
+      const empId = String(a.employeeId || "").trim();
+      const prev = map.get(a.postId);
+      if (!prev) {
+        map.set(a.postId, {
+          postId: a.postId,
+          employeeId: empId,
+          employeeName: name,
+        });
+        return;
+      }
+      const prevName = String(prev.employeeName || "").trim();
+      if (!prevName && name) {
+        map.set(a.postId, { postId: a.postId, employeeId: empId, employeeName: name });
+        return;
+      }
+      if (prevName && !name) return;
+      if (name && (isB ? preferB : !preferB)) {
+        map.set(a.postId, { postId: a.postId, employeeId: empId || prev.employeeId, employeeName: name });
+      } else if (name && !prev.employeeId && empId) {
+        map.set(a.postId, { ...prev, employeeId: empId });
+      }
+    });
+  };
+  put(aList, false);
+  put(bList, true);
+  return [...map.values()];
+}
+
+/** Fusiona dos reportes del mismo id o misma fecha+turno sin perder puestos cubiertos. */
+function mergeTwoMonoReports(a, b) {
+  if (!a) return b ? normalizeMonoReport(b) : null;
+  if (!b) return normalizeMonoReport(a);
+  const na = normalizeMonoReport(a);
+  const nb = normalizeMonoReport(b);
+  const ca = monoReportCoveredCount(na);
+  const cb = monoReportCoveredCount(nb);
+  const ta = Date.parse(na.updatedAt || na.createdAt || "") || 0;
+  const tb = Date.parse(nb.updatedAt || nb.createdAt || "") || 0;
+  // Base: el más lleno; si empatan, el más reciente
+  const preferB = cb > ca || (cb === ca && tb >= ta);
+  const base = preferB ? { ...nb } : { ...na };
+  const other = preferB ? na : nb;
+  const assignments = mergeMonoAssignmentsLists(other.assignments, base.assignments, true);
+  const covered = assignments.filter((x) => String(x.employeeName || "").trim()).length;
+  return normalizeMonoReport({
+    ...base,
+    id: base.id || other.id,
+    date: base.date || other.date,
+    shift: base.shift || other.shift,
+    supervisor: base.supervisor || other.supervisor || "",
+    novedades: base.novedades || other.novedades || "",
+    assignments,
+    covered,
+    vacant: Math.max(0, (typeof monoPosts === "function" ? monoPosts().length : assignments.length) - covered),
+    createdAt: na.createdAt && nb.createdAt
+      ? (Date.parse(na.createdAt) <= Date.parse(nb.createdAt) ? na.createdAt : nb.createdAt)
+      : base.createdAt || other.createdAt,
+    updatedAt: ta >= tb ? na.updatedAt : nb.updatedAt,
+  });
+}
+
+/** Fusiona reportes Monorriel por id y por fecha+turno, conservando puestos cubiertos. */
 function mergeMonorrielReportsForCloud(localList, remoteList) {
   const byId = new Map();
   const put = (raw) => {
@@ -7296,27 +7393,17 @@ function mergeMonorrielReportsForCloud(localList, remoteList) {
     const next = normalizeMonoReport(raw);
     if (!next.id) return;
     const prev = byId.get(next.id);
-    if (!prev || String(next.updatedAt || "") >= String(prev.updatedAt || "")) {
-      byId.set(next.id, next);
-    }
+    byId.set(next.id, prev ? mergeTwoMonoReports(prev, next) : next);
   };
   (remoteList || []).forEach(put);
   (localList || []).forEach(put);
 
-  // Misma fecha+turno: quedarse con el más reciente (evita perder el de Ashley si hubo otro id)
+  // Misma fecha+turno: fusionar (no descartar el más lleno por un updatedAt nuevo vacío)
   const byDayShift = new Map();
   [...byId.values()].forEach((r) => {
     const k = `${String(r.date || "").slice(0, 10)}|${r.shift === "pm" ? "pm" : "am"}`;
     const prev = byDayShift.get(k);
-    if (!prev) {
-      byDayShift.set(k, r);
-      return;
-    }
-    const ta = Date.parse(prev.updatedAt || "") || 0;
-    const tb = Date.parse(r.updatedAt || "") || 0;
-    const ca = Date.parse(prev.createdAt || "") || 0;
-    const cb = Date.parse(r.createdAt || "") || 0;
-    if (tb > ta || (tb === ta && cb >= ca)) byDayShift.set(k, r);
+    byDayShift.set(k, prev ? mergeTwoMonoReports(prev, r) : r);
   });
 
   return [...byDayShift.values()].sort(
@@ -7329,7 +7416,7 @@ function persistMonorrielReportsSafetyNet(list) {
   try {
     const prev = loadJson(MONORRIEL_REPORTS_SAFETY_KEY, []);
     const merged = mergeMonorrielReportsForCloud(prev, list || monorrielReports || []);
-    localStorage.setItem(MONORRIEL_REPORTS_SAFETY_KEY, JSON.stringify(merged.slice(0, 240)));
+    localStorage.setItem(MONORRIEL_REPORTS_SAFETY_KEY, JSON.stringify(merged.slice(0, 400)));
   } catch (_) {}
 }
 
@@ -7347,6 +7434,12 @@ function restoreMonorrielReportsFromSafetyNet() {
 }
 
 function saveMonorrielReports() {
+  try {
+    // Si por sync quedó vacío, recuperar red de seguridad antes de subir
+    if (!(monorrielReports || []).length) {
+      restoreMonorrielReportsFromSafetyNet();
+    }
+  } catch (_) {}
   localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
   persistMonorrielReportsSafetyNet(monorrielReports);
   queueCloudSave();
@@ -7512,12 +7605,11 @@ function isMonoReportEditViewActive() {
   return !!(active && active.id === "monoReportEditView");
 }
 
-/** True si Ashley (u otro) está armando el reporte Monorriel. */
+/** True si el editor Monorriel está abierto (no bajar nube ni re-renderizar encima). */
 function isMonoReportBeingEdited() {
-  if (!isMonoReportEditViewActive()) return false;
-  const view = document.getElementById("monoReportEditView");
-  if (view && document.activeElement && view.contains(document.activeElement)) return true;
-  return Date.now() - lastMonoReportEditAt < 45000;
+  // Mientras la pantalla de edición esté abierta, bloquear pull forzado por otra PC
+  if (isMonoReportEditViewActive()) return true;
+  return Date.now() - lastMonoReportEditAt < 120000;
 }
 
 function markMonoReportEdited() {
@@ -13475,7 +13567,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=198").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=199").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13491,7 +13583,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v198")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v199")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

@@ -1,6 +1,6 @@
 {
-  "build": 198,
-  "label": "v198",
-  "minBuild": 198,
-  "note": "Nuevo préstamo: lista desde todas las nóminas + empleados"
+  "build": 199,
+  "label": "v199",
+  "minBuild": 199,
+  "note": "Monorriel: sync anti-borrado + doc propio en la nube"
 }

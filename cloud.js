@@ -97,6 +97,7 @@
     contabilidad: true,
     suplidores: true,
     vargas: true,
+    monorriel: true,
   };
 
   function baseUrl() {
@@ -430,30 +431,114 @@
     return [...map.values()];
   }
 
-  /** Une reportes Monorriel por id (y fecha+turno como respaldo). */
-  function mergeMonorrielPreferUnion(localList, remoteList) {
+  function monoCoveredCount(r) {
+    if (!r) return 0;
+    if (Number(r.covered) > 0) return Number(r.covered) || 0;
+    return (Array.isArray(r.assignments) ? r.assignments : []).filter((a) =>
+      String((a && a.employeeName) || "").trim()
+    ).length;
+  }
+
+  function mergeMonoAssignmentsCloud(aList, bList) {
     const map = new Map();
-    const keyOf = (r) => {
-      if (!r) return "";
-      if (r.id) return `id:${r.id}`;
-      return `dt:${String(r.date || "").slice(0, 10)}:${r.shift === "pm" ? "pm" : "am"}`;
+    const put = (list) => {
+      (list || []).forEach((a) => {
+        if (!a || !a.postId) return;
+        const name = String(a.employeeName || "").trim();
+        const empId = String(a.employeeId || "").trim();
+        const prev = map.get(a.postId);
+        if (!prev) {
+          map.set(a.postId, { postId: a.postId, employeeId: empId, employeeName: name });
+          return;
+        }
+        if (!String(prev.employeeName || "").trim() && name) {
+          map.set(a.postId, { postId: a.postId, employeeId: empId, employeeName: name });
+        } else if (name && !prev.employeeId && empId) {
+          map.set(a.postId, { ...prev, employeeId: empId });
+        } else if (name) {
+          map.set(a.postId, { postId: a.postId, employeeId: empId || prev.employeeId, employeeName: name });
+        }
+      });
     };
-    const put = (raw, preferIfTie) => {
-      if (!raw || typeof raw !== "object") return;
-      const k = keyOf(raw);
-      if (!k) return;
-      if (!map.has(k)) {
-        map.set(k, raw);
-        return;
-      }
-      const prev = map.get(k);
-      const ta = Date.parse(prev.updatedAt || prev.createdAt || "") || 0;
-      const tb = Date.parse(raw.updatedAt || raw.createdAt || "") || 0;
-      if (tb > ta || (tb === ta && preferIfTie)) map.set(k, raw);
-    };
-    (remoteList || []).forEach((r) => put(r, false));
-    (localList || []).forEach((r) => put(r, true));
+    put(aList);
+    put(bList);
     return [...map.values()];
+  }
+
+  function mergeTwoMonoReportsCloud(a, b) {
+    if (!a) return b || null;
+    if (!b) return a;
+    const ca = monoCoveredCount(a);
+    const cb = monoCoveredCount(b);
+    const ta = Date.parse(a.updatedAt || a.createdAt || "") || 0;
+    const tb = Date.parse(b.updatedAt || b.createdAt || "") || 0;
+    const preferB = cb > ca || (cb === ca && tb >= ta);
+    const base = preferB ? { ...b } : { ...a };
+    const other = preferB ? a : b;
+    const assignments = mergeMonoAssignmentsCloud(other.assignments, base.assignments);
+    const covered = assignments.filter((x) => String(x.employeeName || "").trim()).length;
+    return {
+      ...base,
+      id: base.id || other.id,
+      date: base.date || other.date,
+      shift: base.shift === "pm" || other.shift === "pm" ? (base.shift || other.shift) : base.shift || other.shift,
+      supervisor: base.supervisor || other.supervisor || "",
+      novedades: base.novedades || other.novedades || "",
+      assignments,
+      covered,
+      vacant: Math.max(0, Number(base.vacant) || Number(other.vacant) || 0),
+      createdAt: a.createdAt && b.createdAt
+        ? Date.parse(a.createdAt) <= Date.parse(b.createdAt)
+          ? a.createdAt
+          : b.createdAt
+        : base.createdAt || other.createdAt,
+      updatedAt: ta >= tb ? a.updatedAt || base.updatedAt : b.updatedAt || base.updatedAt,
+    };
+  }
+
+  /** Une reportes Monorriel por id y fecha+turno; conserva puestos cubiertos. */
+  function mergeMonorrielPreferUnion(localList, remoteList) {
+    const byId = new Map();
+    const putId = (raw) => {
+      if (!raw || typeof raw !== "object") return;
+      const id = String(raw.id || "").trim();
+      if (!id) return;
+      const prev = byId.get(id);
+      byId.set(id, prev ? mergeTwoMonoReportsCloud(prev, raw) : raw);
+    };
+    (remoteList || []).forEach(putId);
+    (localList || []).forEach(putId);
+
+    const byDayShift = new Map();
+    [...byId.values()].forEach((r) => {
+      const k = `dt:${String(r.date || "").slice(0, 10)}:${r.shift === "pm" ? "pm" : "am"}`;
+      const prev = byDayShift.get(k);
+      byDayShift.set(k, prev ? mergeTwoMonoReportsCloud(prev, r) : r);
+    });
+    // Incluir remotos/locales sin id (solo fecha+turno)
+    const putDt = (raw) => {
+      if (!raw || typeof raw !== "object") return;
+      if (String(raw.id || "").trim()) return;
+      const k = `dt:${String(raw.date || "").slice(0, 10)}:${raw.shift === "pm" ? "pm" : "am"}`;
+      if (!k.startsWith("dt:") || k === "dt::am" || k === "dt::pm") return;
+      const prev = byDayShift.get(k);
+      byDayShift.set(k, prev ? mergeTwoMonoReportsCloud(prev, raw) : raw);
+    };
+    (remoteList || []).forEach(putDt);
+    (localList || []).forEach(putDt);
+    return [...byDayShift.values()];
+  }
+
+  function readMonorrielFromParts(parts) {
+    const main = (parts && parts.main && parts.main.fields) || {};
+    const monoPart = (parts && parts.monorriel && parts.monorriel.fields) || {};
+    const fromMain = parseArrayField(main, "monorrielReportsJson");
+    const fromPart = monoPart.monorrielReportsJson
+      ? parseArrayField(monoPart, "monorrielReportsJson")
+      : [];
+    if (!fromPart.length) return fromMain;
+    if (!fromMain.length) return fromPart;
+    return mergeMonorrielPreferUnion(fromPart, fromMain);
   }
 
   /** Une clientes locales + remotos por id para no perder altas al guardar. */
@@ -1489,6 +1574,7 @@
     if (fieldLen(parts.contabilidad, "contabilidadJson") > 10) return true;
     if (fieldLen(parts.suplidores, "suplidoresJson") > 10) return true;
     if (fieldLen(parts.vargas, "vargasJson") > 10) return true;
+    if (fieldLen(parts.monorriel, "monorrielReportsJson") > 10) return true;
     return false;
   }
 
@@ -1516,7 +1602,7 @@
       loanTrash: loans.loanTrashJson
         ? parseArrayField(loans, "loanTrashJson")
         : (legacy && legacy.loanTrash) || [],
-      monorrielReports: parseArrayField(main, "monorrielReportsJson"),
+      monorrielReports: readMonorrielFromParts(parts),
       users: parseArrayField(main, "usersJson"),
       messages: parseArrayField(main, "messagesJson"),
       radio: parseObjectField(main, "radioJson"),
@@ -1646,6 +1732,8 @@
       !hydrated.posts.length &&
       !hydrated.employees.length &&
       !hydrated.users.length &&
+      !(hydrated.monorrielReports || []).length &&
+      !(hydrated.loans || []).length &&
       !(hydrated.pettyCash.expenses || []).length;
     return { ...hydrated, empty };
   }
@@ -1729,19 +1817,37 @@
       console.warn("RFS: no se pudieron fusionar reportes remotos al guardar", err);
     }
 
-    // Monorriel: fusionar
+    // Monorriel: fusionar desde doc propio + main (nunca subir [] si la nube tiene datos)
     let monoToSave = Array.isArray(monorrielReports) ? monorrielReports : [];
+    let remoteMonoCount = 0;
     try {
-      const remoteMain = await getDoc(partPath("main")).catch(() => null);
-      const remoteMono =
+      const [remoteMain, remoteMonoDoc] = await Promise.all([
+        getDoc(partPath("main")).catch(() => null),
+        getDoc(partPath("monorriel")).catch(() => null),
+      ]);
+      const fromMain =
         remoteMain && remoteMain.fields && remoteMain.fields.monorrielReportsJson
           ? parseArrayField(remoteMain.fields, "monorrielReportsJson")
           : [];
+      const fromPart =
+        remoteMonoDoc && remoteMonoDoc.fields && remoteMonoDoc.fields.monorrielReportsJson
+          ? parseArrayField(remoteMonoDoc.fields, "monorrielReportsJson")
+          : [];
+      const remoteMono = mergeMonorrielPreferUnion(fromPart, fromMain);
+      remoteMonoCount = remoteMono.length;
       if (remoteMono.length) {
         monoToSave = mergeMonorrielPreferUnion(monoToSave, remoteMono);
       }
+      // Candado anti-borrado: no publicar lista vacía si la nube tenía reportes
+      if ((!monoToSave || !monoToSave.length) && remoteMono.length) {
+        console.warn("RFS: se evitó borrar Monorriel remoto (local vacío)");
+        monoToSave = remoteMono;
+      }
     } catch (err) {
       console.warn("RFS: no se pudieron fusionar Monorriel remotos al guardar", err);
+      if ((!monoToSave || !monoToSave.length) && remoteMonoCount > 0) {
+        throw err;
+      }
     }
 
     const empPack = await stripEmployees(employeesToSave);
@@ -1867,6 +1973,11 @@
         vargasJson: { stringValue: JSON.stringify(vargasToSave || emptyVargas()) },
         updatedAt: { stringValue: updatedAt },
       }, ["vargasJson", "updatedAt"]),
+      // Doc propio Monorriel (fuente de verdad + anti-pisotón con main)
+      patchDoc(partPath("monorriel"), {
+        monorrielReportsJson: { stringValue: JSON.stringify(monoToSave || []) },
+        updatedAt: { stringValue: updatedAt },
+      }, ["monorrielReportsJson", "updatedAt"]),
     ];
 
     await Promise.all(writes);
