@@ -1,6 +1,6 @@
 {
-  "build": 201,
-  "label": "v201",
-  "minBuild": 201,
-  "note": "Empleados: el nombre completo ya no se acorta al guardar"
+  "build": 202,
+  "label": "v202",
+  "minBuild": 202,
+  "note": "Empleados: nombre corregido a mano ya no lo pisa el sync"
 }
