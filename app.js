@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 202;
-const APP_VERSION_LABEL = "v202";
+const APP_BUILD = 203;
+const APP_VERSION_LABEL = "v203";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -585,6 +585,39 @@ function pickMergedEmployeeName(base, incoming) {
   return preferEmployeeName(b.name, i.name);
 }
 
+/** Activo/inactivo: gana el cambio más reciente (permite reactivar). Antes inactivo ganaba siempre. */
+function pickMergedEmployeeStatus(base, incoming) {
+  const a = base || {};
+  const b = incoming || {};
+  const aIn = a.status === "inactive";
+  const bIn = b.status === "inactive";
+  if (!aIn && !bIn) {
+    return { status: "active", inactiveReason: "", inactiveAt: "" };
+  }
+  const ta = Date.parse(a.updatedAt || "") || 0;
+  const tb = Date.parse(b.updatedAt || "") || 0;
+  if (ta !== tb) {
+    const winner = ta > tb ? a : b;
+    if (winner.status === "inactive") {
+      return {
+        status: "inactive",
+        inactiveReason: winner.inactiveReason || a.inactiveReason || b.inactiveReason || "",
+        inactiveAt: winner.inactiveAt || a.inactiveAt || b.inactiveAt || "",
+      };
+    }
+    return { status: "active", inactiveReason: "", inactiveAt: "" };
+  }
+  // Empate: si alguno está activo, queda activo (reactivación)
+  if (!aIn || !bIn) {
+    return { status: "active", inactiveReason: "", inactiveAt: "" };
+  }
+  return {
+    status: "inactive",
+    inactiveReason: preferFill(a.inactiveReason, b.inactiveReason),
+    inactiveAt: preferFill(a.inactiveAt, b.inactiveAt),
+  };
+}
+
 function mergeEmployeeRecord(base, incoming) {
   const pickedName = pickMergedEmployeeName(base, incoming);
   const nameManual = !!(base.nameManual || incoming.nameManual);
@@ -598,6 +631,14 @@ function mergeEmployeeRecord(base, incoming) {
   } else if (incoming.nameManual) {
     nameManualAt = incoming.nameManualAt || "";
   }
+  const statusPick = pickMergedEmployeeStatus(base, incoming);
+  const newerUpdatedAt = (() => {
+    const ta = Date.parse(base.updatedAt || "") || 0;
+    const ti = Date.parse(incoming.updatedAt || "") || 0;
+    if (ti > ta) return incoming.updatedAt || base.updatedAt || new Date().toISOString();
+    if (ta > ti) return base.updatedAt || incoming.updatedAt || new Date().toISOString();
+    return base.updatedAt || incoming.updatedAt || new Date().toISOString();
+  })();
   const out = normalizeEmployee({
     ...base,
     name: pickedName,
@@ -619,9 +660,9 @@ function mergeEmployeeRecord(base, incoming) {
     documentMime: preferFill(base.documentMime, incoming.documentMime),
     roles: [...new Set([...(base.roles || []), ...(incoming.roles || [])].filter(Boolean))],
     sites: [...new Set([...(base.sites || []), ...(incoming.sites || [])].filter(Boolean))],
-    status: base.status === "inactive" ? "inactive" : incoming.status === "inactive" ? "inactive" : "active",
-    inactiveReason: preferFill(base.inactiveReason, incoming.inactiveReason),
-    inactiveAt: preferFill(base.inactiveAt, incoming.inactiveAt),
+    status: statusPick.status,
+    inactiveReason: statusPick.inactiveReason,
+    inactiveAt: statusPick.inactiveAt,
     hrApplicationId: preferFill(base.hrApplicationId, incoming.hrApplicationId),
     hrProfile: mergeEmployeeHrProfile(base.hrProfile, incoming.hrProfile),
     monoUnifyAliases: [
@@ -633,11 +674,14 @@ function mergeEmployeeRecord(base, incoming) {
     ],
     nameManual,
     nameManualAt,
-    updatedAt: new Date().toISOString(),
+    updatedAt: newerUpdatedAt,
   });
   out.key = employeeKey(out.name);
   out.nameManual = nameManual;
   out.nameManualAt = nameManualAt;
+  out.status = statusPick.status;
+  out.inactiveReason = statusPick.inactiveReason || "";
+  out.inactiveAt = statusPick.inactiveAt || "";
   return out;
 }
 
@@ -1093,19 +1137,49 @@ function reactivateSelectedEmployee() {
   const idx = employees.findIndex((e) => e.id === selectedEmployeeId);
   if (idx < 0) return;
   const current = employees[idx];
+  const keepId = current.id;
+  const nowIso = new Date().toISOString();
   employees[idx] = normalizeEmployee({
     ...current,
     status: "active",
     inactiveReason: "",
     inactiveAt: "",
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso,
   });
   saveEmployees();
+  // Tras dedupe/merge: forzar activo (una ficha duplicada inactiva ya no debe ganarle)
+  let again = employees.findIndex((e) => e.id === keepId);
+  if (again < 0) {
+    again = employees.findIndex(
+      (e) =>
+        employeeIdentityKey(e.name) === employeeIdentityKey(current.name) ||
+        (typeof employeeAliasKeys === "function" && employeeAliasKeys(e).has(employeeIdentityKey(current.name)))
+    );
+  }
+  if (again >= 0) {
+    employees[again] = normalizeEmployee({
+      ...employees[again],
+      status: "active",
+      inactiveReason: "",
+      inactiveAt: "",
+      updatedAt: new Date().toISOString(),
+    });
+    selectedEmployeeId = employees[again].id;
+    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+  }
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
   employeeListFilter = "active";
   renderEmployees();
   openEmployeeDetail(selectedEmployeeId);
-  logActivity("employee_reactivate", `Reactivó empleado: ${employees[idx].name}`);
-  toast("Empleado reactivado.");
+  const live = getEmployee(selectedEmployeeId);
+  logActivity("employee_reactivate", `Reactivó empleado: ${(live && live.name) || current.name}`);
+  toast(
+    live && isEmployeeActive(live)
+      ? `${live.name} está otra vez en Activos.`
+      : "Empleado reactivado."
+  );
 }
 
 /** Crea o reutiliza empleado Monorriel al escribir un nombre nuevo en el reporte */
@@ -13912,7 +13986,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=202").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=203").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13928,7 +14002,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v202")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v203")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
