@@ -388,6 +388,38 @@
     return preferLongerEmployeeName(aa.name, bb.name);
   }
 
+  /** Activo/inactivo: gana el updatedAt más reciente (permite reactivar). */
+  function pickCloudEmployeeStatus(a, b) {
+    const aa = a || {};
+    const bb = b || {};
+    const aIn = aa.status === "inactive";
+    const bIn = bb.status === "inactive";
+    if (!aIn && !bIn) {
+      return { status: "active", inactiveReason: "", inactiveAt: "" };
+    }
+    const ta = Date.parse(aa.updatedAt || "") || 0;
+    const tb = Date.parse(bb.updatedAt || "") || 0;
+    if (ta !== tb) {
+      const winner = ta > tb ? aa : bb;
+      if (winner.status === "inactive") {
+        return {
+          status: "inactive",
+          inactiveReason: winner.inactiveReason || aa.inactiveReason || bb.inactiveReason || "",
+          inactiveAt: winner.inactiveAt || aa.inactiveAt || bb.inactiveAt || "",
+        };
+      }
+      return { status: "active", inactiveReason: "", inactiveAt: "" };
+    }
+    if (!aIn || !bIn) {
+      return { status: "active", inactiveReason: "", inactiveAt: "" };
+    }
+    return {
+      status: "inactive",
+      inactiveReason: aa.inactiveReason || bb.inactiveReason || "",
+      inactiveAt: aa.inactiveAt || bb.inactiveAt || "",
+    };
+  }
+
   function mergeCloudEmployeePair(prev, raw) {
     const a = prev || {};
     const b = raw || {};
@@ -411,7 +443,7 @@
       if (v == null || v === "") return;
       if (Array.isArray(v)) {
         merged[k] = [...new Set([...(Array.isArray(merged[k]) ? merged[k] : []), ...v].filter(Boolean))];
-      } else if (k === "name") {
+      } else if (k === "name" || k === "status" || k === "inactiveReason" || k === "inactiveAt") {
         // se aplica abajo
       } else if (!merged[k]) {
         merged[k] = v;
@@ -422,6 +454,14 @@
     merged.name = pickCloudEmployeeName(a, b);
     merged.nameManual = nameManual;
     if (nameManual) merged.nameManualAt = nameManualAt || merged.nameManualAt || new Date().toISOString();
+    const statusPick = pickCloudEmployeeStatus(a, b);
+    merged.status = statusPick.status;
+    merged.inactiveReason = statusPick.inactiveReason || "";
+    merged.inactiveAt = statusPick.inactiveAt || "";
+    const ta = Date.parse(a.updatedAt || "") || 0;
+    const tb = Date.parse(b.updatedAt || "") || 0;
+    merged.updatedAt =
+      tb > ta ? b.updatedAt || a.updatedAt : a.updatedAt || b.updatedAt || merged.updatedAt;
     merged.monoUnifyAliases = [
       ...new Set(
         [

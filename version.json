@@ -1,6 +1,6 @@
 {
-  "build": 202,
-  "label": "v202",
-  "minBuild": 202,
-  "note": "Empleados: nombre corregido a mano ya no lo pisa el sync"
+  "build": 203,
+  "label": "v203",
+  "minBuild": 203,
+  "note": "Reactivar empleado inactivo vuelve a Activos y se conserva"
 }
