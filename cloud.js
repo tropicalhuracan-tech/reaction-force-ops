@@ -327,6 +327,26 @@
     return { reports: [] };
   }
 
+
+  function preferLongerEmployeeName(a, b) {
+    const strip = (n) =>
+      String(n || "")
+        .replace(/\s*\(monorriel\)\s*$/i, "")
+        .replace(/\s*\(la vega(?: autopista)?\)\s*$/i, "")
+        .trim();
+    const aa = String(a || "").trim();
+    const bb = String(b || "").trim();
+    if (!aa) return bb;
+    if (!bb) return aa;
+    const ba = strip(aa);
+    const bb2 = strip(bb);
+    const ta = ba.split(/\s+/).filter(Boolean).length;
+    const tb = bb2.split(/\s+/).filter(Boolean).length;
+    if (tb > ta) return bb;
+    if (ta > tb) return aa;
+    return bb2.length > ba.length ? bb : aa;
+  }
+
   function employeeIdentityKey(name) {
     const base = String(name || "")
       .replace(/\s*\(monorriel\)\s*$/i, "")
@@ -361,6 +381,8 @@
         if (v == null || v === "") return;
         if (Array.isArray(v)) {
           merged[k] = [...new Set([...(Array.isArray(merged[k]) ? merged[k] : []), ...v].filter(Boolean))];
+        } else if (k === "name") {
+          merged[k] = preferLongerEmployeeName(merged[k], v);
         } else if (!merged[k]) {
           merged[k] = v;
         } else if (k === "updatedAt" && String(v) > String(merged[k] || "")) {
@@ -403,6 +425,7 @@
           merged[k] = v;
         }
       });
+      merged.name = preferLongerEmployeeName(winner.name, other.name);
       byId.set(id, merged);
     };
     (remoteList || []).forEach((e) => put(e, false));
