@@ -360,44 +360,124 @@
       .toUpperCase();
   }
 
-  /** Una ficha por persona (nombre base); une sitios/roles/datos. */
+  function employeeAliasKeySet(emp) {
+    const out = new Set();
+    if (!emp) return out;
+    const push = (n) => {
+      const k = employeeIdentityKey(n);
+      if (k) out.add(k);
+    };
+    push(emp.name);
+    (Array.isArray(emp.monoUnifyAliases) ? emp.monoUnifyAliases : []).forEach((a) => push(a));
+    return out;
+  }
+
+  /** Nombre corregido a mano gana siempre sobre roster/sync. */
+  function pickCloudEmployeeName(a, b) {
+    const aa = a || {};
+    const bb = b || {};
+    const aManual = aa.nameManual === true || aa.nameLocked === true;
+    const bManual = bb.nameManual === true || bb.nameLocked === true;
+    if (aManual && !bManual) return String(aa.name || bb.name || "").trim();
+    if (bManual && !aManual) return String(bb.name || aa.name || "").trim();
+    if (aManual && bManual) {
+      const ta = Date.parse(aa.nameManualAt || aa.nameLockedAt || "") || 0;
+      const tb = Date.parse(bb.nameManualAt || bb.nameLockedAt || "") || 0;
+      return String((tb >= ta ? bb.name : aa.name) || aa.name || bb.name || "").trim();
+    }
+    return preferLongerEmployeeName(aa.name, bb.name);
+  }
+
+  function mergeCloudEmployeePair(prev, raw) {
+    const a = prev || {};
+    const b = raw || {};
+    const nameManual = !!(a.nameManual || a.nameLocked || b.nameManual || b.nameLocked);
+    let nameManualAt = "";
+    if ((a.nameManual || a.nameLocked) && (b.nameManual || b.nameLocked)) {
+      const ta = Date.parse(a.nameManualAt || a.nameLockedAt || "") || 0;
+      const tb = Date.parse(b.nameManualAt || b.nameLockedAt || "") || 0;
+      nameManualAt =
+        tb >= ta
+          ? b.nameManualAt || b.nameLockedAt || a.nameManualAt || ""
+          : a.nameManualAt || a.nameLockedAt || "";
+    } else if (a.nameManual || a.nameLocked) {
+      nameManualAt = a.nameManualAt || a.nameLockedAt || "";
+    } else if (b.nameManual || b.nameLocked) {
+      nameManualAt = b.nameManualAt || b.nameLockedAt || "";
+    }
+    const merged = { ...a };
+    Object.keys(b).forEach((k) => {
+      const v = b[k];
+      if (v == null || v === "") return;
+      if (Array.isArray(v)) {
+        merged[k] = [...new Set([...(Array.isArray(merged[k]) ? merged[k] : []), ...v].filter(Boolean))];
+      } else if (k === "name") {
+        // se aplica abajo
+      } else if (!merged[k]) {
+        merged[k] = v;
+      } else if (k === "updatedAt" && String(v) > String(merged[k] || "")) {
+        merged[k] = v;
+      }
+    });
+    merged.name = pickCloudEmployeeName(a, b);
+    merged.nameManual = nameManual;
+    if (nameManual) merged.nameManualAt = nameManualAt || merged.nameManualAt || new Date().toISOString();
+    merged.monoUnifyAliases = [
+      ...new Set(
+        [
+          ...(Array.isArray(merged.monoUnifyAliases) ? merged.monoUnifyAliases : []),
+          employeeIdentityKey(a.name),
+          employeeIdentityKey(b.name),
+          String(a.name || "").trim(),
+          String(b.name || "").trim(),
+        ]
+          .map((x) => String(x || "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    return merged;
+  }
+
+  /** Una ficha por persona (nombre, aliases o nombre manual); une sitios/roles/datos. */
   function dedupeEmployeesByIdentity(list) {
     const map = new Map();
     const uglyId = (id) => /\(MONORRIEL\)|\(LA-VEGA|\(LA VEGA/i.test(String(id || ""));
+    const findMatchKey = (raw, key) => {
+      if (key && map.has(key)) return key;
+      const incomingAliases = employeeAliasKeySet(raw);
+      for (const [k, existing] of map) {
+        if (!existing) continue;
+        const aliases = employeeAliasKeySet(existing);
+        if (key && aliases.has(key)) return k;
+        if (incomingAliases.has(k) || incomingAliases.has(employeeIdentityKey(existing.name))) return k;
+        if (raw.id && existing.id && String(raw.id) === String(existing.id)) return k;
+      }
+      return null;
+    };
     (list || []).forEach((raw) => {
       if (!raw || typeof raw !== "object") return;
       const name = String(raw.name || "").trim();
       if (!name || name.toLowerCase() === "por asignar") return;
       const key = employeeIdentityKey(name);
       if (!key) return;
-      if (!map.has(key)) {
-        map.set(key, { ...raw });
+      const matchKey = findMatchKey(raw, key);
+      if (!matchKey) {
+        map.set(key, { ...raw, nameManual: raw.nameManual === true || raw.nameLocked === true });
         return;
       }
-      const prev = map.get(key);
-      const merged = { ...prev };
-      Object.keys(raw).forEach((k) => {
-        const v = raw[k];
-        if (v == null || v === "") return;
-        if (Array.isArray(v)) {
-          merged[k] = [...new Set([...(Array.isArray(merged[k]) ? merged[k] : []), ...v].filter(Boolean))];
-        } else if (k === "name") {
-          merged[k] = preferLongerEmployeeName(merged[k], v);
-        } else if (!merged[k]) {
-          merged[k] = v;
-        } else if (k === "updatedAt" && String(v) > String(merged[k] || "")) {
-          merged[k] = v;
-        }
-      });
+      const prev = map.get(matchKey);
+      const merged = mergeCloudEmployeePair(prev, raw);
       if (uglyId(merged.id) && raw.id && !uglyId(raw.id)) merged.id = raw.id;
-      map.set(key, merged);
+      const nextKey = employeeIdentityKey(merged.name) || matchKey;
+      if (nextKey !== matchKey) map.delete(matchKey);
+      map.set(nextKey, merged);
     });
     return [...map.values()].sort((a, b) =>
       String(a.name || "").localeCompare(String(b.name || ""), "es")
     );
   }
 
-  /** Une empleados locales + remotos por id y luego por identidad (nombre). */
+  /** Une empleados locales + remotos por id y luego por identidad (nombre/alias/manual). */
   function mergeEmployeesPreferUnion(localList, remoteList) {
     const byId = new Map();
     const put = (raw, preferIfTie) => {
@@ -405,7 +485,12 @@
       const name = String(raw.name || "").trim();
       if (!name || name.toLowerCase() === "por asignar") return;
       const id = String(raw.id || "").trim() || `tmp-${employeeIdentityKey(name)}`;
-      const row = { ...raw, id, name };
+      const row = {
+        ...raw,
+        id,
+        name,
+        nameManual: raw.nameManual === true || raw.nameLocked === true,
+      };
       if (!byId.has(id)) {
         byId.set(id, row);
         return;
@@ -415,17 +500,8 @@
       const tb = Date.parse(row.updatedAt || "") || 0;
       const winner = tb > ta || (tb === ta && preferIfTie) ? row : prev;
       const other = winner === row ? prev : row;
-      const merged = { ...other, ...winner };
-      Object.keys(other).forEach((k) => {
-        const v = other[k];
-        if (v == null || v === "") return;
-        if (Array.isArray(v)) {
-          merged[k] = [...new Set([...(Array.isArray(merged[k]) ? merged[k] : []), ...v].filter(Boolean))];
-        } else if (!merged[k]) {
-          merged[k] = v;
-        }
-      });
-      merged.name = preferLongerEmployeeName(winner.name, other.name);
+      const merged = mergeCloudEmployeePair(other, winner);
+      // Si el perdedor tenía nombre manual y el ganador no, ya quedó en pickCloudEmployeeName
       byId.set(id, merged);
     };
     (remoteList || []).forEach((e) => put(e, false));

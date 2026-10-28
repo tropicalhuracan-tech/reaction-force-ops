@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 201;
-const APP_VERSION_LABEL = "v201";
+const APP_BUILD = 202;
+const APP_VERSION_LABEL = "v202";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -434,6 +434,9 @@ function normalizeEmployee(e = {}) {
     monoUnifyAliases: Array.isArray(e.monoUnifyAliases)
       ? [...new Set(e.monoUnifyAliases.map((a) => String(a || "").trim()).filter(Boolean))]
       : [],
+    // Nombre corregido a mano en Empleados: el sync/roster NO lo puede pisar ni borrar
+    nameManual: e.nameManual === true || e.nameLocked === true,
+    nameManualAt: String(e.nameManualAt || e.nameLockedAt || "").trim(),
     updatedAt: e.updatedAt || new Date().toISOString(),
   };
 }
@@ -465,6 +468,8 @@ function applyMonorrielFlag(emp, isMono) {
   }
   out.name = name;
   out.key = employeeKey(out.name);
+  out.nameManual = !!emp.nameManual;
+  out.nameManualAt = emp.nameManualAt || "";
   return out;
 }
 
@@ -526,10 +531,76 @@ function preferMediaField(a, b) {
   return score(bb) > score(aa) ? bb : aa || bb;
 }
 
+function employeeAliasKeys(emp) {
+  const out = new Set();
+  if (!emp) return out;
+  const push = (n) => {
+    const k = employeeIdentityKey(n);
+    if (k) out.add(k);
+    const raw = employeeKey(n);
+    if (raw) out.add(raw);
+  };
+  push(emp.name);
+  (emp.monoUnifyAliases || []).forEach((a) => push(a));
+  return out;
+}
+
+/** Busca ficha existente para un nombre de roster/puesto (respeta aliases y nombre manual). */
+function findEmployeeForIncomingName(name, pool) {
+  const list = Array.isArray(pool) ? pool : employees;
+  const key = employeeIdentityKey(name);
+  const keyRaw = employeeKey(name);
+  if (!key && !keyRaw) return null;
+  let hit =
+    list.find((e) => e && employeeIdentityKey(e.name) === key) ||
+    list.find((e) => e && employeeAliasKeys(e).has(key)) ||
+    list.find((e) => e && employeeAliasKeys(e).has(keyRaw)) ||
+    null;
+  if (hit) return hit;
+  // Parecido fuerte a un nombre ya corregido a mano
+  const manuals = list.filter((e) => e && e.nameManual && e.name);
+  let best = null;
+  let bestScore = 0;
+  manuals.forEach((e) => {
+    const sim = nameSimilarity(name, e.name);
+    if (sim.score > bestScore) {
+      bestScore = sim.score;
+      best = e;
+    }
+  });
+  if (best && bestScore >= 0.9) return best;
+  return null;
+}
+
+function pickMergedEmployeeName(base, incoming) {
+  const b = base || {};
+  const i = incoming || {};
+  if (b.nameManual && !i.nameManual) return b.name || i.name || "";
+  if (i.nameManual && !b.nameManual) return i.name || b.name || "";
+  if (b.nameManual && i.nameManual) {
+    const tb = Date.parse(b.nameManualAt || "") || 0;
+    const ti = Date.parse(i.nameManualAt || "") || 0;
+    return ti >= tb ? i.name || b.name || "" : b.name || i.name || "";
+  }
+  return preferEmployeeName(b.name, i.name);
+}
+
 function mergeEmployeeRecord(base, incoming) {
+  const pickedName = pickMergedEmployeeName(base, incoming);
+  const nameManual = !!(base.nameManual || incoming.nameManual);
+  let nameManualAt = "";
+  if (base.nameManual && incoming.nameManual) {
+    const tb = Date.parse(base.nameManualAt || "") || 0;
+    const ti = Date.parse(incoming.nameManualAt || "") || 0;
+    nameManualAt = ti >= tb ? incoming.nameManualAt || base.nameManualAt || "" : base.nameManualAt || "";
+  } else if (base.nameManual) {
+    nameManualAt = base.nameManualAt || "";
+  } else if (incoming.nameManual) {
+    nameManualAt = incoming.nameManualAt || "";
+  }
   const out = normalizeEmployee({
     ...base,
-    name: preferEmployeeName(base.name, incoming.name),
+    name: pickedName,
     phone: preferFill(base.phone, incoming.phone),
     cedula: preferFill(base.cedula, incoming.cedula),
     companyEntryDate: preferFill(base.companyEntryDate, incoming.companyEntryDate),
@@ -560,9 +631,13 @@ function mergeEmployeeRecord(base, incoming) {
           .filter(Boolean)
       ),
     ],
+    nameManual,
+    nameManualAt,
     updatedAt: new Date().toISOString(),
   });
   out.key = employeeKey(out.name);
+  out.nameManual = nameManual;
+  out.nameManualAt = nameManualAt;
   return out;
 }
 
@@ -592,9 +667,21 @@ function rebuildEmployeesFromPosts(existingEmployees = employees) {
         roles: g.role ? [g.role] : [],
         sites: post.site ? [post.site] : [],
       });
-      if (map.has(key)) {
-        map.set(key, mergeEmployeeRecord(map.get(key), incoming));
-      } else {
+      const existingHit =
+        (key && map.get(key)) ||
+        findEmployeeForIncomingName(name, [...map.values()]);
+      if (existingHit) {
+        const keepKey = employeeIdentityKey(existingHit.name) || key;
+        const merged = mergeEmployeeRecord(existingHit, incoming);
+        // Nombre manual siempre gana
+        if (existingHit.nameManual) {
+          merged.name = existingHit.name;
+          merged.nameManual = true;
+          merged.nameManualAt = existingHit.nameManualAt || merged.nameManualAt;
+        }
+        map.set(keepKey, merged);
+        if (key && key !== keepKey) map.delete(key);
+      } else if (key) {
         map.set(key, incoming);
       }
     });
@@ -633,25 +720,65 @@ function pickCanonicalEmployeeId(a, b) {
   return (a && a.id) || (b && b.id) || "";
 }
 
-/** Une duplicados de la misma persona (nombre base). Devuelve lista limpia. */
+/** Une duplicados de la misma persona (nombre, aliases o nombre manual). Devuelve lista limpia. */
 function dedupeEmployeesList(list) {
   const map = new Map();
   const idRemap = {};
+  const findMatchKey = (e) => {
+    const key = employeeIdentityKey(e.name);
+    const keyRaw = employeeKey(e.name);
+    if (key && map.has(key)) return key;
+    const eAliases = employeeAliasKeys(e);
+    for (const [k, existing] of map) {
+      if (!existing) continue;
+      const aliases = employeeAliasKeys(existing);
+      if (key && aliases.has(key)) return k;
+      if (keyRaw && aliases.has(keyRaw)) return k;
+      if (eAliases.has(k) || eAliases.has(employeeIdentityKey(existing.name))) return k;
+      if (e.id && existing.id && e.id === existing.id) return k;
+      if ((existing.nameManual || e.nameManual) && nameSimilarity(existing.name, e.name).score >= 0.9) {
+        return k;
+      }
+    }
+    return null;
+  };
   (list || []).forEach((raw) => {
     const e = normalizeEmployee(raw || {});
     if (!e.name || e.name.toLowerCase() === "por asignar") return;
     const key = employeeIdentityKey(e.name);
     if (!key) return;
-    if (!map.has(key)) {
+    const matchKey = findMatchKey(e);
+    if (!matchKey) {
       map.set(key, e);
       return;
     }
-    const prev = map.get(key);
+    const prev = map.get(matchKey);
     const keepId = pickCanonicalEmployeeId(prev, e);
+    const lockedName = prev.nameManual ? prev.name : e.nameManual ? e.name : "";
+    const lockedManual = !!(prev.nameManual || e.nameManual);
+    const lockedAt = prev.nameManual
+      ? prev.nameManualAt || e.nameManualAt || ""
+      : e.nameManual
+        ? e.nameManualAt || prev.nameManualAt || ""
+        : "";
     let merged = mergeEmployeeRecord(prev, e);
     merged.id = keepId || merged.id;
     if (prev.id && prev.id !== merged.id) idRemap[prev.id] = merged.id;
     if (e.id && e.id !== merged.id) idRemap[e.id] = merged.id;
+    // Alias del nombre corto/largo para que sync futuro no vuelva a crear ficha
+    merged.monoUnifyAliases = [
+      ...new Set(
+        [
+          ...(merged.monoUnifyAliases || []),
+          employeeKey(prev.name),
+          employeeKey(e.name),
+          employeeIdentityKey(prev.name),
+          employeeIdentityKey(e.name),
+        ]
+          .map((a) => String(a || "").trim())
+          .filter(Boolean)
+      ),
+    ];
     const wantMono =
       (typeof isMonorrielEmployee === "function" && (isMonorrielEmployee(prev) || isMonorrielEmployee(e))) ||
       (merged.sites || []).some((s) => /monorriel/i.test(s || ""));
@@ -660,8 +787,19 @@ function dedupeEmployeesList(list) {
       (merged.sites || []).some((s) => /la vega/i.test(s || ""));
     if (wantMono && typeof applyMonorrielFlag === "function") merged = applyMonorrielFlag(merged, true);
     if (wantLva && typeof applyLvaFlag === "function") merged = applyLvaFlag(merged, true);
+    if (lockedManual && lockedName) {
+      merged.name = lockedName;
+      merged.nameManual = true;
+      merged.nameManualAt = lockedAt || merged.nameManualAt || new Date().toISOString();
+    }
     merged.updatedAt = new Date().toISOString();
-    map.set(key, normalizeEmployee(merged));
+    merged = normalizeEmployee(merged);
+    merged.nameManual = lockedManual || !!merged.nameManual;
+    if (merged.nameManual) merged.nameManualAt = lockedAt || merged.nameManualAt || "";
+    if (lockedManual && lockedName) merged.name = lockedName;
+    const nextKey = employeeIdentityKey(merged.name) || matchKey;
+    if (nextKey !== matchKey) map.delete(matchKey);
+    map.set(nextKey, merged);
   });
   const out = [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "es"));
   if (typeof loans !== "undefined" && Array.isArray(loans) && Object.keys(idRemap).length) {
@@ -1690,6 +1828,12 @@ function saveEmployeeDetail() {
     nextDocMime = doc.mime || nextDocMime;
   }
 
+  const prevBase = typeof monoBaseName === "function" ? monoBaseName(previousName) || previousName : previousName;
+  const nextBase = typeof monoBaseName === "function" ? monoBaseName(name) || name : name;
+  const aliasExtra = [];
+  if (prevBase && employeeKey(prevBase) !== employeeKey(nextBase)) {
+    aliasExtra.push(employeeKey(prevBase), employeeIdentityKey(previousName), employeeKey(previousName));
+  }
   let updated = normalizeEmployee({
     ...current,
     name,
@@ -1714,9 +1858,17 @@ function saveEmployeeDetail() {
     inactiveAt: current.inactiveAt || "",
     hrApplicationId: current.hrApplicationId || "",
     hrProfile: current.hrProfile || {},
+    monoUnifyAliases: [
+      ...new Set([...(current.monoUnifyAliases || []), ...aliasExtra].map((a) => String(a || "").trim()).filter(Boolean)),
+    ],
+    nameManual: true,
+    nameManualAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
   updated = applyMonorrielFlag(updated, isMono);
+  // applyMonorrielFlag no debe perder el candado de nombre
+  updated.nameManual = true;
+  updated.nameManualAt = updated.nameManualAt || new Date().toISOString();
   employees[idx] = updated;
   selectedEmployeeId = updated.id;
   const prevPhotoPath = current.photoStoragePath || "";
@@ -1755,12 +1907,30 @@ function saveEmployeeDetail() {
     employees[affirmIdx] = {
       ...employees[affirmIdx],
       ...updated,
-      name: preferEmployeeName(updated.name, employees[affirmIdx].name),
+      name: updated.name,
+      nameManual: true,
+      nameManualAt: updated.nameManualAt,
+      monoUnifyAliases: updated.monoUnifyAliases || [],
     };
   } else {
     employees.unshift(updated);
   }
+  // Quitar fichas cortas duplicadas del mismo empleado (roster viejo)
+  const keepId = updated.id;
+  const aliasSet = employeeAliasKeys(updated);
+  employees = employees.filter((e) => {
+    if (!e || !e.id) return false;
+    if (e.id === keepId) return true;
+    if (e.nameManual) return true;
+    const eKey = employeeIdentityKey(e.name);
+    if (eKey && aliasSet.has(eKey)) return false;
+    if (nameSimilarity(updated.name, e.name).score >= 0.92) return false;
+    return true;
+  });
   saveEmployees();
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
   if (postsTouched) {
     renderMarkers();
     renderShifts();
@@ -1770,7 +1940,7 @@ function saveEmployeeDetail() {
   renderEmployees();
   openEmployeeDetail(selectedEmployeeId);
   logActivity("employee_update", `Actualizó empleado: ${updated.name}`);
-  toast("Empleado guardado. Los datos vacíos seguirán llenándose desde los servicios.");
+  toast("Nombre guardado. El sync ya no lo puede pisar.");
 }
 
 function normalizePost(p = {}) {
@@ -7340,37 +7510,30 @@ function ensureMonorrielEmployeesImported() {
     const keyBase = employeeKey(base);
     const roster = rosterByKey.get(keyBase) || rosterByKey.get(key);
     const salaryFromRoster = roster ? Math.max(0, Number(roster.salaryMonthly) || 0) : 0;
-    let existing = employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
-    if (!existing && keyBase) {
-      existing = employees.find(
-        (e) =>
-          Array.isArray(e.monoUnifyAliases) &&
-          e.monoUnifyAliases.some((a) => String(a) === keyBase || String(a) === key)
-      );
+    let existing = findEmployeeForIncomingName(base, employees);
+    if (!existing) {
+      existing = employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
     }
     if (existing) {
       const idx = employees.findIndex((e) => e.id === existing.id);
-      // Nunca acortar un nombre ya editado en Empleados con el del Excel/roster
-      const keptName = preferEmployeeName(existing.name, display);
       const merged = mergeEmployeeRecord(existing, {
-        name: keptName,
+        name: existing.nameManual ? existing.name : preferEmployeeName(existing.name, display),
         sites: ["Monorriel"],
         roles: ["Monorriel"],
         salary: existing.salary > 0 ? existing.salary : salaryFromRoster,
+        monoUnifyAliases: [...(existing.monoUnifyAliases || []), keyBase, key],
       });
-      // Si era un alias unificado, conservar el nombre del Principal (no revivir el typo)
-      const isAliasOnly =
-        Array.isArray(existing.monoUnifyAliases) &&
-        existing.monoUnifyAliases.some((a) => String(a) === keyBase || String(a) === key) &&
-        employeeKey(monoBaseName(existing.name)) !== keyBase;
-      if (isAliasOnly) {
+      if (existing.nameManual) {
         merged.name = existing.name;
-      } else {
-        merged.name = preferEmployeeName(merged.name, keptName);
-        if (!/\(monorriel\)/i.test(merged.name)) {
-          merged.name = monoDisplayName(monoBaseName(merged.name) || merged.name);
-        }
+        merged.nameManual = true;
+        merged.nameManualAt = existing.nameManualAt || merged.nameManualAt;
+      } else if (!/\(monorriel\)/i.test(merged.name)) {
+        merged.name = monoDisplayName(monoBaseName(merged.name) || merged.name);
       }
+      // Alias del corto del Excel → apunta al nombre corregido
+      merged.monoUnifyAliases = [
+        ...new Set([...(merged.monoUnifyAliases || []), keyBase, key].map(String).filter(Boolean)),
+      ];
       merged.sites = [...new Set([...(merged.sites || []), "Monorriel"])];
       merged.roles = [...new Set([...(merged.roles || []), "Monorriel"])];
       if (!(Number(merged.salary) > 0) && salaryFromRoster) merged.salary = salaryFromRoster;
@@ -7383,6 +7546,7 @@ function ensureMonorrielEmployeesImported() {
         sites: ["Monorriel"],
         roles: ["Monorriel"],
         salary: salaryFromRoster || 0,
+        monoUnifyAliases: [keyBase, key].filter(Boolean),
       })
     );
     added += 1;
@@ -9058,6 +9222,8 @@ function applyLvaFlag(emp, isLva) {
     out.name = keepMono ? monoDisplayName(base) : base;
   }
   out.key = employeeKey(out.name);
+  out.nameManual = !!emp.nameManual;
+  out.nameManualAt = emp.nameManualAt || "";
   return out;
 }
 
@@ -9067,20 +9233,24 @@ function upsertEmployeeFromLva(staff) {
   const display = lvaDisplayName(base);
   const key = employeeKey(display);
   const keyBase = employeeKey(base);
-  let idx = employees.findIndex(
-    (e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase
-  );
+  let existing =
+    findEmployeeForIncomingName(base, employees) ||
+    employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
+  let idx = existing ? employees.findIndex((e) => e.id === existing.id) : -1;
+  if (idx < 0 && existing) idx = employees.indexOf(existing);
   if (idx >= 0) {
     const cur = employees[idx];
-    // Conservar nombre completo ya editado; solo añadir etiqueta La Vega si hace falta
-    let nextName = preferEmployeeName(cur.name, display);
-    if (!/\(la vega/i.test(nextName) && typeof lvaDisplayName === "function") {
-      nextName = lvaDisplayName(lvaBaseName(nextName) || nextName);
-    }
-    if (/\(monorriel\)/i.test(cur.name || "") && !/\(monorriel\)/i.test(nextName)) {
-      nextName = typeof monoDisplayName === "function"
-        ? monoDisplayName(monoBaseName(nextName) || nextName)
-        : nextName;
+    // Nombre corregido a mano: no pisar; solo unir datos y alias
+    let nextName = cur.nameManual ? cur.name : preferEmployeeName(cur.name, display);
+    if (!cur.nameManual) {
+      if (!/\(la vega/i.test(nextName) && typeof lvaDisplayName === "function") {
+        nextName = lvaDisplayName(lvaBaseName(nextName) || nextName);
+      }
+      if (/\(monorriel\)/i.test(cur.name || "") && !/\(monorriel\)/i.test(nextName)) {
+        nextName = typeof monoDisplayName === "function"
+          ? monoDisplayName(monoBaseName(nextName) || nextName)
+          : nextName;
+      }
     }
     employees[idx] = normalizeEmployee({
       ...cur,
@@ -9090,8 +9260,18 @@ function upsertEmployeeFromLva(staff) {
       sites: [...new Set([...(cur.sites || []), LVA_SITE])],
       roles: [...new Set([...(cur.roles || []), LVA_SITE])],
       status: cur.status === "inactive" ? "inactive" : "active",
+      monoUnifyAliases: [
+        ...new Set([...(cur.monoUnifyAliases || []), keyBase, key].map(String).filter(Boolean)),
+      ],
+      nameManual: !!cur.nameManual,
+      nameManualAt: cur.nameManualAt || "",
       updatedAt: new Date().toISOString(),
     });
+    if (cur.nameManual) {
+      employees[idx].name = cur.name;
+      employees[idx].nameManual = true;
+      employees[idx].nameManualAt = cur.nameManualAt || employees[idx].nameManualAt;
+    }
     return employees[idx];
   }
   const emp = normalizeEmployee({
@@ -9123,18 +9303,20 @@ function ensureOfficeEmployeesImported() {
     const cedula = String(o.cedula || "").replace(/\D/g, "");
     const cedulaFmt =
       cedula.length === 11 ? `${cedula.slice(0, 3)}-${cedula.slice(3, 10)}-${cedula.slice(10)}` : String(o.cedula || "");
-    const existing = employees.find(
-      (e) =>
-        e.id === o.id ||
-        e.officeEmployeeId === o.id ||
-        employeeIdentityKey(e.name) === key
-    );
+    const existing =
+      employees.find(
+        (e) =>
+          e.id === o.id ||
+          e.officeEmployeeId === o.id ||
+          employeeIdentityKey(e.name) === key
+      ) || findEmployeeForIncomingName(name, employees);
     if (existing) {
       const idx = employees.findIndex((e) => e.id === existing.id);
+      const keepName = existing.nameManual ? existing.name : preferEmployeeName(existing.name, name);
       const merged = normalizeEmployee({
         ...existing,
         id: existing.id || o.id,
-        name,
+        name: keepName,
         phone: o.phone || existing.phone || "",
         cedula: cedulaFmt || existing.cedula || "",
         salary: Math.max(0, Number(o.salary) || Number(existing.salary) || 0),
@@ -9144,8 +9326,22 @@ function ensureOfficeEmployeesImported() {
         status: "active",
         inactiveReason: "",
         inactiveAt: "",
+        monoUnifyAliases: [
+          ...new Set(
+            [...(existing.monoUnifyAliases || []), employeeKey(name), employeeIdentityKey(name)]
+              .map(String)
+              .filter(Boolean)
+          ),
+        ],
+        nameManual: !!existing.nameManual,
+        nameManualAt: existing.nameManualAt || "",
         updatedAt: new Date().toISOString(),
       });
+      if (existing.nameManual) {
+        merged.name = existing.name;
+        merged.nameManual = true;
+        merged.nameManualAt = existing.nameManualAt || merged.nameManualAt;
+      }
       const before = JSON.stringify(employees[idx]);
       employees[idx] = merged;
       if (JSON.stringify(merged) !== before) changed = true;
@@ -13716,7 +13912,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=201").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=202").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13732,7 +13928,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v201")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v202")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
