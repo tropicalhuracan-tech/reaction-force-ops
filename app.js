@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 200;
-const APP_VERSION_LABEL = "v200";
+const APP_BUILD = 201;
+const APP_VERSION_LABEL = "v201";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -475,6 +475,44 @@ function preferFill(current, incoming) {
   return cur;
 }
 
+/** Prefiere el nombre más completo (más apellidos/tokens). Evita que un corto de roster/puesto pise el legal. */
+function preferEmployeeName(a, b) {
+  const strip = (n) => {
+    const raw = String(n || "").trim();
+    if (!raw) return "";
+    return typeof monoBaseName === "function"
+      ? monoBaseName(raw) || raw
+      : raw.replace(/\s*\((monorriel|la vega(?: autopista)?)\)\s*$/i, "").trim();
+  };
+  const aa = String(a || "").trim();
+  const bb = String(b || "").trim();
+  if (!aa) return bb;
+  if (!bb) return aa;
+  const ba = strip(aa);
+  const bb2 = strip(bb);
+  const ta = ba.split(/\s+/).filter(Boolean).length;
+  const tb = bb2.split(/\s+/).filter(Boolean).length;
+  // Conservar sufijo (Monorriel)/(La Vega) del ganador si aplica
+  const withTag = (winnerRaw, otherRaw) => {
+    const base = strip(winnerRaw);
+    const tagged =
+      /\(monorriel\)/i.test(winnerRaw) || /\(monorriel\)/i.test(otherRaw)
+        ? typeof monoDisplayName === "function"
+          ? monoDisplayName(base)
+          : `${base} (Monorriel)`
+        : /\(la vega/i.test(winnerRaw) || /\(la vega/i.test(otherRaw)
+          ? typeof lvaDisplayName === "function"
+            ? lvaDisplayName(base)
+            : `${base} (La Vega Autopista)`
+          : base;
+    return tagged;
+  };
+  if (tb > ta) return withTag(bb, aa);
+  if (ta > tb) return withTag(aa, bb);
+  if (bb2.length > ba.length) return withTag(bb, aa);
+  return withTag(aa, bb);
+}
+
 /** Prefiere data URL o http(s) de cualquiera de los dos lados (no perder fotos en merge). */
 function preferMediaField(a, b) {
   const aa = String(a || "").trim();
@@ -491,7 +529,7 @@ function preferMediaField(a, b) {
 function mergeEmployeeRecord(base, incoming) {
   const out = normalizeEmployee({
     ...base,
-    name: base.name || incoming.name,
+    name: preferEmployeeName(base.name, incoming.name),
     phone: preferFill(base.phone, incoming.phone),
     cedula: preferFill(base.cedula, incoming.cedula),
     companyEntryDate: preferFill(base.companyEntryDate, incoming.companyEntryDate),
@@ -1513,13 +1551,32 @@ function printEmployeeHireSheet(emp) {
 }
 
 /** Rellena campos vacíos de vigilantes en servicios con la ficha del empleado */
-function pushEmployeeIntoPosts(emp) {
-  const key = employeeKey(emp.name);
+function pushEmployeeIntoPosts(emp, previousName = "") {
+  const keys = new Set(
+    [emp && emp.name, previousName]
+      .map((n) => employeeIdentityKey(n))
+      .filter(Boolean)
+  );
+  const targetName = String((emp && emp.name) || "").trim();
   let touched = false;
   posts.forEach((post) => {
     (post.guards || []).forEach((g) => {
-      if (employeeKey(g.name) !== key) return;
+      const gKey = employeeIdentityKey(g.name);
+      let match = gKey && keys.has(gKey);
+      if (!match && targetName && g.name) {
+        const sim = nameSimilarity(targetName, g.name);
+        match = sim.score >= 0.9;
+      }
+      if (!match && previousName && g.name) {
+        const sim = nameSimilarity(previousName, g.name);
+        match = sim.score >= 0.9;
+      }
+      if (!match) return;
       const before = JSON.stringify(g);
+      // Propagar el nombre completo editado en Empleados hacia el puesto
+      if (targetName && employeeKey(g.name) !== employeeKey(targetName)) {
+        g.name = typeof monoBaseName === "function" ? monoBaseName(targetName) || targetName : targetName;
+      }
       g.phone = preferFill(g.phone, emp.phone);
       g.cedula = preferFill(g.cedula, emp.cedula);
       g.companyEntryDate = preferFill(g.companyEntryDate, emp.companyEntryDate);
@@ -1551,6 +1608,7 @@ function saveEmployeeDetail() {
     return;
   }
   const current = employees[idx];
+  const previousName = String(current.name || "").trim();
   const isMono = document.getElementById("eMonorriel").checked;
   const similar = findSimilarEmployees(name, current.id);
   if (similar.some((m) => m.exact)) {
@@ -1684,11 +1742,24 @@ function saveEmployeeDetail() {
       window.RFSCloudApi.deleteMedia(prevDocMedia).catch(() => {});
     }
   }
-  const postsTouched = pushEmployeeIntoPosts(updated);
+  const postsTouched = pushEmployeeIntoPosts(updated, previousName);
   if (postsTouched) {
     localStorage.setItem(POSTS_KEY, JSON.stringify(posts));
   }
-  rebuildEmployeesFromPosts(employees);
+  // No reconstruir desde puestos aquí: podía recrear el nombre corto y “deshacer” el completo.
+  // Solo deduplicar preservando el nombre más completo (preferEmployeeName).
+  employees = dedupeEmployeesList(employees);
+  // Reafirmar el registro editado por id (anti-pisotón de dedupe/import)
+  const affirmIdx = employees.findIndex((e) => e.id === updated.id);
+  if (affirmIdx >= 0) {
+    employees[affirmIdx] = {
+      ...employees[affirmIdx],
+      ...updated,
+      name: preferEmployeeName(updated.name, employees[affirmIdx].name),
+    };
+  } else {
+    employees.unshift(updated);
+  }
   saveEmployees();
   if (postsTouched) {
     renderMarkers();
@@ -7279,8 +7350,10 @@ function ensureMonorrielEmployeesImported() {
     }
     if (existing) {
       const idx = employees.findIndex((e) => e.id === existing.id);
+      // Nunca acortar un nombre ya editado en Empleados con el del Excel/roster
+      const keptName = preferEmployeeName(existing.name, display);
       const merged = mergeEmployeeRecord(existing, {
-        name: /\(monorriel\)/i.test(existing.name) ? existing.name : display,
+        name: keptName,
         sites: ["Monorriel"],
         roles: ["Monorriel"],
         salary: existing.salary > 0 ? existing.salary : salaryFromRoster,
@@ -7290,8 +7363,14 @@ function ensureMonorrielEmployeesImported() {
         Array.isArray(existing.monoUnifyAliases) &&
         existing.monoUnifyAliases.some((a) => String(a) === keyBase || String(a) === key) &&
         employeeKey(monoBaseName(existing.name)) !== keyBase;
-      if (!isAliasOnly && !/\(monorriel\)/i.test(merged.name)) merged.name = display;
-      if (!/\(monorriel\)/i.test(merged.name)) merged.name = monoDisplayName(monoBaseName(merged.name) || merged.name);
+      if (isAliasOnly) {
+        merged.name = existing.name;
+      } else {
+        merged.name = preferEmployeeName(merged.name, keptName);
+        if (!/\(monorriel\)/i.test(merged.name)) {
+          merged.name = monoDisplayName(monoBaseName(merged.name) || merged.name);
+        }
+      }
       merged.sites = [...new Set([...(merged.sites || []), "Monorriel"])];
       merged.roles = [...new Set([...(merged.roles || []), "Monorriel"])];
       if (!(Number(merged.salary) > 0) && salaryFromRoster) merged.salary = salaryFromRoster;
@@ -8993,10 +9072,19 @@ function upsertEmployeeFromLva(staff) {
   );
   if (idx >= 0) {
     const cur = employees[idx];
-    const keepMono = /\(monorriel\)/i.test(cur.name || "");
+    // Conservar nombre completo ya editado; solo añadir etiqueta La Vega si hace falta
+    let nextName = preferEmployeeName(cur.name, display);
+    if (!/\(la vega/i.test(nextName) && typeof lvaDisplayName === "function") {
+      nextName = lvaDisplayName(lvaBaseName(nextName) || nextName);
+    }
+    if (/\(monorriel\)/i.test(cur.name || "") && !/\(monorriel\)/i.test(nextName)) {
+      nextName = typeof monoDisplayName === "function"
+        ? monoDisplayName(monoBaseName(nextName) || nextName)
+        : nextName;
+    }
     employees[idx] = normalizeEmployee({
       ...cur,
-      name: keepMono ? cur.name : display,
+      name: nextName,
       phone: staff.phone || cur.phone,
       cedula: staff.cedula || cur.cedula,
       sites: [...new Set([...(cur.sites || []), LVA_SITE])],
@@ -13628,7 +13716,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=200").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=201").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -13644,7 +13732,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v200")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v201")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

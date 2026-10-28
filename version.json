@@ -1,6 +1,6 @@
 {
-  "build": 200,
-  "label": "v200",
-  "minBuild": 200,
-  "note": "Reportes: borrados permanentes (papelera anti-resurrección)"
+  "build": 201,
+  "label": "v201",
+  "minBuild": 201,
+  "note": "Empleados: el nombre completo ya no se acorta al guardar"
 }
