@@ -1,6 +1,6 @@
 {
-  "build": 205,
-  "label": "v205",
-  "minBuild": 205,
-  "note": "Borrado de reportes y mensajes; no vuelven desde otras PCs"
+  "build": 206,
+  "label": "v206",
+  "minBuild": 206,
+  "note": "Préstamos: cuota marcada pagada se guarda y no se revierte"
 }

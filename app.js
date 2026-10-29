@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 205;
-const APP_VERSION_LABEL = "v205";
+const APP_BUILD = 206;
+const APP_VERSION_LABEL = "v206";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -5443,6 +5443,69 @@ function mergeLoanTrash(localIds, remoteIds) {
   return normalizeLoanTrash([...(localIds || []), ...(remoteIds || [])]);
 }
 
+/** Une cuadros de cuotas: si alguna lado marcó pagada, se conserva (anti-pisotón del Excel/sync). */
+function mergeLoanSchedulePreferPaid(aSched, bSched) {
+  const a = Array.isArray(aSched) ? aSched : [];
+  const b = Array.isArray(bSched) ? bSched : [];
+  const byN = new Map();
+  const put = (row, index) => {
+    const inst = normalizeLoanInstallment(row || {}, index);
+    const key = Number(inst.n) || index + 1;
+    const prev = byN.get(key);
+    if (!prev) {
+      byN.set(key, inst);
+      return;
+    }
+    const paid = !!(prev.paid || inst.paid);
+    const preferNewerPaid = () => {
+      if (inst.paid && !prev.paid) return inst;
+      if (prev.paid && !inst.paid) return prev;
+      const ta = Date.parse(prev.paidAt || "") || 0;
+      const tb = Date.parse(inst.paidAt || "") || 0;
+      return tb >= ta ? inst : prev;
+    };
+    const winner = paid ? preferNewerPaid() : inst;
+    byN.set(key, {
+      ...prev,
+      ...inst,
+      n: key,
+      dueDate: inst.dueDate || prev.dueDate,
+      principal: inst.principal || prev.principal,
+      interest: inst.interest || prev.interest,
+      payment: inst.payment || prev.payment,
+      balance: inst.balance || prev.balance,
+      paid,
+      paidAt: paid ? winner.paidAt || prev.paidAt || inst.paidAt || "" : "",
+      paidAmount: paid
+        ? roundMoney(winner.paidAmount || prev.paidAmount || inst.paidAmount || winner.payment || prev.payment)
+        : 0,
+    });
+  };
+  a.forEach((row, i) => put(row, i));
+  b.forEach((row, i) => put(row, i));
+  return [...byN.values()].sort((x, y) => Number(x.n) - Number(y.n));
+}
+
+/** Fusiona dos fichas del mismo préstamo conservando pagos y el updatedAt más reciente. */
+function mergeLoanRecordsPreferProgress(a, b) {
+  const left = normalizeLoan(a || {});
+  const right = normalizeLoan(b || {});
+  const ta = Date.parse(left.updatedAt || "") || 0;
+  const tb = Date.parse(right.updatedAt || "") || 0;
+  const newer = tb >= ta ? right : left;
+  const older = newer === right ? left : right;
+  return normalizeLoan({
+    ...older,
+    ...newer,
+    employeeName: newer.employeeName || older.employeeName,
+    employeeId: newer.employeeId || older.employeeId,
+    note: newer.note || older.note,
+    matchHint: newer.matchHint || older.matchHint,
+    schedule: mergeLoanSchedulePreferPaid(older.schedule, newer.schedule),
+    updatedAt: ta >= tb ? left.updatedAt : right.updatedAt,
+  });
+}
+
 function mergeLoansById(localList, remoteList) {
   const map = new Map();
   [...(localList || []), ...(remoteList || [])].forEach((row) => {
@@ -5450,9 +5513,11 @@ function mergeLoansById(localList, remoteList) {
     const next = normalizeLoan(row);
     if (!next.id) return;
     const prev = map.get(next.id);
-    if (!prev || String(next.updatedAt || "") >= String(prev.updatedAt || "")) {
+    if (!prev) {
       map.set(next.id, next);
+      return;
     }
+    map.set(next.id, mergeLoanRecordsPreferProgress(prev, next));
   });
   return [...map.values()];
 }
@@ -5546,6 +5611,7 @@ function isLoansSeedAuthoritative() {
 /**
  * Tras sync/merge: quitar seed de papelera, reponer préstamos del Excel si faltan,
  * y eliminar duplicados de prueba.
+ * IMPORTANTE: no pisar cuotas ya marcadas como pagadas en vivo.
  */
 function protectExcelSeedLoans() {
   loanTrashIds = purgeExcelSeedIdsFromTrash(loanTrashIds);
@@ -5553,7 +5619,13 @@ function protectExcelSeedLoans() {
     loans = dedupeLoansPreferSeed(loans);
     return false;
   }
-  const seedLoans = buildNormalizedSeedLoans();
+  const liveById = new Map((loans || []).filter((l) => l && l.id).map((l) => [l.id, l]));
+  const seedLoans = buildNormalizedSeedLoans().map((seed) => {
+    const live = liveById.get(seed.id);
+    if (!live) return seed;
+    // Conservar pagos / edits más recientes sobre la plantilla del Excel
+    return mergeLoanRecordsPreferProgress(seed, live);
+  });
   const seedIds = new Set(seedLoans.map((l) => l.id));
   const seedKeys = new Set(seedLoans.map(loanDedupeKey));
   // Conservar préstamos nuevos manuales (no Excel) que no dupliquen al seed
@@ -6445,6 +6517,9 @@ function applyPayrollPayments() {
     count += 1;
   });
   saveLoans();
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
   renderLoans();
   toast(`${count} cuota(s) registradas como pagadas.`);
 }
@@ -6583,8 +6658,13 @@ function markLoanInstallmentPaid(loanId, idx) {
   const pos = loans.findIndex((l) => l.id === loanId);
   if (pos >= 0) loans[pos] = refreshLoanDerived(loan);
   saveLoans();
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
   openLoanDetail(loanId);
-  toast("Cuota marcada como pagada. Saldo actualizado.");
+  const live = getLoan(loanId);
+  const ok = live && live.schedule && live.schedule[idx] && live.schedule[idx].paid;
+  toast(ok ? "Cuota marcada como pagada. Saldo actualizado." : "No se pudo guardar el pago de la cuota.");
 }
 
 function saveLoanEmployeeName() {
@@ -14085,7 +14165,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=205").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=206").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14101,7 +14181,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v205")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v206")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
