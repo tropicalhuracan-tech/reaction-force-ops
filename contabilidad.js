@@ -423,8 +423,8 @@ function computePayrollLineTotals(line, opts = {}) {
     }
   }
 
-  // LVA (La Vega / Monorriel / Lotedom / Banco / Efectivo): comida editable + seguro de vida fijo 90
-  const svda = lavega && hasName ? LVA_PAYROLL_SVDA : 0;
+  // LVA: comida editable + seguro de vida fijo 90 (filas manuales: sin seguro auto)
+  const svda = lavega && hasName && !manual ? LVA_PAYROLL_SVDA : 0;
   const almuerzoSvda = roundMoney2(almuerzo + svda);
 
   // Restan: SFS/SVDS, uniformes, comida, seguro de vida, rifa, adelantos, préstamos
@@ -2996,16 +2996,35 @@ function readPayrollLinesFromDom(payrollId) {
     const isOffice = payrollIsOffice(p);
     const isLavega = payrollUsesLvaParams(p);
     const formulaOpts = payrollComputeOpts(p);
+    const isManual = !!(prev.manualEntry || prev.manual || tr.dataset.manual === "1");
     const ur = isOffice ? { uniformes: 0, rifa: 0 } : parseUnifRifa(g("unifRifa"), prev);
     const showFer = !isOffice && payrollShowsFeriado(p);
+    const readNum = (name, fallback) => {
+      const raw = g(name);
+      if (raw === "" || raw == null) return isManual ? 0 : fallback;
+      return raw;
+    };
     const rifaVal = isOffice
-      ? g("rifa") !== "" && g("rifa") != null
-        ? g("rifa")
-        : prev.rifa != null
-          ? prev.rifa
-          : OFFICE_PAYROLL_RIFA
-      : ur.rifa || LVA_PAYROLL_RIFA;
+      ? isManual
+        ? readNum("rifa", 0)
+        : g("rifa") !== "" && g("rifa") != null
+          ? g("rifa")
+          : prev.rifa != null
+            ? prev.rifa
+            : OFFICE_PAYROLL_RIFA
+      : isManual
+        ? ur.rifa
+        : ur.rifa || LVA_PAYROLL_RIFA;
     const reviewedEl = tr.querySelector('[data-f="reviewed"]');
+    // Oficina normal: quincena la calcula la fórmula. Manual: lo que esté en pantalla (si hay input).
+    const quincenaDom = g("salaryQuincena");
+    const salaryQuincenaVal = isManual
+      ? quincenaDom === "" || quincenaDom == null
+        ? Math.max(0, Number(prev.salaryQuincena) || 0)
+        : quincenaDom
+      : isOffice
+        ? 0
+        : g("salaryQuincena");
     return normalizePayrollLine(
       {
         ...prev,
@@ -3013,23 +3032,22 @@ function readPayrollLinesFromDom(payrollId) {
         cedula: g("cedula") || prev.cedula,
         daysWorked: isOffice ? "" : g("daysWorked") || prev.daysWorked,
         salaryMonthly: g("salaryMonthly"),
-        salaryQuincena: isOffice ? 0 : g("salaryQuincena"),
-        sfs: g("sfs") === "" || g("sfs") == null ? prev.sfs : g("sfs"),
-        sfsManual: !!prev.sfsManual,
+        salaryQuincena: salaryQuincenaVal,
+        // Manual: vacío = 0 (no resucitar SFS anterior al guardar)
+        sfs: readNum("sfs", prev.sfs),
+        sfsManual: isManual ? true : !!prev.sfsManual,
         uniformes: isOffice ? 0 : ur.uniformes,
         rifa: rifaVal,
         volaos: isOffice ? 0 : g("volaos"),
         incentivos: g("incentivos"),
         horasExtras: isOffice
-          ? prev.horasExtrasManual
-            ? g("horasExtras") === "" || g("horasExtras") == null
-              ? prev.horasExtras
-              : g("horasExtras")
+          ? isManual || prev.horasExtrasManual
+            ? readNum("horasExtras", prev.horasExtras)
             : 0
           : g("horasExtras") === "" || g("horasExtras") == null
             ? prev.horasExtras
             : g("horasExtras"),
-        horasExtrasManual: !!prev.horasExtrasManual,
+        horasExtrasManual: isManual ? true : !!prev.horasExtrasManual,
         feriado: showFer ? g("feriado") : 0,
         almuerzo: isOffice
           ? 0
@@ -3039,7 +3057,7 @@ function readPayrollLinesFromDom(payrollId) {
         adelantos: g("adelantos"),
         prestamos: g("prestamos"),
         reviewed: reviewedEl ? !!reviewedEl.checked : !!prev.reviewed,
-        manualEntry: !!(prev.manualEntry || prev.manual || tr.dataset.manual === "1"),
+        manualEntry: isManual,
       },
       formulaOpts
     );
@@ -3221,9 +3239,12 @@ function addManualPayrollRows() {
           feriado: 0,
           horasExtras: 0,
           sfs: 0,
+          sfsManual: true,
+          horasExtrasManual: true,
           salaryQuincena: 0,
+          rifa: 0,
           manualEntry: true,
-          note: "Manual · sin fórmulas",
+          note: "Manual · sin fórmulas · montos a mano",
         }),
         blankFormulaOpts
       )
@@ -3320,11 +3341,12 @@ function formatUnifRifa(line) {
   return `${u || 0}/${r || LVA_PAYROLL_RIFA}`;
 }
 
-/** Comida editable / Seguro de vida fijo 90 (todas las nóminas LVA). */
+/** Comida editable / Seguro de vida fijo 90 (LVA). Manual: solo comida (sin /90 auto). */
 function formatAlmuerzoSvda(line) {
   const meal = Math.max(0, Number(line && line.almuerzo) || 0);
   const hasName = payrollLineHasEmployeeName(line);
   if (!hasName && !meal) return "";
+  if (isManualPayrollLine(line)) return String(meal || 0);
   return `${meal || 0}/${LVA_PAYROLL_SVDA}`;
 }
 
@@ -3344,6 +3366,8 @@ function almuerzoSvdaAmount(line) {
   const meal = Math.max(0, Number(line && line.almuerzo) || 0);
   const svda = Math.max(0, Number(line && line.svda) || 0);
   if (svda) return roundMoney2(meal + svda);
+  // Filas manuales: solo lo tecleado (sin sumar seguro de vida automático)
+  if (isManualPayrollLine(line)) return meal;
   if (payrollLineHasEmployeeName(line)) return roundMoney2(meal + LVA_PAYROLL_SVDA);
   return meal;
 }
@@ -3450,8 +3474,12 @@ function syncOpenPayrollFromDom(recalc = false) {
   if (!lines) return p;
   const profile = getPayrollFormulaProfile(p);
   const opts = payrollComputeOpts(p);
-  p.lines = lines.map((l) =>
-    computePayrollLineTotals(
+  p.lines = lines.map((l) => {
+    if (isManualPayrollLine(l)) {
+      // Manual: respetar todos los montos tecleados (incluido SFS/rifa en 0)
+      return computePayrollLineTotals({ ...l, sfsManual: true, horasExtrasManual: true }, opts);
+    }
+    return computePayrollLineTotals(
       recalc
         ? {
             ...l,
@@ -3464,8 +3492,8 @@ function syncOpenPayrollFromDom(recalc = false) {
           }
         : l,
       opts
-    )
-  );
+    );
+  });
   p.updatedAt = new Date().toISOString();
   return p;
 }
@@ -3556,16 +3584,21 @@ function buildPayrollPrintHtml(p) {
         ? payrollCleanEmployeeName(l.fullName) || l.fullName
         : payrollShortEmployeeName(l.fullName) || payrollCleanEmployeeName(l.fullName) || l.fullName,
       uniformes,
-      rifa: isOffice ? Number(l.rifa) || OFFICE_PAYROLL_RIFA : Number(l.rifa) || LVA_PAYROLL_RIFA,
+      rifa: isManualPayrollLine(l)
+        ? Math.max(0, Number(l.rifa) || 0)
+        : isOffice
+          ? Number(l.rifa) || OFFICE_PAYROLL_RIFA
+          : Number(l.rifa) || LVA_PAYROLL_RIFA,
       volaos: isOffice ? 0 : l.volaos,
       almuerzo: isOffice ? 0 : l.almuerzo,
       feriado: isOffice ? 0 : l.feriado,
-      horasExtras: isOffice && !l.horasExtrasManual ? 0 : l.horasExtras,
-      horasExtrasManual: !!l.horasExtrasManual,
+      horasExtras: isOffice && !l.horasExtrasManual && !isManualPayrollLine(l) ? 0 : l.horasExtras,
+      horasExtrasManual: !!l.horasExtrasManual || isManualPayrollLine(l),
       daysWorked: isOffice ? "" : l.daysWorked,
-      salaryQuincena: isOffice ? 0 : l.salaryQuincena,
-      sfs: isOffice && !l.sfsManual ? OFFICE_PAYROLL_SFS : l.sfs,
-      sfsManual: !!l.sfsManual,
+      salaryQuincena: isOffice && !isManualPayrollLine(l) ? 0 : l.salaryQuincena,
+      sfs:
+        isOffice && !l.sfsManual && !isManualPayrollLine(l) ? OFFICE_PAYROLL_SFS : l.sfs,
+      sfsManual: !!l.sfsManual || isManualPayrollLine(l),
     };
     const printOpts = payrollComputeOpts(p);
     const computed = computePayrollLineTotals(named, printOpts);
@@ -4406,7 +4439,11 @@ function applyPayrollLiveUpdate(ev) {
   const editHex = field === "horasExtras";
   let workLines = lines.map((l, i) => {
     if (isManualPayrollLine(l)) {
-      return computePayrollLineTotals(l, opts);
+      // Manual: ningún auto SFS/rifa/seguro; solo totales
+      return computePayrollLineTotals(
+        { ...l, sfsManual: true, horasExtrasManual: true },
+        opts
+      );
     }
     if (i === idx && (editSfs || editHex)) {
       return computePayrollLineTotals(
@@ -4914,9 +4951,15 @@ function renderNominaTab() {
           let fit = "nomina-col-fit";
           if (key === "sfs") fit += " nomina-col-sfs";
           if (key === "redondeo") fit += " nomina-col-redondeo";
-          // Totales siempre RO; en filas manuales quincena/sfs/etc. ya vienen como num
-          if (kind === "ro") {
+          // Totales siempre RO. En filas manuales, Quincena también es editable.
+          const manualEditableRo = manual && key === "salaryQuincena";
+          if (kind === "ro" && !manualEditableRo) {
             return `<td class="right ${fit}" data-ro="${key}">${escapeHtml(moneyCell(l[key]))}</td>`;
+          }
+          if (manualEditableRo) {
+            return `<td class="${fit}"><input class="nomina-inp" data-f="salaryQuincena" type="number" step="0.01" min="0" title="Manual: escribe la quincena" value="${escapeHtml(
+              String(Number(l.salaryQuincena) || 0)
+            )}" /></td>`;
           }
           if (kind === "unifRifa") {
             return `<td class="${fit}"><input class="nomina-inp nomina-inp-unifrifa" data-f="unifRifa" type="text" inputmode="decimal" placeholder="115/85" value="${escapeHtml(
