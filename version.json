@@ -1,6 +1,6 @@
 {
-  "build": 207,
-  "label": "v207",
-  "minBuild": 207,
-  "note": "Nómina oficina: casillas manuales sin seguro/SFS automático"
+  "build": 208,
+  "label": "v208",
+  "minBuild": 208,
+  "note": "Nómina manual oficina: quincena se rellena desde sueldo mes"
 }
