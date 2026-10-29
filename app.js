@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 204;
-const APP_VERSION_LABEL = "v204";
+const APP_BUILD = 205;
+const APP_VERSION_LABEL = "v205";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2632,8 +2632,8 @@ async function mergeRemoteBundleBeforeSave() {
         : window.RFSCloudApi.loadCloud;
     const remote = await loader.call(window.RFSCloudApi);
     if (!remote) return false;
-    if (!remote.empty && Array.isArray(remote.messages)) {
-      chatMessages = mergeChatMessages(chatMessages, remote.messages.map(normalizeChatMessage));
+    if (!remote.empty && (Array.isArray(remote.messages) || remote.messagesClearedAt)) {
+      applyRemoteChatMessages(remote);
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
     }
     if (remote.lva && typeof remote.lva === "object") {
@@ -2759,7 +2759,8 @@ async function saveCloudBundle(options) {
 /** Subida dedicada del chat: no reescribe empleados/fotos y no borra mensajes ajenos */
 async function pushMessagesToCloud() {
   if (!window.RFSCloudApi) throw new Error("cloud not configured");
-  chatMessages = pruneChatMessages(chatMessages);
+  loadMessagesClearedAt();
+  chatMessages = filterMessagesAfterClearedAt(pruneChatMessages(chatMessages), messagesClearedAtLocal);
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
   if (typeof window.RFSCloudApi.saveMessages === "function") {
     await window.RFSCloudApi.saveMessages(chatMessages);
@@ -2939,8 +2940,9 @@ async function syncFromCloud() {
       appUsers = localUsers.map(normalizeUser);
       ensureOwnerUser();
     }
-    const remoteMsgs = Array.isArray(remote.messages) ? remote.messages.map(normalizeChatMessage) : [];
-    chatMessages = mergeChatMessages(chatMessages, remoteMsgs);
+    if (Array.isArray(remote.messages) || remote.messagesClearedAt) {
+      applyRemoteChatMessages(remote);
+    }
     if (remote.radio && typeof remote.radio === "object") {
       applyRemoteRadio(remote.radio);
     }
@@ -9909,7 +9911,8 @@ function pruneChatMessages(list = chatMessages) {
 }
 
 function saveChatMessages(push = true) {
-  chatMessages = pruneChatMessages(chatMessages);
+  loadMessagesClearedAt();
+  chatMessages = filterMessagesAfterClearedAt(pruneChatMessages(chatMessages), messagesClearedAtLocal);
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
   if (!push) return;
   // Chat usa parche ligero; si falla, cae al guardado general
@@ -9934,6 +9937,55 @@ function mergeChatMessages(localList, remoteList) {
     });
   });
   return pruneChatMessages([...map.values()]);
+}
+
+const MESSAGES_CLEARED_AT_KEY = "rfs-ops-messages-cleared-at";
+let messagesClearedAtLocal = "";
+
+function loadMessagesClearedAt() {
+  try {
+    messagesClearedAtLocal = String(localStorage.getItem(MESSAGES_CLEARED_AT_KEY) || "").trim();
+  } catch (_) {
+    messagesClearedAtLocal = "";
+  }
+  return messagesClearedAtLocal;
+}
+
+function persistMessagesClearedAt(iso) {
+  const v = String(iso || "").trim();
+  if (!v) return;
+  const prev = Date.parse(messagesClearedAtLocal || "") || 0;
+  const next = Date.parse(v) || 0;
+  if (next < prev) return;
+  messagesClearedAtLocal = v;
+  try {
+    localStorage.setItem(MESSAGES_CLEARED_AT_KEY, v);
+  } catch (_) {}
+}
+
+/** Descarta mensajes anteriores a un borrado global en la nube. */
+function filterMessagesAfterClearedAt(list, clearedAt) {
+  const cut = Date.parse(clearedAt || "") || 0;
+  if (!cut) return Array.isArray(list) ? list : [];
+  return (list || []).filter((m) => (Date.parse((m && m.createdAt) || "") || 0) > cut);
+}
+
+/** Aplica mensajes remotos respetando messagesClearedAt (anti-resurrección tras borrado). */
+function applyRemoteChatMessages(remote) {
+  if (remote && remote.messagesClearedAt) {
+    persistMessagesClearedAt(remote.messagesClearedAt);
+  }
+  const cut = messagesClearedAtLocal || (remote && remote.messagesClearedAt) || loadMessagesClearedAt() || "";
+  const localKept = filterMessagesAfterClearedAt(chatMessages, cut);
+  const remoteMsgs = Array.isArray(remote && remote.messages)
+    ? filterMessagesAfterClearedAt(
+        remote.messages.map(normalizeChatMessage),
+        cut
+      )
+    : [];
+  chatMessages = mergeChatMessages(localKept, remoteMsgs);
+  chatMessages = filterMessagesAfterClearedAt(chatMessages, cut);
+  return chatMessages;
 }
 
 function otherChatUsers() {
@@ -10364,13 +10416,10 @@ function startMessagesPolling() {
       .loadCloud()
       .then((remote) => {
         if (!remote || remote.empty) return;
-        const remoteMsgs = Array.isArray(remote.messages) ? remote.messages.map(normalizeChatMessage) : [];
-        if (!remoteMsgs.length) {
-          updateMessagesTabBadge();
-          return;
+        if (Array.isArray(remote.messages) || remote.messagesClearedAt) {
+          applyRemoteChatMessages(remote);
+          localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
         }
-        chatMessages = mergeChatMessages(chatMessages, remoteMsgs);
-        localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
         detectAndNotifyNewMessages(prevIds);
         const active = document.querySelector(".view.active");
         if (active && active.id === "messagesView") {
@@ -10406,8 +10455,8 @@ function bindMessagesUi() {
     window.RFSCloudApi
       .loadCloud()
       .then((remote) => {
-        if (remote && Array.isArray(remote.messages)) {
-          chatMessages = mergeChatMessages(chatMessages, remote.messages.map(normalizeChatMessage));
+        if (remote && (Array.isArray(remote.messages) || remote.messagesClearedAt)) {
+          applyRemoteChatMessages(remote);
           localStorage.setItem(MESSAGES_KEY, JSON.stringify(chatMessages));
         }
         renderMessagesModule();
@@ -13512,9 +13561,9 @@ function restoreBackupMerge() {
         });
         ensureOwnerUser();
       }
-      if (Array.isArray(data.messages)) {
-        chatMessages = mergeChatMessages(chatMessages, data.messages.map(normalizeChatMessage));
-        saveChatMessages();
+      if (Array.isArray(data.messages) || data.messagesClearedAt) {
+        applyRemoteChatMessages(data);
+        saveChatMessages(false);
       }
       if (data.radio && typeof data.radio === "object") {
         applyRemoteRadio(data.radio);
@@ -13951,7 +14000,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   persistMonorrielReportsSafetyNet(monorrielReports);
   restoreMonorrielReportsFromSafetyNet();
   appUsers = loadJson(USERS_KEY, []).map(normalizeUser);
-  chatMessages = loadJson(MESSAGES_KEY, []).map(normalizeChatMessage);
+  loadMessagesClearedAt();
+  chatMessages = filterMessagesAfterClearedAt(
+    loadJson(MESSAGES_KEY, []).map(normalizeChatMessage),
+    messagesClearedAtLocal
+  );
   activityLog = pruneActivity(loadJson(ACTIVITY_KEY, []));
   lvaState = normalizeLvaState(loadJsonObject(LVA_KEY, emptyLvaState()));
   radioState = normalizeRadioState(loadJsonObject(RADIO_KEY, emptyRadioState()));
@@ -14032,7 +14085,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=204").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=205").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14048,7 +14101,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v204")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v205")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

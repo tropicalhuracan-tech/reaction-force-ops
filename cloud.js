@@ -734,6 +734,7 @@
       monorrielReports: parseArrayField(fields, "monorrielReportsJson"),
       users: parseArrayField(fields, "usersJson"),
       messages: parseArrayField(fields, "messagesJson"),
+      messagesClearedAt: (fields.messagesClearedAt && fields.messagesClearedAt.stringValue) || "",
       radio: parseObjectField(fields, "radioJson"),
       activity: parseArrayField(fields, "activityJson"),
       lva: parseObjectField(fields, "lvaJson"),
@@ -1680,6 +1681,7 @@
     return {
       empty: false,
       messages: parseArrayField(mainFields, "messagesJson"),
+      messagesClearedAt: (mainFields.messagesClearedAt && mainFields.messagesClearedAt.stringValue) || "",
       lva: parseObjectField(mainFields, "lvaJson"),
       posts: postsFields.postsJson
         ? parseArrayField(postsFields, "postsJson")
@@ -1760,6 +1762,10 @@
       monorrielReports: readMonorrielFromParts(parts),
       users: parseArrayField(main, "usersJson"),
       messages: parseArrayField(main, "messagesJson"),
+      messagesClearedAt:
+        (main.messagesClearedAt && main.messagesClearedAt.stringValue) ||
+        (legacy && legacy.messagesClearedAt) ||
+        "",
       radio: parseObjectField(main, "radioJson"),
       activity: activity.activityJson
         ? parseArrayField(activity, "activityJson")
@@ -2053,9 +2059,25 @@
     const trashIds = [...new Set((loanTrash || []).map(String).filter(Boolean))].slice(0, 500);
     // Publicar build mínima = esta App (solo la versión actual puede seguir escribiendo)
     const publishBuild = clientBuild > 0 ? clientBuild : 0;
+    // Respetar borrado global de chat: no resucitar mensajes viejos desde una PC
+    let messagesClearedAt = "";
+    try {
+      const remoteMainForMsg = await getDoc(partPath("main")).catch(() => null);
+      messagesClearedAt =
+        (remoteMainForMsg &&
+          remoteMainForMsg.fields &&
+          remoteMainForMsg.fields.messagesClearedAt &&
+          remoteMainForMsg.fields.messagesClearedAt.stringValue) ||
+        "";
+    } catch (_) {}
+    const msgCut = Date.parse(messagesClearedAt || "") || 0;
+    const messagesToSave = (Array.isArray(messages) ? messages : []).filter((m) => {
+      if (!msgCut) return true;
+      return (Date.parse((m && m.createdAt) || "") || 0) > msgCut;
+    });
     const mainFields = {
       usersJson: { stringValue: JSON.stringify(users || []) },
-      messagesJson: { stringValue: JSON.stringify(messages || []) },
+      messagesJson: { stringValue: JSON.stringify(messagesToSave) },
       radioJson: { stringValue: JSON.stringify(radio || {}) },
       reportsJson: { stringValue: JSON.stringify(reportsToSave || []) },
       reportTrashJson: { stringValue: JSON.stringify(reportTrashToSave || []) },
@@ -2073,6 +2095,9 @@
       pettyCashJson: { stringValue: "{}" },
       hrJson: { stringValue: "{}" },
     };
+    if (messagesClearedAt) {
+      mainFields.messagesClearedAt = { stringValue: messagesClearedAt };
+    }
     // Si skipLva: no tocar lvaJson remoto (evita borrar La Vega cuando no hubo fusión)
     if (!opts.skipLva) {
       mainFields.lvaJson = { stringValue: JSON.stringify(lva || {}) };
@@ -2149,11 +2174,31 @@
   /** Parche ligero solo de mensajes (documento main) */
   async function saveMessages(messages) {
     if (!projectId || !apiKey) throw new Error("cloud not configured");
+    let messagesClearedAt = "";
+    try {
+      const remoteMain = await getDoc(partPath("main")).catch(() => null);
+      messagesClearedAt =
+        (remoteMain &&
+          remoteMain.fields &&
+          remoteMain.fields.messagesClearedAt &&
+          remoteMain.fields.messagesClearedAt.stringValue) ||
+        "";
+    } catch (_) {}
+    const msgCut = Date.parse(messagesClearedAt || "") || 0;
+    const messagesToSave = (Array.isArray(messages) ? messages : []).filter((m) => {
+      if (!msgCut) return true;
+      return (Date.parse((m && m.createdAt) || "") || 0) > msgCut;
+    });
     const body = {
-      messagesJson: { stringValue: JSON.stringify(messages || []) },
+      messagesJson: { stringValue: JSON.stringify(messagesToSave) },
       updatedAt: { stringValue: new Date().toISOString() },
     };
-    return patchDoc(partPath("main"), body, ["messagesJson", "updatedAt"]);
+    const mask = ["messagesJson", "updatedAt"];
+    if (messagesClearedAt) {
+      body.messagesClearedAt = { stringValue: messagesClearedAt };
+      mask.push("messagesClearedAt");
+    }
+    return patchDoc(partPath("main"), body, mask);
   }
 
   /**
