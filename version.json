@@ -1,6 +1,6 @@
 {
-  "build": 204,
-  "label": "v204",
-  "minBuild": 204,
-  "note": "Eliminar empleado sí pasa a Inactivos y no reaparece en Activos"
+  "build": 205,
+  "label": "v205",
+  "minBuild": 205,
+  "note": "Borrado de reportes y mensajes; no vuelven desde otras PCs"
 }
