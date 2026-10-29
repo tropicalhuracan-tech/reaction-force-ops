@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 203;
-const APP_VERSION_LABEL = "v203";
+const APP_BUILD = 204;
+const APP_VERSION_LABEL = "v204";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -585,7 +585,11 @@ function pickMergedEmployeeName(base, incoming) {
   return preferEmployeeName(b.name, i.name);
 }
 
-/** Activo/inactivo: gana el cambio más reciente (permite reactivar). Antes inactivo ganaba siempre. */
+/**
+ * Activo/inactivo en merge:
+ * - Reactivar gana solo si el activo tiene updatedAt ESTRICTAMENTE después de inactiveAt.
+ * - El roster/puestos no debe “revivir” a alguien eliminado (stubs sin fecha pierden).
+ */
 function pickMergedEmployeeStatus(base, incoming) {
   const a = base || {};
   const b = incoming || {};
@@ -594,27 +598,28 @@ function pickMergedEmployeeStatus(base, incoming) {
   if (!aIn && !bIn) {
     return { status: "active", inactiveReason: "", inactiveAt: "" };
   }
-  const ta = Date.parse(a.updatedAt || "") || 0;
-  const tb = Date.parse(b.updatedAt || "") || 0;
-  if (ta !== tb) {
-    const winner = ta > tb ? a : b;
-    if (winner.status === "inactive") {
-      return {
-        status: "inactive",
-        inactiveReason: winner.inactiveReason || a.inactiveReason || b.inactiveReason || "",
-        inactiveAt: winner.inactiveAt || a.inactiveAt || b.inactiveAt || "",
-      };
-    }
-    return { status: "active", inactiveReason: "", inactiveAt: "" };
+  if (aIn && bIn) {
+    const ta = Date.parse(a.inactiveAt || a.updatedAt || "") || 0;
+    const tb = Date.parse(b.inactiveAt || b.updatedAt || "") || 0;
+    const winner = tb >= ta ? b : a;
+    return {
+      status: "inactive",
+      inactiveReason: winner.inactiveReason || a.inactiveReason || b.inactiveReason || "",
+      inactiveAt: winner.inactiveAt || a.inactiveAt || b.inactiveAt || "",
+    };
   }
-  // Empate: si alguno está activo, queda activo (reactivación)
-  if (!aIn || !bIn) {
+  const inactive = aIn ? a : b;
+  const active = aIn ? b : a;
+  const inactiveAtMs = Date.parse(inactive.inactiveAt || inactive.updatedAt || "") || 0;
+  const activeMs = Date.parse(active.updatedAt || "") || 0;
+  // Solo una reactivación real (más reciente que la baja) vuelve a Activos
+  if (activeMs > inactiveAtMs) {
     return { status: "active", inactiveReason: "", inactiveAt: "" };
   }
   return {
     status: "inactive",
-    inactiveReason: preferFill(a.inactiveReason, b.inactiveReason),
-    inactiveAt: preferFill(a.inactiveAt, b.inactiveAt),
+    inactiveReason: inactive.inactiveReason || "",
+    inactiveAt: inactive.inactiveAt || inactive.updatedAt || "",
   };
 }
 
@@ -711,6 +716,8 @@ function rebuildEmployeesFromPosts(existingEmployees = employees) {
         roles: g.role ? [g.role] : [],
         sites: post.site ? [post.site] : [],
       });
+      // Stub de puesto: no tiene autoridad de estado ni fecha (si no, “revive” inactivos)
+      incoming.updatedAt = "";
       const existingHit =
         (key && map.get(key)) ||
         findEmployeeForIncomingName(name, [...map.values()]);
@@ -722,6 +729,13 @@ function rebuildEmployeesFromPosts(existingEmployees = employees) {
           merged.name = existingHit.name;
           merged.nameManual = true;
           merged.nameManualAt = existingHit.nameManualAt || merged.nameManualAt;
+        }
+        // Baja en Empleados: los puestos no reactivan
+        if (existingHit.status === "inactive") {
+          merged.status = "inactive";
+          merged.inactiveReason = existingHit.inactiveReason || merged.inactiveReason || "";
+          merged.inactiveAt = existingHit.inactiveAt || merged.inactiveAt || "";
+          merged.updatedAt = existingHit.updatedAt || merged.updatedAt;
         }
         map.set(keepKey, merged);
         if (key && key !== keepKey) map.delete(key);
@@ -1113,19 +1127,50 @@ function deactivateSelectedEmployee() {
   const ok = window.confirm("El empleado pasará a Inactivos / Eliminados. ¿Continuar?");
   if (!ok) return;
   const current = employees[idx];
+  const keepId = current.id;
+  const nowIso = new Date().toISOString();
   employees[idx] = normalizeEmployee({
     ...current,
     status: "inactive",
     inactiveReason: reason,
-    inactiveAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    inactiveAt: nowIso,
+    updatedAt: nowIso,
   });
   saveEmployees();
+  // Tras dedupe/rebuild: reafirmar la baja (el roster no debe devolverlo a Activos)
+  let again = employees.findIndex((e) => e.id === keepId);
+  if (again < 0) {
+    again = employees.findIndex(
+      (e) => employeeIdentityKey(e.name) === employeeIdentityKey(current.name)
+    );
+  }
+  if (again >= 0) {
+    employees[again] = normalizeEmployee({
+      ...employees[again],
+      status: "inactive",
+      inactiveReason: reason,
+      inactiveAt: nowIso,
+      updatedAt: new Date().toISOString(),
+    });
+    selectedEmployeeId = employees[again].id;
+    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+  }
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
   employeeListFilter = "inactive";
   renderEmployees();
   openEmployeeDetail(selectedEmployeeId);
-  logActivity("employee_deactivate", `Inactivó empleado: ${employees[idx].name}. Causa: ${reason}`);
-  toast("Empleado pasado a inactivos.");
+  const live = getEmployee(selectedEmployeeId);
+  logActivity(
+    "employee_deactivate",
+    `Inactivó empleado: ${(live && live.name) || current.name}. Causa: ${reason}`
+  );
+  toast(
+    live && !isEmployeeActive(live)
+      ? `${live.name} pasó a Inactivos.`
+      : "Empleado pasado a inactivos."
+  );
 }
 
 function reactivateSelectedEmployee() {
@@ -9387,6 +9432,7 @@ function ensureOfficeEmployeesImported() {
     if (existing) {
       const idx = employees.findIndex((e) => e.id === existing.id);
       const keepName = existing.nameManual ? existing.name : preferEmployeeName(existing.name, name);
+      const keepInactive = existing.status === "inactive";
       const merged = normalizeEmployee({
         ...existing,
         id: existing.id || o.id,
@@ -9397,9 +9443,9 @@ function ensureOfficeEmployeesImported() {
         officeEmployeeId: o.id,
         sites: [...new Set([...(existing.sites || []), "Oficina"])],
         roles: [...new Set([...(existing.roles || []), "Oficina", o.position || "Oficina"].filter(Boolean))],
-        status: "active",
-        inactiveReason: "",
-        inactiveAt: "",
+        status: keepInactive ? "inactive" : "active",
+        inactiveReason: keepInactive ? existing.inactiveReason || "" : "",
+        inactiveAt: keepInactive ? existing.inactiveAt || "" : "",
         monoUnifyAliases: [
           ...new Set(
             [...(existing.monoUnifyAliases || []), employeeKey(name), employeeIdentityKey(name)]
@@ -9409,7 +9455,7 @@ function ensureOfficeEmployeesImported() {
         ],
         nameManual: !!existing.nameManual,
         nameManualAt: existing.nameManualAt || "",
-        updatedAt: new Date().toISOString(),
+        updatedAt: keepInactive ? existing.updatedAt || new Date().toISOString() : new Date().toISOString(),
       });
       if (existing.nameManual) {
         merged.name = existing.name;
@@ -13986,7 +14032,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=203").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=204").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14002,7 +14048,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v203")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v204")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

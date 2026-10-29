@@ -388,7 +388,10 @@
     return preferLongerEmployeeName(aa.name, bb.name);
   }
 
-  /** Activo/inactivo: gana el updatedAt más reciente (permite reactivar). */
+  /**
+   * Activo gana solo si updatedAt > inactiveAt (reactivación real).
+   * Evita que un merge/roster con fecha nueva “reviva” eliminados.
+   */
   function pickCloudEmployeeStatus(a, b) {
     const aa = a || {};
     const bb = b || {};
@@ -397,26 +400,27 @@
     if (!aIn && !bIn) {
       return { status: "active", inactiveReason: "", inactiveAt: "" };
     }
-    const ta = Date.parse(aa.updatedAt || "") || 0;
-    const tb = Date.parse(bb.updatedAt || "") || 0;
-    if (ta !== tb) {
-      const winner = ta > tb ? aa : bb;
-      if (winner.status === "inactive") {
-        return {
-          status: "inactive",
-          inactiveReason: winner.inactiveReason || aa.inactiveReason || bb.inactiveReason || "",
-          inactiveAt: winner.inactiveAt || aa.inactiveAt || bb.inactiveAt || "",
-        };
-      }
-      return { status: "active", inactiveReason: "", inactiveAt: "" };
+    if (aIn && bIn) {
+      const ta = Date.parse(aa.inactiveAt || aa.updatedAt || "") || 0;
+      const tb = Date.parse(bb.inactiveAt || bb.updatedAt || "") || 0;
+      const winner = tb >= ta ? bb : aa;
+      return {
+        status: "inactive",
+        inactiveReason: winner.inactiveReason || aa.inactiveReason || bb.inactiveReason || "",
+        inactiveAt: winner.inactiveAt || aa.inactiveAt || bb.inactiveAt || "",
+      };
     }
-    if (!aIn || !bIn) {
+    const inactive = aIn ? aa : bb;
+    const active = aIn ? bb : aa;
+    const inactiveAtMs = Date.parse(inactive.inactiveAt || inactive.updatedAt || "") || 0;
+    const activeMs = Date.parse(active.updatedAt || "") || 0;
+    if (activeMs > inactiveAtMs) {
       return { status: "active", inactiveReason: "", inactiveAt: "" };
     }
     return {
       status: "inactive",
-      inactiveReason: aa.inactiveReason || bb.inactiveReason || "",
-      inactiveAt: aa.inactiveAt || bb.inactiveAt || "",
+      inactiveReason: inactive.inactiveReason || "",
+      inactiveAt: inactive.inactiveAt || inactive.updatedAt || "",
     };
   }
 

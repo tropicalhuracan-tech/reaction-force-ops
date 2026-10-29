@@ -1,6 +1,6 @@
 {
-  "build": 203,
-  "label": "v203",
-  "minBuild": 203,
-  "note": "Reactivar empleado inactivo vuelve a Activos y se conserva"
+  "build": 204,
+  "label": "v204",
+  "minBuild": 204,
+  "note": "Eliminar empleado sí pasa a Inactivos y no reaparece en Activos"
 }
