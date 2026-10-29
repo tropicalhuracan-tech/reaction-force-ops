@@ -392,7 +392,12 @@ function computePayrollLineTotals(line, opts = {}) {
   const volaoFromDays = roundMoney2(extraDays * volaoPerExtraDay);
 
   if (manual) {
-    // Trato especial: respetar todo lo tecleado; solo armar totales
+    // Trato especial: respetar lo tecleado. En oficina, si hay sueldo mes y la
+    // quincena sigue en 0 (fila nueva), rellenar mitad — sigue siendo editable.
+    const quincenaManual = !!line.quincenaManual;
+    if (office && salaryMonthly && !salaryQuincena && !quincenaManual) {
+      salaryQuincena = roundMoney2(salaryMonthly / 2);
+    }
   } else if (office) {
     // Oficina: quincena = mitad del sueldo; días no influyen. SFS por defecto fijo (editable a mano).
     salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : 0;
@@ -444,6 +449,7 @@ function computePayrollLineTotals(line, opts = {}) {
     salaryQuincena,
     sfs,
     sfsManual,
+    quincenaManual: !!line.quincenaManual,
     uniformes,
     volaos,
     incentivos,
@@ -488,6 +494,8 @@ function normalizePayrollLine(l = {}, opts = {}) {
     sfs: Math.max(0, Number(l.sfs) || 0),
     /** Usuario fijó SFS a mano (incluso 0 = sin seguro). */
     sfsManual: !!l.sfsManual,
+    /** Usuario fijó quincena a mano (incluso 0). */
+    quincenaManual: !!l.quincenaManual,
     uniformes: Math.max(0, Number(l.uniformes) || 0),
     volaos: Math.max(0, Number(l.volaos) || 0),
     incentivos: Math.max(0, Number(l.incentivos) || 0),
@@ -3033,6 +3041,9 @@ function readPayrollLinesFromDom(payrollId) {
         daysWorked: isOffice ? "" : g("daysWorked") || prev.daysWorked,
         salaryMonthly: g("salaryMonthly"),
         salaryQuincena: salaryQuincenaVal,
+        quincenaManual: isManual
+          ? !!(prev.quincenaManual || (quincenaDom !== "" && quincenaDom != null))
+          : !!prev.quincenaManual,
         // Manual: vacío = 0 (no resucitar SFS anterior al guardar)
         sfs: readNum("sfs", prev.sfs),
         sfsManual: isManual ? true : !!prev.sfsManual,
@@ -3241,6 +3252,7 @@ function addManualPayrollRows() {
           sfs: 0,
           sfsManual: true,
           horasExtrasManual: true,
+          quincenaManual: false,
           salaryQuincena: 0,
           rifa: 0,
           manualEntry: true,
@@ -4437,13 +4449,24 @@ function applyPayrollLiveUpdate(ev) {
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
   const editSfs = field === "sfs";
   const editHex = field === "horasExtras";
+  const editQuincena = field === "salaryQuincena";
   let workLines = lines.map((l, i) => {
     if (isManualPayrollLine(l)) {
-      // Manual: ningún auto SFS/rifa/seguro; solo totales
-      return computePayrollLineTotals(
-        { ...l, sfsManual: true, horasExtrasManual: true },
-        opts
-      );
+      // Manual: ningún auto SFS/rifa/seguro; solo totales.
+      // Si editan sueldo mes y quincena sigue 0, sugerir mitad (editable).
+      let next = { ...l, sfsManual: true, horasExtrasManual: true };
+      if (i === idx && editQuincena) next.quincenaManual = true;
+      if (
+        i === idx &&
+        field === "salaryMonthly" &&
+        profile.office &&
+        !next.quincenaManual &&
+        !(Number(next.salaryQuincena) > 0)
+      ) {
+        const m = Math.max(0, Number(next.salaryMonthly) || 0);
+        next.salaryQuincena = m ? roundMoney2(m / 2) : 0;
+      }
+      return computePayrollLineTotals(next, opts);
     }
     if (i === idx && (editSfs || editHex)) {
       return computePayrollLineTotals(
@@ -4957,7 +4980,7 @@ function renderNominaTab() {
             return `<td class="right ${fit}" data-ro="${key}">${escapeHtml(moneyCell(l[key]))}</td>`;
           }
           if (manualEditableRo) {
-            return `<td class="${fit}"><input class="nomina-inp" data-f="salaryQuincena" type="number" step="0.01" min="0" title="Manual: escribe la quincena" value="${escapeHtml(
+            return `<td class="${fit}"><input class="nomina-inp" data-f="salaryQuincena" type="number" step="0.01" min="0" title="Manual: quincena editable (si pones sueldo mes y está en 0, sugiere la mitad)" value="${escapeHtml(
               String(Number(l.salaryQuincena) || 0)
             )}" /></td>`;
           }
