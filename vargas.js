@@ -132,6 +132,10 @@ function getActiveVargasReport() {
   return vargasData.reports[0] || null;
 }
 
+/** Marca 2 en el reporte = 1 día trabajado + RD$850 en Volaos (sin sumar día extra). */
+const VARGAS_VOLAO_MARK = 2;
+const VARGAS_VOLAO_AMOUNT = 850;
+
 function vargasMarkIsWorked(mark) {
   if (mark == null || mark === "") return false;
   if (typeof mark === "number") return mark > 0;
@@ -143,7 +147,17 @@ function vargasMarkIsWorked(mark) {
   return Number.isFinite(n) && n > 0;
 }
 
-/** Días para nómina: cuenta marcas trabajadas; día 31 nunca entra. */
+/** Casilla con número 2 → volao RD$850 (el día sigue contando como 1). */
+function vargasMarkIsVolao(mark) {
+  if (mark == null || mark === "") return false;
+  if (typeof mark === "number") return mark === VARGAS_VOLAO_MARK;
+  const s = String(mark).trim();
+  if (!s) return false;
+  const n = Number(s.replace(",", "."));
+  return Number.isFinite(n) && n === VARGAS_VOLAO_MARK;
+}
+
+/** Días para nómina: cuenta marcas trabajadas (1 o 2 = 1 día); día 31 nunca entra. */
 function countVargasPayrollDays(marks, dayNums) {
   const days = Array.isArray(dayNums) ? dayNums : [];
   let n = 0;
@@ -153,6 +167,22 @@ function countVargasPayrollDays(marks, dayNums) {
     if (vargasMarkIsWorked(m)) n += 1;
   });
   return n;
+}
+
+/** Cuántas casillas tienen 2 → cada una suma RD$850 a Volaos. Día 31 no cuenta. */
+function countVargasVolaoMarks(marks, dayNums) {
+  const days = Array.isArray(dayNums) ? dayNums : [];
+  let n = 0;
+  days.forEach((d) => {
+    if (Number(d) === 31) return;
+    const m = marks && marks[String(d)];
+    if (vargasMarkIsVolao(m)) n += 1;
+  });
+  return n;
+}
+
+function vargasVolaosFromMarks(marks, dayNums) {
+  return countVargasVolaoMarks(marks, dayNums) * VARGAS_VOLAO_AMOUNT;
 }
 
 function formatVargasMarkCell(mark) {
@@ -378,17 +408,21 @@ function buildVargasPrintHtml(report, rows) {
     .map((row, i) => {
       const cells = dayNums
         .map((d) => {
-          const val = formatVargasMarkCell(row.marks[String(d)]);
-          return `<td class="vd${vargasMarkIsWorked(row.marks[String(d)]) ? " wk" : ""}">${escapeVargasHtml(val)}</td>`;
+          const mark = row.marks[String(d)];
+          const val = formatVargasMarkCell(mark);
+          const cls = vargasMarkIsVolao(mark) ? " wk vol" : vargasMarkIsWorked(mark) ? " wk" : "";
+          return `<td class="vd${cls}">${escapeVargasHtml(val)}</td>`;
         })
         .join("");
+      const daysCell =
+        row.volaoMarks > 0 ? `${row.daysPayroll} · V${row.volaosAmount}` : String(row.daysPayroll);
       return `<tr>
         <td class="right">${i + 1}</td>
         <td>${row.shift === "nocturno" ? "N" : "D"}</td>
         <td>${escapeVargasHtml(row.fullName)}</td>
         <td>${escapeVargasHtml(row.postName)}</td>
         <td class="center">${escapeVargasHtml(row.payBucket || "—")}</td>
-        <td class="center">${row.daysPayroll}</td>
+        <td class="center">${daysCell}</td>
         ${cells}
       </tr>`;
     })
@@ -416,7 +450,7 @@ function buildVargasPrintHtml(report, rows) {
       </thead>
       <tbody>${body || `<tr><td colspan="${6 + dayNums.length}">Sin empleados</td></tr>`}</tbody>
     </table>
-    <p class="footer">* Día 31 se muestra en el reporte pero no entra en nómina. Días = trabajados sin contar el 31.</p>
+    <p class="footer">* Día 31 se muestra pero no entra en nómina. 1 = turno; 2 = turno + RD$${VARGAS_VOLAO_AMOUNT} en Volaos (sin día extra).</p>
     <div class="sign-box">
       <div class="sign-line">Ramón Vargas / Supervisión</div>
       <div class="sign-line">Operaciones RFS</div>
@@ -500,6 +534,7 @@ function flattenVargasEmployees(report, opts = {}) {
         const hay = `${emp.fullName} ${sec.postName}`.toLowerCase();
         if (!hay.includes(q)) return;
       }
+      const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
       rows.push({
         sectionIdx: sIdx,
         empIdx: eIdx,
@@ -509,6 +544,8 @@ function flattenVargasEmployees(report, opts = {}) {
         marks: emp.marks || {},
         payBucket: emp.payBucket || "",
         daysPayroll: countVargasPayrollDays(emp.marks, report.dayNums),
+        volaoMarks,
+        volaosAmount: volaoMarks * VARGAS_VOLAO_AMOUNT,
       });
     });
   });
@@ -591,12 +628,15 @@ function collectVargasPayrollRows(report, bucketFilter = "all") {
       const key = vargasNameKey(displayName);
       if (!key || seen.has(key)) return;
       seen.add(key);
+      const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
       rows.push({
         fullName: displayName,
         postName: sec.postName,
         shift: sec.shift,
         payBucket: bucket,
         daysCount: countVargasPayrollDays(emp.marks, report.dayNums),
+        volaoMarks,
+        volaosAmount: volaoMarks * VARGAS_VOLAO_AMOUNT,
       });
     });
   });
@@ -678,6 +718,9 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
     const keepExtrasManual = !!(line && line.horasExtrasManual);
     const keepExtras = keepExtrasManual ? Math.max(0, Number(line.horasExtras) || 0) : null;
 
+    // Marca 2 en el reporte → solo Volaos (RD$850 c/u); días no cambian.
+    const nextVolaos = Math.max(0, Number(row.volaosAmount) || 0);
+
     if (!line) {
       const person = rosterHit
         ? {
@@ -685,6 +728,7 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
             name: displayName,
             position: rosterHit.position || row.postName || label,
             daysWorked: String(row.daysCount),
+            volaos: nextVolaos,
           }
         : {
             id: "",
@@ -694,6 +738,7 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
             salaryMonthly:
               typeof LVA_PAYROLL_DEFAULT_MONTHLY !== "undefined" ? LVA_PAYROLL_DEFAULT_MONTHLY : 24000,
             daysWorked: String(row.daysCount),
+            volaos: nextVolaos,
           };
       line = buildPayrollLineFromPerson(person, null, label, formulaOpts);
       changed = true;
@@ -702,8 +747,15 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
 
     const nextDays = String(Math.max(0, Number(row.daysCount) || 0));
     const prevDays = String(line.daysWorked || "").trim();
-    if (prevDays !== nextDays || !line.daysFromVargas || line.fullName !== displayName) {
+    const prevVolaos = Math.max(0, Number(line.volaos) || 0);
+    if (
+      prevDays !== nextDays ||
+      prevVolaos !== nextVolaos ||
+      !line.daysFromVargas ||
+      line.fullName !== displayName
+    ) {
       line.daysWorked = nextDays;
+      line.volaos = nextVolaos;
       line.daysFromVargas = true;
       line.fromVargasReport = true;
       line.fullName = displayName;
@@ -714,6 +766,9 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       linesTouched += 1;
     }
 
+    // Días = marcas >0 (1 o 2 cuentan igual); volaos = cantidad de 2 × RD$850.
+    line.daysWorked = nextDays;
+    line.volaos = nextVolaos;
     line.adelantos = keepAdelantos;
     line.prestamos = keepPrestamos;
     if (keepExtrasManual) {
@@ -721,15 +776,23 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       line.horasExtrasManual = true;
     }
     if (typeof computePayrollLineTotals === "function") {
-      let recomputed = computePayrollLineTotals(line, formulaOpts);
+      // daysWorked sin "+N" → compute respeta line.volaos; forzamos por si acaso.
+      let recomputed = computePayrollLineTotals({ ...line, volaos: nextVolaos }, formulaOpts);
+      recomputed.volaos = nextVolaos;
       recomputed.adelantos = keepAdelantos;
       recomputed.prestamos = keepPrestamos;
       if (keepExtrasManual) {
         recomputed.horasExtras = keepExtras;
         recomputed.horasExtrasManual = true;
-        recomputed = computePayrollLineTotals(recomputed, formulaOpts);
-        recomputed.adelantos = keepAdelantos;
-        recomputed.prestamos = keepPrestamos;
+      }
+      recomputed = computePayrollLineTotals(
+        { ...recomputed, volaos: nextVolaos },
+        formulaOpts
+      );
+      recomputed.volaos = nextVolaos;
+      recomputed.adelantos = keepAdelantos;
+      recomputed.prestamos = keepPrestamos;
+      if (keepExtrasManual) {
         recomputed.horasExtras = keepExtras;
         recomputed.horasExtrasManual = true;
       }
@@ -739,6 +802,7 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       Object.assign(line, recomputed);
     } else {
       line.fullName = displayName;
+      line.volaos = nextVolaos;
       line.daysFromVargas = true;
       line.fromVargasReport = true;
     }
@@ -1069,10 +1133,15 @@ function renderVargasModule() {
     .map((row) => {
       const markCells = (report.dayNums || [])
         .map((d) => {
-          const val = formatVargasMarkCell(row.marks[String(d)]);
-          const worked = vargasMarkIsWorked(row.marks[String(d)]);
+          const mark = row.marks[String(d)];
+          const val = formatVargasMarkCell(mark);
+          const worked = vargasMarkIsWorked(mark);
+          const volao = vargasMarkIsVolao(mark);
           const excl = Number(d) === 31;
-          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${excl ? " is-excl" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" contenteditable="true" spellcheck="false">${escapeVargasHtml(val)}</td>`;
+          const title = volao
+            ? ` title="2 = turno + RD$${VARGAS_VOLAO_AMOUNT} volao (días no cambian)"`
+            : "";
+          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" contenteditable="true" spellcheck="false"${title}>${escapeVargasHtml(val)}</td>`;
         })
         .join("");
       const bucketSel = `
@@ -1081,12 +1150,16 @@ function renderVargasModule() {
           <option value="B" ${row.payBucket === "B" ? "selected" : ""}>B</option>
           <option value="E" ${row.payBucket === "E" ? "selected" : ""}>E</option>
         </select>`;
+      const daysLabel =
+        row.volaoMarks > 0
+          ? `${row.daysPayroll}<span class="vargas-volao-hint" title="${row.volaoMarks} volao(s) × RD$${VARGAS_VOLAO_AMOUNT}"> · V${row.volaosAmount}</span>`
+          : String(row.daysPayroll);
       return `<tr data-shift="${row.shift}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
         <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
         <td class="vargas-post">${escapeVargasHtml(row.postName)}</td>
         <td class="vargas-bucket-cell">${bucketSel}</td>
-        <td class="vargas-days-total">${row.daysPayroll}</td>
+        <td class="vargas-days-total">${daysLabel}</td>
         ${markCells}
         <td class="vargas-del-cell">
           <button type="button" class="vargas-del-btn" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-name="${escapeVargasAttr(row.fullName)}" title="Eliminar empleado" aria-label="Eliminar">✕</button>
@@ -1130,9 +1203,11 @@ function renderVargasModule() {
         <button type="button" class="secondary" id="btnVargasReorganizar">Ambos (general + B/E)</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
-        Corrige nombres tocando la columna Empleado. <strong>1. Nómina general</strong> carga el reporte a Reaction General (16–30 u 01–15) y abre esa nómina para revisar.
+        Corrige nombres tocando la columna Empleado. <strong>1</strong> = turno cumplido (suma 1 día).
+        <strong>2</strong> = mismo día trabajado + <strong>RD$${VARGAS_VOLAO_AMOUNT}</strong> en Volaos (no suma día extra).
+        <strong>1. Nómina general</strong> carga el reporte a Reaction General y abre esa nómina.
         Luego marca <strong>B/E</strong> y <strong>2. Enviar</strong> reparte a Banco o Efectivo.
-        Si falta alguien: <strong>Agregar empleado</strong> abajo y vuelve a actualizar. Día 31 no suma.
+        Día 31 no suma.
       </p>
     </div>
 
