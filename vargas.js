@@ -111,6 +111,23 @@ function vargasHorasExtrasPay(hours) {
   return rate;
 }
 
+/** Nombre o puesto con "-LA VEGA" → nómina La Vega Autopista, no Reaction General. */
+function vargasTextSaysLaVega(text) {
+  return /-\s*LA\s+VEGA\b/i.test(String(text || ""));
+}
+
+function vargasRowIsLaVega(row) {
+  if (!row) return false;
+  return vargasTextSaysLaVega(row.fullName) || vargasTextSaysLaVega(row.postName);
+}
+
+function vargasStripLaVegaTag(name) {
+  return String(name || "")
+    .replace(/\s*-\s*LA\s+VEGA\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeVargasReport(raw = {}) {
   const half = raw.half === 1 || raw.half === "1" ? 1 : 2;
   const period = String(raw.period || "").slice(0, 7);
@@ -789,8 +806,8 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
   const prune = opts.prune !== false;
   const formulaOpts =
     typeof payrollComputeOpts === "function" ? payrollComputeOpts(payroll) : {};
-  // Nombres completos del reporte (Reaction / Banco / Efectivo)
-  formulaOpts.keepFullName = true;
+  // Reaction / Banco / Efectivo: nombre completo. La Vega: nombre sin la etiqueta -LA VEGA.
+  if (opts.keepFullName !== false) formulaOpts.keepFullName = true;
   const rosterKind = payroll.group === "efectivo" ? "efectivo" : "banco";
   const prevByName = new Map();
   (payroll.lines || []).forEach((l) => {
@@ -814,6 +831,9 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       prevByName.get(nameKey) ||
       (payroll.lines || []).find((l) => vargasNamesMatch(l.fullName, displayName)) ||
       null;
+    if (!line && row.seedLine) {
+      line = { ...row.seedLine, fullName: displayName };
+    }
 
     const rosterHit =
       typeof findReactionRosterHit === "function"
@@ -976,7 +996,103 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
   return { changed: !!(changed || (prune && removed > 0)), linesTouched, removed, kept: nextLines.length };
 }
 
-/** 1) Nómina Reaction General: SOLO empleados del reporte Vargas. */
+function vargasPayrollHalf(report, opts) {
+  if (opts && opts.half != null) return opts.half === 2 || opts.half === "2" ? 2 : 1;
+  return report && (report.half === 2 || report.half === "2") ? 2 : 1;
+}
+
+/** Quita de una nómina a quienes coinciden con estos nombres (con o sin -LA VEGA). */
+function dropVargasNamedLines(payroll, names) {
+  if (!payroll || !Array.isArray(payroll.lines) || !names || !names.length) return 0;
+  const variants = [];
+  names.forEach((n) => {
+    const raw = String(n || "").trim();
+    if (!raw) return;
+    variants.push(raw);
+    const stripped = vargasStripLaVegaTag(raw);
+    if (stripped && stripped !== raw) variants.push(stripped);
+  });
+  const before = payroll.lines.length;
+  payroll.lines = payroll.lines.filter((line) => {
+    if (!line) return false;
+    return !variants.some((n) => vargasNamesMatch(line.fullName, n));
+  });
+  const removed = before - payroll.lines.length;
+  if (removed > 0) payroll.updatedAt = new Date().toISOString();
+  return removed;
+}
+
+function findVargasLineOnGroups(period, half, groups, name) {
+  if (typeof findPayrollByGroup !== "function") return null;
+  const stripped = vargasStripLaVegaTag(name);
+  const variants = [name, stripped].filter(Boolean);
+  for (const group of groups) {
+    const payroll = findPayrollByGroup(period, half, group, "");
+    if (!payroll) continue;
+    const hit = (payroll.lines || []).find(
+      (line) => line && variants.some((n) => vargasNamesMatch(line.fullName, n))
+    );
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Quienes dicen "-LA VEGA" salen de Reaction (general / banco / efectivo)
+ * y se agregan o actualizan en La Vega Autopista del mismo corte. No poda el resto de La Vega.
+ */
+function routeVargasLaVegaEmployees(report, opts = {}) {
+  const period = (opts && opts.period) || (report && report.period);
+  const half = vargasPayrollHalf(report, opts);
+  const tagged = collectVargasPayrollRows(report, "all").filter(vargasRowIsLaVega);
+  const names = tagged.map((r) => r.fullName);
+  let dropped = 0;
+  ["banco", "efectivo"].forEach((group) => {
+    if (typeof findPayrollByGroup !== "function") return;
+    const payroll = findPayrollByGroup(period, half, group, "");
+    dropped += dropVargasNamedLines(payroll, names);
+  });
+  if (!tagged.length) {
+    return { moved: 0, dropped, payroll: null };
+  }
+  const rows = tagged.map((row) => {
+    const cleanName = vargasStripLaVegaTag(row.fullName) || row.fullName;
+    const shortName =
+      typeof payrollShortEmployeeName === "function"
+        ? payrollShortEmployeeName(cleanName) || cleanName
+        : cleanName;
+    const cleanPost = vargasStripLaVegaTag(row.postName) || row.postName;
+    const seed =
+      findVargasLineOnGroups(period, half, ["lavega", "reaction", "banco", "efectivo"], row.fullName) ||
+      null;
+    return {
+      ...row,
+      fullName: shortName,
+      postName: cleanPost,
+      seedLine: seed
+        ? {
+            ...seed,
+            fullName: shortName,
+          }
+        : null,
+    };
+  });
+  const payroll = ensureVargasPayrollShell(period, half, "lavega", "La Vega Autopista");
+  if (!payroll) return { moved: 0, dropped, payroll: null };
+  const result = applyVargasRowsToPayroll(payroll, rows, "La Vega Autopista", {
+    prune: false,
+    keepFullName: false,
+  });
+  return {
+    moved: result.kept,
+    touched: result.linesTouched,
+    dropped,
+    changed: result.changed,
+    payroll,
+  };
+}
+
+/** 1) Nómina Reaction General: SOLO empleados del reporte Vargas que no dicen -LA VEGA. */
 function syncVargasGeneralPayroll(opts = {}) {
   const report = opts.report || getActiveVargasReport();
   if (!report) return { updated: 0, reason: "no-report" };
@@ -984,29 +1100,37 @@ function syncVargasGeneralPayroll(opts = {}) {
     return { updated: 0, reason: "no-payroll-api" };
   }
   const period = opts.period || report.period;
-  const half = opts.half != null ? (opts.half === 2 || opts.half === "2" ? 2 : 1) : report.half;
+  const half = vargasPayrollHalf(report, opts);
   const quiet = opts.quiet !== false;
-  const rows = collectVargasPayrollRows(report, "all");
+  const allRows = collectVargasPayrollRows(report, "all");
+  const rows = allRows.filter((r) => !vargasRowIsLaVega(r));
   const payroll = ensureVargasPayrollShell(period, half, "reaction", "Reaction General");
   if (!payroll) return { updated: 0, reason: "no-payroll" };
 
+  // Primero copiar a La Vega (aún están en general para conservar adelantos/préstamos).
+  const lavega = routeVargasLaVegaEmployees(report, { period, half });
   const result = applyVargasRowsToPayroll(payroll, rows, "Reaction General", { prune: true });
   // Guardar siempre si hay filas del reporte (aunque no haya "cambios" detectados)
-  if ((result.changed || result.kept > 0) && typeof saveContabilidadData === "function") {
+  if (
+    (result.changed || result.kept > 0 || (lavega && (lavega.changed || lavega.moved || lavega.dropped))) &&
+    typeof saveContabilidadData === "function"
+  ) {
     saveContabilidadData(true);
   }
   if (!quiet && typeof toast === "function") {
     toast(
       `Nómina general: ${result.kept} del reporte` +
         (result.removed ? ` · se quitaron ${result.removed} que no estaban` : "") +
+        (lavega && lavega.moved ? ` · ${lavega.moved} a La Vega Autopista` : "") +
         (result.linesTouched ? ` · ${result.linesTouched} actualizado(s)` : "")
     );
   }
   return {
-    updated: result.changed ? 1 : 0,
+    updated: result.changed || (lavega && lavega.changed) ? 1 : 0,
     kept: result.kept,
     removed: result.removed,
     lines: result.linesTouched,
+    lavegaMoved: lavega ? lavega.moved : 0,
     payroll,
     period,
     half,
@@ -1045,13 +1169,15 @@ function sendVargasPayrollToBuckets(opts = {}) {
   const period = opts.period || report.period;
   const half = opts.half != null ? (opts.half === 2 || opts.half === "2" ? 2 : 1) : report.half;
   const quiet = opts.quiet !== false;
+  // Si solo envían B/E, igual mover -LA VEGA a La Vega y no dejarlos en Banco/Efectivo.
+  routeVargasLaVegaEmployees(report, { period, half });
 
   const summary = { banco: 0, efectivo: 0, removedB: 0, removedE: 0, updated: 0 };
   [
     { filter: "B", group: "banco", label: "Reaction Banco", key: "banco", rem: "removedB" },
     { filter: "E", group: "efectivo", label: "Reaction Efectivo", key: "efectivo", rem: "removedE" },
   ].forEach(({ filter, group, label, key, rem }) => {
-    const rows = collectVargasPayrollRows(report, filter);
+    const rows = collectVargasPayrollRows(report, filter).filter((r) => !vargasRowIsLaVega(r));
     // Crear shell vacío aunque no haya filas, para poder podar sobrantes del roster viejo
     const payroll = ensureVargasPayrollShell(period, half, group, label);
     if (!payroll) return;
@@ -1125,9 +1251,10 @@ function syncVargasGeneralPayrollAction() {
     !confirm(
       `¿Actualizar Nómina Reaction General?\n\n` +
         `Período ${report.period} · corte ${report.half === 2 ? "16–30" : "01–15"}\n` +
-        `Empleados del reporte: ${rows.length}\n\n` +
-        `Solo quedan quienes están en este reporte.\n` +
-        `Nombres nuevos se agregan; los que no estén se eliminan de esa nómina.\n` +
+        `Empleados del reporte: ${rows.length}\n` +
+        `A La Vega Autopista (dicen -LA VEGA): ${rows.filter(vargasRowIsLaVega).length}\n\n` +
+        `La general solo deja a quienes no dicen -LA VEGA.\n` +
+        `Los de -LA VEGA pasan a La Vega Autopista del mismo corte (16–30 u 01–15) y salen de la general.\n` +
         `Día 31 no suma. Se conservan adelantos/préstamos.`
     )
   ) {
@@ -1359,6 +1486,7 @@ function renderVargasModule() {
         <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
+        Si el nombre o el puesto dice <strong>-LA VEGA</strong>, al actualizar nómina sale de la general y pasa a <strong>La Vega Autopista</strong> del mismo corte.
         Día 31 no suma.
       </p>
     </div>
