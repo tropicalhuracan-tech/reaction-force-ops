@@ -39,6 +39,7 @@ function cloneVargasSeedReport(seed) {
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
         payBucket: normalizeVargasPayBucket(emp.payBucket),
         volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
+        horasExtras: normalizeVargasHorasExtras(emp.horasExtras),
       })),
     })),
     updatedAt: new Date().toISOString(),
@@ -76,6 +77,40 @@ function formatVargasVolaosPagos(v) {
   return n === "" ? "" : String(n);
 }
 
+/**
+ * Horas extras en el reporte (ej. 2, 2.3, 12.6).
+ * Monto nómina = horas × RD$60, sumado al cálculo previo de horas extras.
+ */
+function normalizeVargasHorasExtras(v) {
+  if (v == null || v === "") return 0;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return Math.max(0, Math.min(999, Math.round(v * 100) / 100));
+  }
+  const s = String(v)
+    .trim()
+    .replace(",", ".");
+  if (!s) return 0;
+  if (!/^\d+(\.\d+)?$/.test(s)) return 0;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.max(0, Math.min(999, Math.round(n * 100) / 100));
+}
+
+function formatVargasHorasExtras(v) {
+  const n = normalizeVargasHorasExtras(v);
+  if (!n) return "";
+  return Number.isInteger(n) ? String(n) : String(n);
+}
+
+function vargasHorasExtrasPay(hours) {
+  const h = normalizeVargasHorasExtras(hours);
+  const rate =
+    typeof roundMoney2 === "function"
+      ? roundMoney2(h * VARGAS_EXTRA_HOUR_RATE)
+      : Math.round(h * VARGAS_EXTRA_HOUR_RATE * 100) / 100;
+  return rate;
+}
+
 function normalizeVargasReport(raw = {}) {
   const half = raw.half === 1 || raw.half === "1" ? 1 : 2;
   const period = String(raw.period || "").slice(0, 7);
@@ -98,6 +133,7 @@ function normalizeVargasReport(raw = {}) {
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
         payBucket: normalizeVargasPayBucket(emp.payBucket),
         volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
+        horasExtras: normalizeVargasHorasExtras(emp.horasExtras),
       })),
     })),
     updatedAt: raw.updatedAt || new Date().toISOString(),
@@ -159,6 +195,8 @@ function getActiveVargasReport() {
 /** Marca 2 en el reporte = 1 día trabajado + RD$850 en Volaos (sin sumar día extra). */
 const VARGAS_VOLAO_MARK = 2;
 const VARGAS_VOLAO_AMOUNT = 850;
+/** Horas extras del reporte: RD$60 por hora (admite decimales). Se suman al monto ya calculado en nómina. */
+const VARGAS_EXTRA_HOUR_RATE = 60;
 
 function vargasMarkIsWorked(mark) {
   if (mark == null || mark === "") return false;
@@ -392,6 +430,7 @@ function addVargasEmployee(opts = {}) {
     marks: {},
     payBucket,
     volaosPagos: "",
+    horasExtras: 0,
   });
   report.updatedAt = new Date().toISOString();
   saveVargasData(true);
@@ -407,6 +446,20 @@ function setVargasEmployeeVolaosPagos(sectionIdx, empIdx, value) {
   const next = normalizeVargasVolaosPagos(value);
   if (emp.volaosPagos === next) return true;
   emp.volaosPagos = next;
+  report.updatedAt = new Date().toISOString();
+  saveVargasData(true);
+  return true;
+}
+
+/** Horas extras del reporte (decimales OK) → nómina RD$60/h sumado al cálculo previo. */
+function setVargasEmployeeHorasExtras(sectionIdx, empIdx, value) {
+  const report = getActiveVargasReport();
+  if (!report || !report.sections[sectionIdx]) return false;
+  const emp = report.sections[sectionIdx].employees[empIdx];
+  if (!emp) return false;
+  const next = normalizeVargasHorasExtras(value);
+  if (emp.horasExtras === next) return true;
+  emp.horasExtras = next;
   report.updatedAt = new Date().toISOString();
   saveVargasData(true);
   return true;
@@ -456,6 +509,7 @@ function buildVargasPrintHtml(report, rows) {
       const daysCell =
         row.volaoMarks > 0 ? `${row.daysPayroll} · V${row.volaosAmount}` : String(row.daysPayroll);
       const pagosCell = formatVargasVolaosPagos(row.volaosPagos) || "—";
+      const hexCell = formatVargasHorasExtras(row.horasExtras) || "—";
       return `<tr>
         <td class="right">${i + 1}</td>
         <td>${row.shift === "nocturno" ? "N" : "D"}</td>
@@ -464,6 +518,7 @@ function buildVargasPrintHtml(report, rows) {
         <td class="center">${escapeVargasHtml(row.payBucket || "—")}</td>
         <td class="center">${daysCell}</td>
         <td class="center">${escapeVargasHtml(pagosCell)}</td>
+        <td class="center">${escapeVargasHtml(hexCell)}</td>
         ${cells}
       </tr>`;
     })
@@ -487,12 +542,13 @@ function buildVargasPrintHtml(report, rows) {
           <th>B/E</th>
           <th>Días</th>
           <th>Volaos pagos</th>
+          <th>Horas ext.</th>
           ${dayHeads}
         </tr>
       </thead>
-      <tbody>${body || `<tr><td colspan="${7 + dayNums.length}">Sin empleados</td></tr>`}</tbody>
+      <tbody>${body || `<tr><td colspan="${8 + dayNums.length}">Sin empleados</td></tr>`}</tbody>
     </table>
-    <p class="footer">* Día 31 no entra en nómina. 1 = turno; 2 = turno + RD$${VARGAS_VOLAO_AMOUNT} volao. “Volaos pagos” = ya pagados (control; no suma en nómina).</p>
+    <p class="footer">* Día 31 no entra en nómina. 1 = turno; 2 = +RD$${VARGAS_VOLAO_AMOUNT} volao. Volaos pagos = control. Horas ext. = horas × RD$${VARGAS_EXTRA_HOUR_RATE} sumadas a Horas extras de nómina.</p>
     <div class="sign-box">
       <div class="sign-line">Ramón Vargas / Supervisión</div>
       <div class="sign-line">Operaciones RFS</div>
@@ -577,6 +633,7 @@ function flattenVargasEmployees(report, opts = {}) {
         if (!hay.includes(q)) return;
       }
       const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
+      const horasExtras = normalizeVargasHorasExtras(emp.horasExtras);
       rows.push({
         sectionIdx: sIdx,
         empIdx: eIdx,
@@ -586,6 +643,8 @@ function flattenVargasEmployees(report, opts = {}) {
         marks: emp.marks || {},
         payBucket: emp.payBucket || "",
         volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
+        horasExtras,
+        horasExtrasPay: vargasHorasExtrasPay(horasExtras),
         daysPayroll: countVargasPayrollDays(emp.marks, report.dayNums),
         volaoMarks,
         volaosAmount: volaoMarks * VARGAS_VOLAO_AMOUNT,
@@ -673,6 +732,7 @@ function collectVargasPayrollRows(report, bucketFilter = "all") {
       seen.add(key);
       // Volaos a nómina = marcas "2" en días. "volaosPagos" es solo control (ya pagados).
       const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
+      const horasExtras = normalizeVargasHorasExtras(emp.horasExtras);
       rows.push({
         fullName: displayName,
         postName: sec.postName,
@@ -681,6 +741,8 @@ function collectVargasPayrollRows(report, bucketFilter = "all") {
         daysCount: countVargasPayrollDays(emp.marks, report.dayNums),
         volaoMarks,
         volaosAmount: volaoMarks * VARGAS_VOLAO_AMOUNT,
+        horasExtras,
+        horasExtrasPay: vargasHorasExtrasPay(horasExtras),
       });
     });
   });
@@ -761,9 +823,16 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
     const keepPrestamos = line ? Math.max(0, Number(line.prestamos) || 0) : 0;
     const keepExtrasManual = !!(line && line.horasExtrasManual);
     const keepExtras = keepExtrasManual ? Math.max(0, Number(line.horasExtras) || 0) : null;
+    // Quitar el tramo Vargas previo para no duplicar al re-sincronizar.
+    const prevVargasExtraPay = Math.max(0, Number(line && line.vargasExtraPay) || 0);
+    const manualExtrasBase = keepExtrasManual
+      ? Math.max(0, (keepExtras || 0) - prevVargasExtraPay)
+      : null;
 
-    // Marca 2 en el reporte → solo Volaos (RD$850 c/u); días no cambian.
+    // Marca 2 → Volaos RD$850 c/u. Horas extras reporte → +RD$60/h sobre el cálculo previo.
     const nextVolaos = Math.max(0, Number(row.volaosAmount) || 0);
+    const nextExtraHours = normalizeVargasHorasExtras(row.horasExtras);
+    const nextVargasExtraPay = Math.max(0, Number(row.horasExtrasPay) || vargasHorasExtrasPay(nextExtraHours));
 
     if (!line) {
       const person = rosterHit
@@ -792,9 +861,12 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
     const nextDays = String(Math.max(0, Number(row.daysCount) || 0));
     const prevDays = String(line.daysWorked || "").trim();
     const prevVolaos = Math.max(0, Number(line.volaos) || 0);
+    const prevExtraHours = normalizeVargasHorasExtras(line.vargasExtraHours);
     if (
       prevDays !== nextDays ||
       prevVolaos !== nextVolaos ||
+      prevExtraHours !== nextExtraHours ||
+      prevVargasExtraPay !== nextVargasExtraPay ||
       !line.daysFromVargas ||
       line.fullName !== displayName
     ) {
@@ -810,36 +882,56 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       linesTouched += 1;
     }
 
-    // Días = marcas >0 (1 o 2 cuentan igual); volaos = cantidad de 2 × RD$850.
+    // Días = marcas >0; volaos = 2 × 850; horas extras = base nómina + horas×60.
     line.daysWorked = nextDays;
     line.volaos = nextVolaos;
     line.adelantos = keepAdelantos;
     line.prestamos = keepPrestamos;
+    // Recalcular base limpia (sin el tramo Vargas anterior) para no duplicar.
     if (keepExtrasManual) {
-      line.horasExtras = keepExtras;
+      line.horasExtras = manualExtrasBase;
       line.horasExtrasManual = true;
+    } else {
+      line.horasExtras = 0;
+      line.horasExtrasManual = false;
     }
     if (typeof computePayrollLineTotals === "function") {
-      // daysWorked sin "+N" → compute respeta line.volaos; forzamos por si acaso.
-      let recomputed = computePayrollLineTotals({ ...line, volaos: nextVolaos }, formulaOpts);
-      recomputed.volaos = nextVolaos;
-      recomputed.adelantos = keepAdelantos;
-      recomputed.prestamos = keepPrestamos;
-      if (keepExtrasManual) {
-        recomputed.horasExtras = keepExtras;
-        recomputed.horasExtrasManual = true;
-      }
-      recomputed = computePayrollLineTotals(
-        { ...recomputed, volaos: nextVolaos },
+      let recomputed = computePayrollLineTotals(
+        {
+          ...line,
+          volaos: nextVolaos,
+          horasExtras: keepExtrasManual ? manualExtrasBase : 0,
+          horasExtrasManual: keepExtrasManual,
+        },
         formulaOpts
       );
       recomputed.volaos = nextVolaos;
       recomputed.adelantos = keepAdelantos;
       recomputed.prestamos = keepPrestamos;
-      if (keepExtrasManual) {
-        recomputed.horasExtras = keepExtras;
-        recomputed.horasExtrasManual = true;
-      }
+      // Base = fórmula auto o monto manual; luego + horas del reporte × RD$60.
+      const baseExtras = keepExtrasManual
+        ? manualExtrasBase
+        : Math.max(0, Number(recomputed.horasExtras) || 0);
+      const finalExtras =
+        typeof roundMoney2 === "function"
+          ? roundMoney2(baseExtras + nextVargasExtraPay)
+          : Math.round((baseExtras + nextVargasExtraPay) * 100) / 100;
+      recomputed = computePayrollLineTotals(
+        {
+          ...recomputed,
+          volaos: nextVolaos,
+          horasExtras: finalExtras,
+          horasExtrasManual: keepExtrasManual,
+        },
+        formulaOpts
+      );
+      recomputed.volaos = nextVolaos;
+      recomputed.horasExtras = finalExtras;
+      recomputed.horasExtrasManual = keepExtrasManual;
+      recomputed.vargasExtraHours = nextExtraHours;
+      recomputed.vargasExtraPay = nextVargasExtraPay;
+      recomputed.adelantos = keepAdelantos;
+      recomputed.prestamos = keepPrestamos;
       recomputed.daysFromVargas = true;
       recomputed.fromVargasReport = true;
       recomputed.fullName = displayName;
@@ -847,6 +939,14 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
     } else {
       line.fullName = displayName;
       line.volaos = nextVolaos;
+      const baseExtras = keepExtrasManual ? manualExtrasBase : 0;
+      line.horasExtras =
+        typeof roundMoney2 === "function"
+          ? roundMoney2(baseExtras + nextVargasExtraPay)
+          : baseExtras + nextVargasExtraPay;
+      line.horasExtrasManual = keepExtrasManual;
+      line.vargasExtraHours = nextExtraHours;
+      line.vargasExtraPay = nextVargasExtraPay;
       line.daysFromVargas = true;
       line.fromVargasReport = true;
     }
@@ -1200,6 +1300,11 @@ function renderVargasModule() {
           : String(row.daysPayroll);
       const pagosVal = formatVargasVolaosPagos(row.volaosPagos);
       const pagosFilled = pagosVal !== "";
+      const hexVal = formatVargasHorasExtras(row.horasExtras);
+      const hexFilled = hexVal !== "";
+      const hexTitle = hexFilled
+        ? ` title="${hexVal} h × RD$${VARGAS_EXTRA_HOUR_RATE} = RD$${row.horasExtrasPay} (se suma a Horas extras de nómina)"`
+        : ` title="Horas extras (ej. 2 o 2.3). RD$${VARGAS_EXTRA_HOUR_RATE}/h sumadas a la nómina"`;
       return `<tr data-shift="${row.shift}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
         <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
@@ -1207,6 +1312,7 @@ function renderVargasModule() {
         <td class="vargas-bucket-cell">${bucketSel}</td>
         <td class="vargas-days-total">${daysLabel}</td>
         <td class="vargas-pagos-cell${pagosFilled ? " is-paid" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false" title="Volaos ya pagados (1 o 2). Solo control: no suma en nómina">${escapeVargasHtml(pagosVal)}</td>
+        <td class="vargas-hex-cell${hexFilled ? " has-hex" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false"${hexTitle}>${escapeVargasHtml(hexVal)}</td>
         ${markCells}
         <td class="vargas-del-cell">
           <button type="button" class="vargas-del-btn" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-name="${escapeVargasAttr(row.fullName)}" title="Eliminar empleado" aria-label="Eliminar">✕</button>
@@ -1250,10 +1356,9 @@ function renderVargasModule() {
         <button type="button" class="secondary" id="btnVargasReorganizar">Ambos (general + B/E)</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
-        Corrige nombres tocando la columna Empleado. <strong>1</strong> = turno cumplido (suma 1 día).
-        <strong>2</strong> en un día = turno + <strong>RD$${VARGAS_VOLAO_AMOUNT}</strong> en Volaos.
-        <strong>Volaos pagos</strong> = volaos ya pagados (pon 1 o 2): <em>solo control, no suma en nómina</em>.
-        <strong>1. Nómina general</strong> / <strong>2. Enviar</strong> llevan el reporte a Reaction.
+        <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
+        <strong>Volaos pagos</strong> = ya pagados (control, no suma).
+        <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
         Día 31 no suma.
       </p>
     </div>
@@ -1296,12 +1401,13 @@ function renderVargasModule() {
               <th>B/E</th>
               <th>Días</th>
               <th class="vargas-pagos-head" title="Volaos ya pagados — no entran a nómina">Volaos pagos</th>
+              <th class="vargas-hex-head" title="Horas × RD$${VARGAS_EXTRA_HOUR_RATE} sumadas a Horas extras de nómina">Horas ext.</th>
               ${dayHeaders}
               <th></th>
             </tr>
           </thead>
           <tbody>
-            ${body || `<tr><td colspan="${7 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
+            ${body || `<tr><td colspan="${8 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1392,6 +1498,31 @@ function bindVargasUiHandlers() {
       const shown = emp ? formatVargasVolaosPagos(emp.volaosPagos) : "";
       cell.textContent = shown;
       cell.classList.toggle("is-paid", shown !== "");
+    });
+  });
+  document.querySelectorAll(".vargas-hex-cell").forEach((cell) => {
+    cell.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        cell.blur();
+      }
+    });
+    cell.addEventListener("blur", () => {
+      const s = Number(cell.dataset.s);
+      const e = Number(cell.dataset.e);
+      setVargasEmployeeHorasExtras(s, e, cell.textContent);
+      const report = getActiveVargasReport();
+      const emp = report && report.sections[s] && report.sections[s].employees[e];
+      const hours = emp ? normalizeVargasHorasExtras(emp.horasExtras) : 0;
+      const shown = formatVargasHorasExtras(hours);
+      cell.textContent = shown;
+      cell.classList.toggle("has-hex", shown !== "");
+      if (shown) {
+        const pay = vargasHorasExtrasPay(hours);
+        cell.title = `${shown} h × RD$${VARGAS_EXTRA_HOUR_RATE} = RD$${pay} (se suma a Horas extras de nómina)`;
+      } else {
+        cell.title = `Horas extras (ej. 2 o 2.3). RD$${VARGAS_EXTRA_HOUR_RATE}/h sumadas a la nómina`;
+      }
     });
   });
   document.querySelectorAll("td.vargas-name").forEach((cell) => {

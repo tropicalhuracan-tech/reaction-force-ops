@@ -4492,6 +4492,11 @@ function applyPayrollLiveUpdate(ev) {
               profile.extrasDaysBlock
             )
           : nextHoras;
+        // Excedente del reporte Vargas (horas × RD$60) se mantiene encima del cálculo.
+        const vargasExtra = Math.max(0, Number(l.vargasExtraPay) || 0);
+        if (vargasExtra) {
+          nextHoras = roundMoney2(nextHoras + vargasExtra);
+        }
       }
       return computePayrollLineTotals(
         {
