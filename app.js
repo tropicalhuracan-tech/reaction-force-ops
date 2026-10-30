@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 211;
-const APP_VERSION_LABEL = "v211";
+const APP_BUILD = 212;
+const APP_VERSION_LABEL = "v212";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -1260,35 +1260,64 @@ function ensureEmployeeFromMonoName(rawName) {
   const display = monoDisplayName(base);
   const key = employeeKey(display);
   const keyBase = employeeKey(monoBaseName(display));
-  let existing = employees.find(
-    (e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase
+
+  // 1) Coincidencia exacta de nombre (preferir activo)
+  const exactHits = employees.filter(
+    (e) =>
+      e &&
+      (employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase)
   );
-  // Si ese nombre se unificó antes, reutilizar el Principal
+  let existing = exactHits.find((e) => isEmployeeActive(e)) || exactHits[0] || null;
+  let matchedExact = !!existing;
+
+  // 2) Alias de unificación solo si el nombre es realmente el mismo (evita que un
+  //    alias viejo —p.ej. en José Antonio Beltre— robe a Enmanuel Martínez).
   if (!existing && keyBase) {
-    existing = employees.find(
-      (e) =>
-        Array.isArray(e.monoUnifyAliases) &&
-        e.monoUnifyAliases.some((a) => String(a) === keyBase || String(a) === key)
-    );
+    const aliasHits = employees.filter((e) => {
+      if (!e || !Array.isArray(e.monoUnifyAliases)) return false;
+      return e.monoUnifyAliases.some((a) => {
+        const ak = employeeKey(monoBaseName(a) || a);
+        return ak === keyBase || ak === key || String(a) === keyBase || String(a) === key;
+      });
+    });
+    existing =
+      aliasHits.find((e) => {
+        const sim = nameSimilarity(base, e.name);
+        return sim.exact || sim.score >= 0.88;
+      }) || null;
+    matchedExact = false;
   }
+
   if (existing) {
     const idx = employees.findIndex((e) => e.id === existing.id);
-    let merged = applyMonorrielFlag(existing, true);
-    if (!isEmployeeActive(merged)) {
-      // Si estaba inactivo y lo usan otra vez en Monorriel, reactivar
-      merged = normalizeEmployee({
-        ...merged,
-        status: "active",
-        inactiveReason: "",
-        inactiveAt: "",
-        updatedAt: new Date().toISOString(),
-      });
-      toast(`${merged.name} estaba inactivo y se reactivó al usarlo en Monorriel.`);
+    if (idx < 0) existing = null;
+    else {
+      let merged = applyMonorrielFlag(existing, true);
+      if (!isEmployeeActive(merged)) {
+        // Solo reactivar si es el mismo nombre exacto. Un alias ajeno → crear ficha nueva.
+        if (!matchedExact) {
+          existing = null;
+        } else {
+          merged = normalizeEmployee({
+            ...merged,
+            status: "active",
+            inactiveReason: "",
+            inactiveAt: "",
+            updatedAt: new Date().toISOString(),
+          });
+          toast(`${merged.name} estaba inactivo y se reactivó al usarlo en Monorriel.`);
+          employees[idx] = merged;
+          saveEmployees();
+          return employees[idx];
+        }
+      } else {
+        employees[idx] = merged;
+        saveEmployees();
+        return employees[idx];
+      }
     }
-    employees[idx] = merged;
-    saveEmployees();
-    return employees[idx];
   }
+
   // Alerta nombres parecidos antes de crear otro Monorriel
   if (!confirmMonoNameNotDuplicate(base)) {
     toast("No se creó: revisa Personal Monorriel → Unificar si es el mismo.");
@@ -1299,6 +1328,7 @@ function ensureEmployeeFromMonoName(rawName) {
     sites: ["Monorriel"],
     roles: ["Monorriel"],
     status: "active",
+    monoUnifyAliases: [keyBase, key].filter(Boolean),
   });
   employees.push(emp);
   employees.sort((a, b) => a.name.localeCompare(b.name, "es"));
@@ -4289,6 +4319,12 @@ function normalizeUser(u = {}) {
   if (role === "owner" || modules.admin || username === "vargas10") {
     modules.vargas = true;
   }
+  // Ashley28: puede borrar/editar personal Monorriel (lista del reporte)
+  if (username === "ashley28" || username === "ashley") {
+    modules.employees = true;
+    modules.employeesWrite = true;
+    modules.monorriel = true;
+  }
   if (role === "owner") {
     MODULE_DEFS.forEach((m) => {
       modules[m.key] = true;
@@ -4380,6 +4416,18 @@ function canWriteClients() {
 
 function canWriteEmployees() {
   return canCap("employeesWrite");
+}
+
+/** Borrar / unificar personal del reporte Monorriel (Ashley28 incluido). */
+function canDeleteMonoStaff() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner") return true;
+  const u = String(currentUser.username || "")
+    .trim()
+    .toLowerCase();
+  if (u === "ashley28" || u === "ashley") return true;
+  if (currentUser.modules && currentUser.modules.admin) return true;
+  return canWriteEmployees();
 }
 
 function canAccessRrhh() {
@@ -7716,7 +7764,10 @@ function ensureMonorrielEmployeesImported() {
       existing = employees.find((e) => employeeKey(e.name) === key || employeeKey(monoBaseName(e.name)) === keyBase);
     }
     if (existing) {
+      // No tocar borrados/inactivos: el Excel no debe revivirlos ni mezclar aliases
+      if (!isEmployeeActive(existing)) return;
       const idx = employees.findIndex((e) => e.id === existing.id);
+      if (idx < 0) return;
       const merged = mergeEmployeeRecord(existing, {
         name: existing.nameManual ? existing.name : preferEmployeeName(existing.name, display),
         sites: ["Monorriel"],
@@ -7738,6 +7789,10 @@ function ensureMonorrielEmployeesImported() {
       merged.sites = [...new Set([...(merged.sites || []), "Monorriel"])];
       merged.roles = [...new Set([...(merged.roles || []), "Monorriel"])];
       if (!(Number(merged.salary) > 0) && salaryFromRoster) merged.salary = salaryFromRoster;
+      // Conservar estado activo (merge ya lo hace; refuerzo anti-revive)
+      merged.status = "active";
+      merged.inactiveReason = "";
+      merged.inactiveAt = "";
       employees[idx] = merged;
       return;
     }
@@ -8720,7 +8775,11 @@ function renderMonoStaffList() {
                 ${isKeeper ? "✓✓ Principal" : "Marcar Principal ✓✓"}
               </button>
               <button type="button" class="btn ghost btn-sm mono-open-emp" data-emp-id="${escapeHtml(e.id)}">Abrir ficha</button>
-              <button type="button" class="btn danger btn-sm mono-del-emp" data-emp-id="${escapeHtml(e.id)}" data-emp-name="${escapeHtml(base)}" title="Quitar de Monorriel (ya no trabaja)">Borrar</button>
+              ${
+                typeof canDeleteMonoStaff === "function" && canDeleteMonoStaff()
+                  ? `<button type="button" class="btn danger btn-sm mono-del-emp" data-emp-id="${escapeHtml(e.id)}" data-emp-name="${escapeHtml(base)}" title="Quitar de Monorriel (ya no trabaja)">Borrar</button>`
+                  : ""
+              }
             </div>
           </div>
         </div>
@@ -8768,8 +8827,8 @@ function renderMonoStaffList() {
 
 /** Borra (inactiva) un empleado Monorriel que ya no está. Sale de la lista activa. */
 function deleteMonorrielStaffEmployee(empId, empName) {
-  if (typeof canWriteEmployees === "function" && !canWriteEmployees()) {
-    toast("No tienes permiso para borrar empleados.");
+  if (typeof canDeleteMonoStaff === "function" ? !canDeleteMonoStaff() : !canWriteEmployees()) {
+    toast("No tienes permiso para borrar empleados de Monorriel.");
     return;
   }
   const id = String(empId || "").trim();
@@ -8790,12 +8849,35 @@ function deleteMonorrielStaffEmployee(empId, empName) {
   ) {
     return;
   }
+  const ownKeys = [
+    employeeKey(monoBaseName(emp.name) || emp.name),
+    employeeKey(emp.name),
+  ].filter(Boolean);
+  const nowIso = new Date().toISOString();
   employees[idx] = normalizeEmployee({
     ...emp,
     status: "inactive",
     inactiveReason: "Ya no trabaja · borrado desde Monorriel",
-    inactiveAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    inactiveAt: nowIso,
+    updatedAt: nowIso,
+    // Solo aliases propios: evita que un nombre nuevo “caiga” en este borrado
+    monoUnifyAliases: ownKeys,
+  });
+  // Quitar aliases ajenos en otras fichas que apuntaban a este nombre (unificaciones viejas)
+  const purgeKeys = new Set(ownKeys);
+  employees.forEach((e, i) => {
+    if (!e || e.id === id || !Array.isArray(e.monoUnifyAliases) || !e.monoUnifyAliases.length) return;
+    const next = e.monoUnifyAliases.filter((a) => {
+      const ak = employeeKey(monoBaseName(a) || a);
+      return !purgeKeys.has(ak) && !purgeKeys.has(String(a));
+    });
+    if (next.length !== e.monoUnifyAliases.length) {
+      employees[i] = normalizeEmployee({
+        ...e,
+        monoUnifyAliases: next,
+        updatedAt: nowIso,
+      });
+    }
   });
   monoUnifySelected.delete(id);
   if (monoUnifyKeeperId === id) monoUnifyKeeperId = "";
@@ -8855,8 +8937,8 @@ function remapMonorrielPayrollNames(keeper, otherNames) {
 
 /** Unifica fichas Monorriel: el Principal (doble check) se queda; los demás salen. */
 function unifyMonorrielEmployees() {
-  if (typeof canWriteEmployees === "function" && !canWriteEmployees()) {
-    toast("No tienes permiso para unificar empleados.");
+  if (typeof canDeleteMonoStaff === "function" ? !canDeleteMonoStaff() : !canWriteEmployees()) {
+    toast("No tienes permiso para unificar empleados de Monorriel.");
     return;
   }
   const selected = [...monoUnifySelected];
@@ -14165,7 +14247,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=211").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=212").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14181,7 +14263,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v211")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v212")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
