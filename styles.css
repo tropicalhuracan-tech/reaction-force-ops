@@ -2954,8 +2954,19 @@ body.lightbox-open {
   background: rgba(34, 197, 94, 0.18);
   font-weight: 700;
 }
+#vargasView .vargas-day-cell.is-volao {
+  background: rgba(14, 165, 233, 0.22);
+  color: #0c4a6e;
+  font-weight: 800;
+}
 #vargasView .vargas-day-cell.is-excl {
   opacity: 0.65;
+}
+#vargasView .vargas-volao-hint {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0369a1;
+  white-space: nowrap;
 }
 #vargasView .vargas-bucket {
   width: 3.2em;
