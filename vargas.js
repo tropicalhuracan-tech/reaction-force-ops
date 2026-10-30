@@ -38,6 +38,7 @@ function cloneVargasSeedReport(seed) {
         fullName: String(emp.fullName || "").trim(),
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
         payBucket: normalizeVargasPayBucket(emp.payBucket),
+        volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
       })),
     })),
     updatedAt: new Date().toISOString(),
@@ -51,6 +52,28 @@ function normalizeVargasPayBucket(v) {
   if (s === "B" || s === "BANCO") return "B";
   if (s === "E" || s === "EFECTIVO") return "E";
   return "";
+}
+
+/**
+ * Casilla "Volaos pagos": control de volaos ya pagados (1 o 2).
+ * Nunca entra a nómina — solo registro interno.
+ */
+function normalizeVargasVolaosPagos(v) {
+  if (v == null || v === "") return "";
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+    return Math.min(99, Math.round(v));
+  }
+  const s = String(v).trim();
+  if (!s) return "";
+  if (!/^\d+(\.\d+)?$/.test(s)) return "";
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return Math.min(99, Math.round(n));
+}
+
+function formatVargasVolaosPagos(v) {
+  const n = normalizeVargasVolaosPagos(v);
+  return n === "" ? "" : String(n);
 }
 
 function normalizeVargasReport(raw = {}) {
@@ -74,6 +97,7 @@ function normalizeVargasReport(raw = {}) {
         fullName: String(emp.fullName || "").trim(),
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
         payBucket: normalizeVargasPayBucket(emp.payBucket),
+        volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
       })),
     })),
     updatedAt: raw.updatedAt || new Date().toISOString(),
@@ -367,10 +391,25 @@ function addVargasEmployee(opts = {}) {
     fullName,
     marks: {},
     payBucket,
+    volaosPagos: "",
   });
   report.updatedAt = new Date().toISOString();
   saveVargasData(true);
   return { ok: true, fullName, postName, shift };
+}
+
+/** Solo control: volaos ya pagados. No alimenta días ni Volaos de nómina. */
+function setVargasEmployeeVolaosPagos(sectionIdx, empIdx, value) {
+  const report = getActiveVargasReport();
+  if (!report || !report.sections[sectionIdx]) return false;
+  const emp = report.sections[sectionIdx].employees[empIdx];
+  if (!emp) return false;
+  const next = normalizeVargasVolaosPagos(value);
+  if (emp.volaosPagos === next) return true;
+  emp.volaosPagos = next;
+  report.updatedAt = new Date().toISOString();
+  saveVargasData(true);
+  return true;
 }
 
 function removeVargasEmployee(sectionIdx, empIdx) {
@@ -416,6 +455,7 @@ function buildVargasPrintHtml(report, rows) {
         .join("");
       const daysCell =
         row.volaoMarks > 0 ? `${row.daysPayroll} · V${row.volaosAmount}` : String(row.daysPayroll);
+      const pagosCell = formatVargasVolaosPagos(row.volaosPagos) || "—";
       return `<tr>
         <td class="right">${i + 1}</td>
         <td>${row.shift === "nocturno" ? "N" : "D"}</td>
@@ -423,6 +463,7 @@ function buildVargasPrintHtml(report, rows) {
         <td>${escapeVargasHtml(row.postName)}</td>
         <td class="center">${escapeVargasHtml(row.payBucket || "—")}</td>
         <td class="center">${daysCell}</td>
+        <td class="center">${escapeVargasHtml(pagosCell)}</td>
         ${cells}
       </tr>`;
     })
@@ -445,12 +486,13 @@ function buildVargasPrintHtml(report, rows) {
           <th>Puesto</th>
           <th>B/E</th>
           <th>Días</th>
+          <th>Volaos pagos</th>
           ${dayHeads}
         </tr>
       </thead>
-      <tbody>${body || `<tr><td colspan="${6 + dayNums.length}">Sin empleados</td></tr>`}</tbody>
+      <tbody>${body || `<tr><td colspan="${7 + dayNums.length}">Sin empleados</td></tr>`}</tbody>
     </table>
-    <p class="footer">* Día 31 se muestra pero no entra en nómina. 1 = turno; 2 = turno + RD$${VARGAS_VOLAO_AMOUNT} en Volaos (sin día extra).</p>
+    <p class="footer">* Día 31 no entra en nómina. 1 = turno; 2 = turno + RD$${VARGAS_VOLAO_AMOUNT} volao. “Volaos pagos” = ya pagados (control; no suma en nómina).</p>
     <div class="sign-box">
       <div class="sign-line">Ramón Vargas / Supervisión</div>
       <div class="sign-line">Operaciones RFS</div>
@@ -543,6 +585,7 @@ function flattenVargasEmployees(report, opts = {}) {
         fullName: emp.fullName,
         marks: emp.marks || {},
         payBucket: emp.payBucket || "",
+        volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
         daysPayroll: countVargasPayrollDays(emp.marks, report.dayNums),
         volaoMarks,
         volaosAmount: volaoMarks * VARGAS_VOLAO_AMOUNT,
@@ -628,6 +671,7 @@ function collectVargasPayrollRows(report, bucketFilter = "all") {
       const key = vargasNameKey(displayName);
       if (!key || seen.has(key)) return;
       seen.add(key);
+      // Volaos a nómina = marcas "2" en días. "volaosPagos" es solo control (ya pagados).
       const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
       rows.push({
         fullName: displayName,
@@ -1154,12 +1198,15 @@ function renderVargasModule() {
         row.volaoMarks > 0
           ? `${row.daysPayroll}<span class="vargas-volao-hint" title="${row.volaoMarks} volao(s) × RD$${VARGAS_VOLAO_AMOUNT}"> · V${row.volaosAmount}</span>`
           : String(row.daysPayroll);
+      const pagosVal = formatVargasVolaosPagos(row.volaosPagos);
+      const pagosFilled = pagosVal !== "";
       return `<tr data-shift="${row.shift}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
         <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
         <td class="vargas-post">${escapeVargasHtml(row.postName)}</td>
         <td class="vargas-bucket-cell">${bucketSel}</td>
         <td class="vargas-days-total">${daysLabel}</td>
+        <td class="vargas-pagos-cell${pagosFilled ? " is-paid" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false" title="Volaos ya pagados (1 o 2). Solo control: no suma en nómina">${escapeVargasHtml(pagosVal)}</td>
         ${markCells}
         <td class="vargas-del-cell">
           <button type="button" class="vargas-del-btn" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-name="${escapeVargasAttr(row.fullName)}" title="Eliminar empleado" aria-label="Eliminar">✕</button>
@@ -1204,9 +1251,9 @@ function renderVargasModule() {
       </div>
       <p class="muted tight" style="margin-top:10px">
         Corrige nombres tocando la columna Empleado. <strong>1</strong> = turno cumplido (suma 1 día).
-        <strong>2</strong> = mismo día trabajado + <strong>RD$${VARGAS_VOLAO_AMOUNT}</strong> en Volaos (no suma día extra).
-        <strong>1. Nómina general</strong> carga el reporte a Reaction General y abre esa nómina.
-        Luego marca <strong>B/E</strong> y <strong>2. Enviar</strong> reparte a Banco o Efectivo.
+        <strong>2</strong> en un día = turno + <strong>RD$${VARGAS_VOLAO_AMOUNT}</strong> en Volaos.
+        <strong>Volaos pagos</strong> = volaos ya pagados (pon 1 o 2): <em>solo control, no suma en nómina</em>.
+        <strong>1. Nómina general</strong> / <strong>2. Enviar</strong> llevan el reporte a Reaction.
         Día 31 no suma.
       </p>
     </div>
@@ -1248,12 +1295,13 @@ function renderVargasModule() {
               <th>Puesto</th>
               <th>B/E</th>
               <th>Días</th>
+              <th class="vargas-pagos-head" title="Volaos ya pagados — no entran a nómina">Volaos pagos</th>
               ${dayHeaders}
               <th></th>
             </tr>
           </thead>
           <tbody>
-            ${body || `<tr><td colspan="${6 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
+            ${body || `<tr><td colspan="${7 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -1326,6 +1374,24 @@ function bindVargasUiHandlers() {
       const e = Number(cell.dataset.e);
       const day = Number(cell.dataset.day);
       setVargasEmployeeMark(s, e, day, cell.textContent);
+    });
+  });
+  document.querySelectorAll(".vargas-pagos-cell").forEach((cell) => {
+    cell.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        cell.blur();
+      }
+    });
+    cell.addEventListener("blur", () => {
+      const s = Number(cell.dataset.s);
+      const e = Number(cell.dataset.e);
+      setVargasEmployeeVolaosPagos(s, e, cell.textContent);
+      const report = getActiveVargasReport();
+      const emp = report && report.sections[s] && report.sections[s].employees[e];
+      const shown = emp ? formatVargasVolaosPagos(emp.volaosPagos) : "";
+      cell.textContent = shown;
+      cell.classList.toggle("is-paid", shown !== "");
     });
   });
   document.querySelectorAll("td.vargas-name").forEach((cell) => {
