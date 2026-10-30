@@ -2152,11 +2152,13 @@ function payrollIsEfectivo(p) {
   return !!(p && p.group === "efectivo");
 }
 
-/** Reaction General / Banco / Efectivo: nombres y apellidos completos (reporte Vargas). */
+/** Reaction General / Banco / Efectivo, y La Vega venida del reporte: nombres completos. */
 function payrollKeepsFullVargasNames(p) {
   if (!p) return false;
   const g = String(p.group || "").trim();
-  return g === "reaction" || g === "banco" || g === "efectivo";
+  if (g === "reaction" || g === "banco" || g === "efectivo") return true;
+  if (g === "lavega" && p.rosterFromVargas) return true;
+  return false;
 }
 
 /** La Vega, Monorriel, LOTEDOM, Banco y Efectivo: mismas columnas / Unif-Rifa / Comida-Seg.vida.
