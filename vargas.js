@@ -1039,7 +1039,7 @@ function findVargasLineOnGroups(period, half, groups, name) {
 
 /**
  * Quienes dicen "-LA VEGA" salen de Reaction (general / banco / efectivo)
- * y se agregan o actualizan en La Vega Autopista del mismo corte. No poda el resto de La Vega.
+ * y La Vega Autopista de ese corte queda SOLO con ellos (el resto se borra).
  */
 function routeVargasLaVegaEmployees(report, opts = {}) {
   const period = (opts && opts.period) || (report && report.period);
@@ -1080,12 +1080,13 @@ function routeVargasLaVegaEmployees(report, opts = {}) {
   const payroll = ensureVargasPayrollShell(period, half, "lavega", "La Vega Autopista");
   if (!payroll) return { moved: 0, dropped, payroll: null };
   const result = applyVargasRowsToPayroll(payroll, rows, "La Vega Autopista", {
-    prune: false,
+    prune: true,
     keepFullName: false,
   });
   return {
     moved: result.kept,
     touched: result.linesTouched,
+    removed: result.removed,
     dropped,
     changed: result.changed,
     payroll,
@@ -1121,7 +1122,9 @@ function syncVargasGeneralPayroll(opts = {}) {
     toast(
       `Nómina general: ${result.kept} del reporte` +
         (result.removed ? ` · se quitaron ${result.removed} que no estaban` : "") +
-        (lavega && lavega.moved ? ` · ${lavega.moved} a La Vega Autopista` : "") +
+        (lavega && lavega.moved
+          ? ` · La Vega: ${lavega.moved}` + (lavega.removed ? ` (se borraron ${lavega.removed} viejos)` : "")
+          : "") +
         (result.linesTouched ? ` · ${result.linesTouched} actualizado(s)` : "")
     );
   }
@@ -1254,7 +1257,8 @@ function syncVargasGeneralPayrollAction() {
         `Empleados del reporte: ${rows.length}\n` +
         `A La Vega Autopista (dicen -LA VEGA): ${rows.filter(vargasRowIsLaVega).length}\n\n` +
         `La general solo deja a quienes no dicen -LA VEGA.\n` +
-        `Los de -LA VEGA pasan a La Vega Autopista del mismo corte (16–30 u 01–15) y salen de la general.\n` +
+        `Los de -LA VEGA pasan a La Vega Autopista del mismo corte.\n` +
+        `En esa nómina se borran los demás: solo quedan los del reporte.\n` +
         `Día 31 no suma. Se conservan adelantos/préstamos.`
     )
   ) {
@@ -1486,7 +1490,7 @@ function renderVargasModule() {
         <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
-        Si el nombre o el puesto dice <strong>-LA VEGA</strong>, al actualizar nómina sale de la general y pasa a <strong>La Vega Autopista</strong> del mismo corte.
+        Si el nombre o el puesto dice <strong>-LA VEGA</strong>, al actualizar nómina sale de la general y <strong>La Vega Autopista</strong> de ese corte queda solo con ellos (se borran los demás).
         Día 31 no suma.
       </p>
     </div>
