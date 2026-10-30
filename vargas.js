@@ -722,7 +722,11 @@ function expandPayrollNamesFromVargas(payroll, opts = {}) {
     if (!line) return;
     const cur = String(line.fullName || "").trim();
     if (!cur) return;
-    const hit = rows.find((r) => vargasNamesMatch(r.fullName, cur));
+    const hit = rows.find((r) => {
+      const raw = String(r.fullName || "");
+      const stripped = vargasStripLaVegaTag(raw);
+      return vargasNamesMatch(raw, cur) || (stripped && vargasNamesMatch(stripped, cur));
+    });
     if (!hit) return;
     let next = vargasStripLaVegaTag(String(hit.fullName || "").trim());
     if (typeof payrollCleanEmployeeName === "function") {
@@ -738,7 +742,23 @@ function expandPayrollNamesFromVargas(payroll, opts = {}) {
     line.fromVargasReport = true;
     changed = true;
   });
+  if (g === "lavega") {
+    const sorted = sortVargasLinesByName(payroll.lines);
+    const moved = sorted.some((line, i) => line !== payroll.lines[i]);
+    if (moved) {
+      payroll.lines = sorted;
+      changed = true;
+    }
+  }
   return changed;
+}
+
+function sortVargasLinesByName(lines) {
+  return [...(lines || [])].sort((a, b) =>
+    String((a && a.fullName) || "").localeCompare(String((b && b.fullName) || ""), "es", {
+      sensitivity: "base",
+    })
+  );
 }
 
 /** Filas del reporte Vargas listas para nómina (días sin 31). */
@@ -985,14 +1005,18 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
   });
 
   const removed = prune ? Math.max(0, (payroll.lines || []).length - nextLines.length) : 0;
-  if (prune) {
-    if (removed > 0) changed = true;
-    payroll.lines = nextLines;
-  } else {
-    // Solo agregar/actualizar; no podar
+  let ordered = nextLines;
+  if (!prune) {
     const byKey = new Map((payroll.lines || []).map((l) => [vargasNameKey(l.fullName), l]));
     nextLines.forEach((l) => byKey.set(vargasNameKey(l.fullName), l));
-    payroll.lines = [...byKey.values()];
+    ordered = [...byKey.values()];
+  }
+  if (payroll.group === "lavega") ordered = sortVargasLinesByName(ordered);
+  if (prune) {
+    if (removed > 0) changed = true;
+    payroll.lines = ordered;
+  } else {
+    payroll.lines = ordered;
   }
 
   // Marca siempre updatedAt al podar desde Vargas (aunque el contenido coincida)
@@ -1497,7 +1521,7 @@ function renderVargasModule() {
         <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
-        Si el nombre o el puesto dice <strong>-LA VEGA</strong>, al actualizar nómina sale de la general y <strong>La Vega Autopista</strong> de ese corte queda solo con ellos, con el nombre completo del reporte (sin la palabra La Vega).
+        Si el nombre o el puesto dice <strong>-LA VEGA</strong>, en <strong>La Vega Autopista</strong> queda el nombre completo del reporte (todos los nombres y apellidos, sin la palabra La Vega) y la lista va en orden alfabético.
         Día 31 no suma.
       </p>
     </div>
