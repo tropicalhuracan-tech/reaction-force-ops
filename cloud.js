@@ -372,6 +372,23 @@
     return out;
   }
 
+  /** Alias solo une si los nombres se parecen (evita Beltre←Enmanuel por alias contaminado). */
+  function cloudNamesLookSamePerson(aName, bName) {
+    const a = employeeIdentityKey(aName);
+    const b = employeeIdentityKey(bName);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return true;
+    const ta = new Set(a.split(" ").filter((x) => x.length > 1));
+    const tb = new Set(b.split(" ").filter((x) => x.length > 1));
+    if (!ta.size || !tb.size) return false;
+    let inter = 0;
+    ta.forEach((x) => {
+      if (tb.has(x)) inter += 1;
+    });
+    return inter / Math.max(ta.size, tb.size) >= 0.6;
+  }
+
   /** Nombre corregido a mano gana siempre sobre roster/sync. */
   function pickCloudEmployeeName(a, b) {
     const aa = a || {};
@@ -491,10 +508,12 @@
       const incomingAliases = employeeAliasKeySet(raw);
       for (const [k, existing] of map) {
         if (!existing) continue;
+        if (raw.id && existing.id && String(raw.id) === String(existing.id)) return k;
+        // Alias solo si parecen la misma persona (no unificar ajenos por aliases viejos)
+        if (!cloudNamesLookSamePerson(raw.name, existing.name)) continue;
         const aliases = employeeAliasKeySet(existing);
         if (key && aliases.has(key)) return k;
         if (incomingAliases.has(k) || incomingAliases.has(employeeIdentityKey(existing.name))) return k;
-        if (raw.id && existing.id && String(raw.id) === String(existing.id)) return k;
       }
       return null;
     };
