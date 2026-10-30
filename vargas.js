@@ -123,7 +123,8 @@ function vargasRowIsLaVega(row) {
 
 function vargasStripLaVegaTag(name) {
   return String(name || "")
-    .replace(/\s*-\s*LA\s+VEGA\b/gi, " ")
+    .replace(/\s*[-–—]?\s*\(?\s*LA\s+VEGA\s*\)?/gi, " ")
+    .replace(/\(\s*\)/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -690,11 +691,16 @@ function vargasReportStats(report) {
  */
 function expandPayrollNamesFromVargas(payroll, opts = {}) {
   if (!payroll) return false;
-  if (typeof payrollKeepsFullVargasNames === "function" && !payrollKeepsFullVargasNames(payroll)) {
+  const g = String(payroll.group || "").trim();
+  const lavegaFromVargas = g === "lavega" && !!payroll.rosterFromVargas;
+  if (g !== "reaction" && g !== "banco" && g !== "efectivo" && !lavegaFromVargas) return false;
+  if (
+    typeof payrollKeepsFullVargasNames === "function" &&
+    !payrollKeepsFullVargasNames(payroll) &&
+    !lavegaFromVargas
+  ) {
     return false;
   }
-  const g = String(payroll.group || "").trim();
-  if (g !== "reaction" && g !== "banco" && g !== "efectivo") return false;
   const report = opts.report || getActiveVargasReport();
   if (!report) return false;
   const perP = String(payroll.period || "").slice(0, 7);
@@ -707,7 +713,8 @@ function expandPayrollNamesFromVargas(payroll, opts = {}) {
   let bucketFilter = "all";
   if (g === "banco") bucketFilter = "B";
   else if (g === "efectivo") bucketFilter = "E";
-  const rows = collectVargasPayrollRows(report, bucketFilter);
+  let rows = collectVargasPayrollRows(report, bucketFilter);
+  if (g === "lavega") rows = rows.filter(vargasRowIsLaVega);
   if (!rows.length) return false;
 
   let changed = false;
@@ -717,12 +724,16 @@ function expandPayrollNamesFromVargas(payroll, opts = {}) {
     if (!cur) return;
     const hit = rows.find((r) => vargasNamesMatch(r.fullName, cur));
     if (!hit) return;
-    const next = String(hit.fullName || "").trim();
+    let next = vargasStripLaVegaTag(String(hit.fullName || "").trim());
+    if (typeof payrollCleanEmployeeName === "function") {
+      next = payrollCleanEmployeeName(next) || next;
+    }
     if (!next || next === cur) return;
+    const curHadTag = vargasStripLaVegaTag(cur) !== cur;
     // Preferir el nombre más completo del reporte (más tokens / más largo)
     const curParts = cur.split(/\s+/).filter(Boolean).length;
     const nextParts = next.split(/\s+/).filter(Boolean).length;
-    if (nextParts < curParts && next.length <= cur.length) return;
+    if (!curHadTag && nextParts < curParts && next.length <= cur.length) return;
     line.fullName = next;
     line.fromVargasReport = true;
     changed = true;
@@ -1057,22 +1068,18 @@ function routeVargasLaVegaEmployees(report, opts = {}) {
   }
   const rows = tagged.map((row) => {
     const cleanName = vargasStripLaVegaTag(row.fullName) || row.fullName;
-    const shortName =
-      typeof payrollShortEmployeeName === "function"
-        ? payrollShortEmployeeName(cleanName) || cleanName
-        : cleanName;
     const cleanPost = vargasStripLaVegaTag(row.postName) || row.postName;
     const seed =
       findVargasLineOnGroups(period, half, ["lavega", "reaction", "banco", "efectivo"], row.fullName) ||
       null;
     return {
       ...row,
-      fullName: shortName,
+      fullName: cleanName,
       postName: cleanPost,
       seedLine: seed
         ? {
             ...seed,
-            fullName: shortName,
+            fullName: cleanName,
           }
         : null,
     };
@@ -1081,7 +1088,7 @@ function routeVargasLaVegaEmployees(report, opts = {}) {
   if (!payroll) return { moved: 0, dropped, payroll: null };
   const result = applyVargasRowsToPayroll(payroll, rows, "La Vega Autopista", {
     prune: true,
-    keepFullName: false,
+    keepFullName: true,
   });
   return {
     moved: result.kept,
@@ -1490,7 +1497,7 @@ function renderVargasModule() {
         <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
-        Si el nombre o el puesto dice <strong>-LA VEGA</strong>, al actualizar nómina sale de la general y <strong>La Vega Autopista</strong> de ese corte queda solo con ellos (se borran los demás).
+        Si el nombre o el puesto dice <strong>-LA VEGA</strong>, al actualizar nómina sale de la general y <strong>La Vega Autopista</strong> de ese corte queda solo con ellos, con el nombre completo del reporte (sin la palabra La Vega).
         Día 31 no suma.
       </p>
     </div>
