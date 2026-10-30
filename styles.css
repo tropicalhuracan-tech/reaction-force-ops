@@ -2981,6 +2981,23 @@ body.lightbox-open {
   text-align: center;
   font-weight: 800;
 }
+#vargasView .vargas-pagos-head {
+  min-width: 4.5em;
+  font-size: 11px;
+  line-height: 1.15;
+  color: #fbbf24;
+}
+#vargasView .vargas-pagos-cell {
+  text-align: center;
+  min-width: 3.2em;
+  font-weight: 800;
+  outline: none;
+  background: rgba(251, 191, 36, 0.08);
+}
+#vargasView .vargas-pagos-cell.is-paid {
+  background: rgba(251, 191, 36, 0.28);
+  color: #78350f;
+}
 #vargasView .vargas-shift {
   text-align: center;
   font-weight: 700;
