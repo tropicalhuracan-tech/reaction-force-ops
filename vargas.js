@@ -38,11 +38,15 @@ function cloneVargasSeedReport(seed) {
         fullName: String(emp.fullName || "").trim(),
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
         payBucket: normalizeVargasPayBucket(emp.payBucket),
+        payBucketSetAt: normalizeVargasPayBucket(emp.payBucket)
+          ? String(emp.payBucketSetAt || "")
+          : "",
         volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
         horasExtras: normalizeVargasHorasExtras(emp.horasExtras),
       })),
     })),
-    updatedAt: new Date().toISOString(),
+    // Fecha vieja: la semilla no puede ganar al reporte de la nube al abrir la app.
+    updatedAt: String(src.updatedAt || "2026-10-16T00:00:00.000Z"),
   };
 }
 
@@ -150,6 +154,9 @@ function normalizeVargasReport(raw = {}) {
         fullName: String(emp.fullName || "").trim(),
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
         payBucket: normalizeVargasPayBucket(emp.payBucket),
+        payBucketSetAt: normalizeVargasPayBucket(emp.payBucket)
+          ? String(emp.payBucketSetAt || "")
+          : "",
         volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
         horasExtras: normalizeVargasHorasExtras(emp.horasExtras),
       })),
@@ -187,18 +194,83 @@ function saveVargasData(push = true) {
   if (push && typeof queueCloudSave === "function") queueCloudSave();
 }
 
-function applyRemoteVargasData(remote) {
-  const remoteNorm = normalizeVargasData(remote || {});
-  const local = normalizeVargasData(vargasData);
+function vargasEmployeeExactKey(section, emp) {
+  const shift = section && section.shift === "nocturno" ? "nocturno" : "diurno";
+  const post = vargasNameKey(section && section.postName);
+  const name = vargasNameKey(emp && emp.fullName);
+  return `${shift}|${post}|${name}`;
+}
+
+/** Si los dos lados tienen B/E distinto, gana el que se eligió más tarde. Vacío nunca pisa una elección. */
+function pickStickyVargasPayBucket(baseEmp, otherEmp) {
+  const baseBucket = normalizeVargasPayBucket(baseEmp && baseEmp.payBucket);
+  const otherBucket = normalizeVargasPayBucket(otherEmp && otherEmp.payBucket);
+  const baseAt = baseBucket ? String((baseEmp && baseEmp.payBucketSetAt) || "") : "";
+  const otherAt = otherBucket ? String((otherEmp && otherEmp.payBucketSetAt) || "") : "";
+  if (baseBucket && otherBucket && baseBucket !== otherBucket) {
+    if (otherAt > baseAt) return { payBucket: otherBucket, payBucketSetAt: otherAt };
+    return { payBucket: baseBucket, payBucketSetAt: baseAt };
+  }
+  if (baseBucket && otherBucket) {
+    return { payBucket: baseBucket, payBucketSetAt: baseAt >= otherAt ? baseAt : otherAt };
+  }
+  if (baseBucket) return { payBucket: baseBucket, payBucketSetAt: baseAt };
+  if (otherBucket) return { payBucket: otherBucket, payBucketSetAt: otherAt };
+  return { payBucket: "", payBucketSetAt: "" };
+}
+
+function mergeVargasReportSticky(base, other) {
+  if (!base) return other;
+  if (!other) return base;
+  const byExact = new Map();
+  const byName = new Map();
+  (other.sections || []).forEach((sec) => {
+    (sec.employees || []).forEach((emp) => {
+      byExact.set(vargasEmployeeExactKey(sec, emp), emp);
+      const nk = vargasNameKey(emp.fullName);
+      if (!nk) return;
+      if (!byName.has(nk)) byName.set(nk, []);
+      byName.get(nk).push(emp);
+    });
+  });
+  (base.sections || []).forEach((sec) => {
+    (sec.employees || []).forEach((emp) => {
+      let prev = byExact.get(vargasEmployeeExactKey(sec, emp));
+      if (!prev) {
+        const list = byName.get(vargasNameKey(emp.fullName)) || [];
+        if (list.length === 1) prev = list[0];
+      }
+      if (!prev) return;
+      const picked = pickStickyVargasPayBucket(emp, prev);
+      emp.payBucket = picked.payBucket;
+      emp.payBucketSetAt = picked.payBucketSetAt;
+    });
+  });
+  return base;
+}
+
+/** Une reportes. Los días los trae el más reciente. Banco/Efectivo no se borra si el otro lado viene vacío. */
+function mergeVargasDataSticky(localRaw, remoteRaw) {
+  const local = normalizeVargasData(localRaw || {});
+  const remote = normalizeVargasData(remoteRaw || {});
   const map = new Map();
-  [...local.reports, ...remoteNorm.reports].forEach((r) => {
+  [...local.reports, ...remote.reports].forEach((r) => {
     if (!r || !r.id) return;
     const prev = map.get(r.id);
-    if (!prev || String(r.updatedAt || "") >= String(prev.updatedAt || "")) {
+    if (!prev) {
       map.set(r.id, r);
+      return;
     }
+    const prevIsNewer = String(prev.updatedAt || "") > String(r.updatedAt || "");
+    const base = prevIsNewer ? prev : r;
+    const other = prevIsNewer ? r : prev;
+    map.set(r.id, mergeVargasReportSticky(base, other));
   });
-  vargasData = { reports: [...map.values()] };
+  return { reports: [...map.values()] };
+}
+
+function applyRemoteVargasData(remote) {
+  vargasData = mergeVargasDataSticky(vargasData, remote || {});
   ensureVargasSeedLoaded();
   vargasData = normalizeVargasData(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
@@ -328,12 +400,97 @@ function suggestVargasPayBucketsFromRosters(overwrite = false) {
 function setVargasEmployeePayBucket(sectionIdx, empIdx, value) {
   const report = getActiveVargasReport();
   if (!report || !report.sections[sectionIdx]) return false;
-  const emp = report.sections[sectionIdx].employees[empIdx];
+  const section = report.sections[sectionIdx];
+  const emp = section.employees[empIdx];
   if (!emp) return false;
-  emp.payBucket = normalizeVargasPayBucket(value);
+  const next = normalizeVargasPayBucket(value);
+  const prev = normalizeVargasPayBucket(emp.payBucket);
+  // Una vez elegido B o E, no se borra solo. Solo cambia si eligen el otro.
+  if (prev && !next) return false;
+  if (prev === next) return true;
+  emp.payBucket = next;
+  emp.payBucketSetAt = new Date().toISOString();
   report.updatedAt = new Date().toISOString();
   saveVargasData(true);
+  stickVargasChoiceOnPayroll(report, section, emp);
   return true;
+}
+
+/**
+ * Mueve a esa persona a la nómina Banco o Efectivo de este corte.
+ * No toca al resto de la nómina.
+ */
+function stickVargasChoiceOnPayroll(report, section, emp) {
+  const bucket = normalizeVargasPayBucket(emp && emp.payBucket);
+  if (!bucket || !report || !emp) return;
+  if (vargasRowIsLaVega({ fullName: emp.fullName, postName: section && section.postName })) return;
+  if (typeof findPayrollByGroup !== "function" || typeof buildPayrollLineFromPerson !== "function") return;
+  const period = report.period;
+  const half = report.half === 2 || report.half === "2" ? 2 : 1;
+  const dropGroup = bucket === "B" ? "efectivo" : "banco";
+  const keepGroup = bucket === "B" ? "banco" : "efectivo";
+  const keepLabel = bucket === "B" ? "Reaction Banco" : "Reaction Efectivo";
+  const other = findPayrollByGroup(period, half, dropGroup, "");
+  if (other) dropVargasNamedLines(other, [emp.fullName]);
+  const rows = collectVargasPayrollRows(report, bucket).filter((r) =>
+    vargasNamesMatch(r.fullName, emp.fullName)
+  );
+  if (!rows.length) return;
+  const payroll = ensureVargasPayrollShell(period, half, keepGroup, keepLabel);
+  if (!payroll) return;
+  applyVargasRowsToPayroll(payroll, rows, keepLabel, { prune: false });
+  if (typeof saveContabilidadData === "function") saveContabilidadData(true);
+}
+
+/**
+ * Si el reporte perdió B/E, las recupera de la nómina Banco/Efectivo de ese corte
+ * (la que ya se armó desde este reporte). No pisa una elección que ya esté.
+ */
+function restoreVargasPayBucketsFromPayrolls(report) {
+  if (!report || typeof findPayrollByGroup !== "function") return 0;
+  const period = report.period;
+  const half = report.half === 2 || report.half === "2" ? 2 : 1;
+  const banco = findPayrollByGroup(period, half, "banco", "");
+  const efectivo = findPayrollByGroup(period, half, "efectivo", "");
+  const bancoPay = banco && banco.rosterFromVargas ? banco : null;
+  const efectivoPay = efectivo && efectivo.rosterFromVargas ? efectivo : null;
+  if (!bancoPay && !efectivoPay) return 0;
+  const keysOf = (payroll) => {
+    const set = new Set();
+    (payroll && payroll.lines ? payroll.lines : []).forEach((line) => {
+      const k = vargasNameKey(line && line.fullName);
+      if (k) set.add(k);
+    });
+    return set;
+  };
+  const bancoKeys = keysOf(bancoPay);
+  const efectivoKeys = keysOf(efectivoPay);
+  let filled = 0;
+  (report.sections || []).forEach((sec) => {
+    (sec.employees || []).forEach((emp) => {
+      if (normalizeVargasPayBucket(emp.payBucket)) return;
+      if (vargasRowIsLaVega({ fullName: emp.fullName, postName: sec.postName })) return;
+      const k = vargasNameKey(emp.fullName);
+      if (!k) return;
+      const onB = bancoKeys.has(k);
+      const onE = efectivoKeys.has(k);
+      let next = "";
+      let stamp = "";
+      if (onB && !onE) {
+        next = "B";
+        stamp = String((bancoPay && bancoPay.updatedAt) || "");
+      } else if (onE && !onB) {
+        next = "E";
+        stamp = String((efectivoPay && efectivoPay.updatedAt) || "");
+      }
+      if (!next) return;
+      emp.payBucket = next;
+      emp.payBucketSetAt = stamp || new Date().toISOString();
+      filled += 1;
+    });
+  });
+  if (filled) saveVargasData(true);
+  return filled;
 }
 
 /** Corrige el nombre en el reporte (misma fila / puesto). */
@@ -447,11 +604,14 @@ function addVargasEmployee(opts = {}) {
     fullName,
     marks: {},
     payBucket,
+    payBucketSetAt: payBucket ? new Date().toISOString() : "",
     volaosPagos: "",
     horasExtras: 0,
   });
   report.updatedAt = new Date().toISOString();
   saveVargasData(true);
+  const added = section.employees[section.employees.length - 1];
+  if (added && added.payBucket) stickVargasChoiceOnPayroll(report, section, added);
   return { ok: true, fullName, postName, shift };
 }
 
@@ -1197,6 +1357,7 @@ function openVargasGeneralPayrollView(payroll, period, half) {
 function sendVargasPayrollToBuckets(opts = {}) {
   const report = opts.report || getActiveVargasReport();
   if (!report) return { updated: 0, reason: "no-report" };
+  restoreVargasPayBucketsFromPayrolls(report);
   if (typeof findPayrollByGroup !== "function" || typeof buildPayrollLineFromPerson !== "function") {
     return { updated: 0, reason: "no-payroll-api" };
   }
@@ -1404,6 +1565,7 @@ function renderVargasModule() {
   const scrollPos = captureVargasScroll();
   ensureVargasSeedLoaded();
   const report = getActiveVargasReport();
+  if (report) restoreVargasPayBucketsFromPayrolls(report);
   const summary = document.getElementById("vargasSummary");
   const host = document.getElementById("vargasReportHost");
   if (!host) return;
@@ -1451,8 +1613,8 @@ function renderVargasModule() {
         })
         .join("");
       const bucketSel = `
-        <select class="vargas-bucket" data-s="${row.sectionIdx}" data-e="${row.empIdx}" aria-label="Pago B o E">
-          <option value="" ${!row.payBucket ? "selected" : ""}>—</option>
+        <select class="vargas-bucket" data-s="${row.sectionIdx}" data-e="${row.empIdx}" aria-label="Pago B o E" title="Se queda guardado. Cámbialo solo si pasa al otro pago.">
+          ${row.payBucket ? "" : `<option value="" selected>—</option>`}
           <option value="B" ${row.payBucket === "B" ? "selected" : ""}>B</option>
           <option value="E" ${row.payBucket === "E" ? "selected" : ""}>E</option>
         </select>`;
@@ -1521,6 +1683,7 @@ function renderVargasModule() {
         <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
+        <strong>Banco (B)</strong> o <strong>Efectivo (E)</strong> se queda en el reporte y en esa nómina hasta que lo cambies a mano.
         Si el nombre o el puesto dice <strong>-LA VEGA</strong>, en <strong>La Vega Autopista</strong> queda el nombre completo del reporte (todos los nombres y apellidos, sin la palabra La Vega) y la lista va en orden alfabético.
         Día 31 no suma.
       </p>
@@ -1628,7 +1791,12 @@ function bindVargasUiHandlers() {
       const s = Number(sel.dataset.s);
       const e = Number(sel.dataset.e);
       const next = sel.value;
-      if (!setVargasEmployeePayBucket(s, e, next)) return;
+      if (!setVargasEmployeePayBucket(s, e, next)) {
+        const report = getActiveVargasReport();
+        const emp = report && report.sections[s] && report.sections[s].employees[e];
+        sel.value = emp && emp.payBucket ? emp.payBucket : "";
+        return;
+      }
       // Si el filtro sigue mostrando la fila, no reconstruir (evita salto al inicio).
       if (vargasBucketChangeLeavesFilter(next)) {
         renderVargasModule();
@@ -1804,6 +1972,7 @@ window.RFSVargas = {
   emptyVargasData,
   normalizeVargasData,
   applyRemoteVargasData,
+  mergeVargasDataSticky,
   saveVargasData,
   ensureVargasSeedLoaded,
   getActiveVargasReport,

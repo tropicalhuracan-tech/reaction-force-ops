@@ -2041,7 +2041,27 @@
     const hrPack = await stripHr(hr);
     const depPack = await stripDepuracion(depuracion);
     const supPack = await stripSuplidores(suplidores);
-    const vargasToSave = vargas && typeof vargas === "object" ? vargas : emptyVargas();
+    let vargasToSave = vargas && typeof vargas === "object" ? vargas : emptyVargas();
+    try {
+      const remoteVargasDoc = await getDoc(partPath("vargas")).catch(() => null);
+      const remoteVargas =
+        remoteVargasDoc && remoteVargasDoc.fields && remoteVargasDoc.fields.vargasJson
+          ? parseObjectField(remoteVargasDoc.fields, "vargasJson")
+          : null;
+      if (remoteVargas && typeof mergeVargasDataSticky === "function") {
+        vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
+        if (typeof vargasData !== "undefined") {
+          vargasData = vargasToSave;
+          try {
+            if (typeof VARGAS_KEY !== "undefined") {
+              localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.warn("RFS: no se pudo fusionar Banco/Efectivo de Vargas al guardar", err);
+    }
     let contabToSave = contabilidad;
     try {
       const remoteContabDoc = await getDoc(partPath("contabilidad")).catch(() => null);
