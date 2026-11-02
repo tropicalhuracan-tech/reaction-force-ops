@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 217;
-const APP_VERSION_LABEL = "v217";
+const APP_BUILD = 218;
+const APP_VERSION_LABEL = "v218";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2462,6 +2462,7 @@ function refreshUiAfterCloudSync() {
       renderNominaModule();
     }
     if (activeId === "quotesView" && typeof renderQuotesModule === "function") renderQuotesModule();
+    if (activeId === "vargasView" && typeof renderVargasModule === "function") renderVargasModule();
     if (typeof renderMessagesModule === "function") {
       if (activeId === "messagesView") renderMessagesModule();
       else updateMessagesTabBadge();
@@ -14321,7 +14322,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=217").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=218").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14337,7 +14338,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v217")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v218")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
