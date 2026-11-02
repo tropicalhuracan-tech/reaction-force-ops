@@ -948,6 +948,81 @@ function quoteLogoUrl() {
   }
 }
 
+/**
+ * html2canvas ignora el CSS y pinta cada JPG a su tamaño real.
+ * El logo mide 1500×1500 y tapa toda la cotización. Aquí se achica antes.
+ */
+async function rasterizeQuoteImages(root) {
+  const imgs = [...root.querySelectorAll("img")];
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise((resolve) => {
+          const finish = () => resolve();
+          const go = () => {
+            const nw = img.naturalWidth || 0;
+            const nh = img.naturalHeight || 0;
+            if (!nw || !nh) {
+              finish();
+              return;
+            }
+            const brand = !!(img.closest && img.closest(".brand"));
+            const rect = img.getBoundingClientRect();
+            const laidW = Math.round(rect.width || 0);
+            const laidH = Math.round(rect.height || 0);
+            const maxW = brand ? (laidW >= 40 && laidW <= 140 ? laidW : 72) : 640;
+            const maxH = brand ? (laidH >= 40 && laidH <= 140 ? laidH : 72) : 880;
+            let tw = maxW;
+            let th = brand ? maxH : Math.max(1, Math.round((nh * tw) / nw));
+            if (!brand) {
+              const rect = img.getBoundingClientRect();
+              const rw = Math.round(rect.width || 0);
+              const rh = Math.round(rect.height || 0);
+              if (rw >= 80 && rw <= maxW && rh >= 40 && rh <= maxH) {
+                tw = rw;
+                th = rh;
+              } else if (th > maxH) {
+                th = maxH;
+                tw = Math.max(80, Math.round((nw * th) / nh));
+              }
+            }
+            img.setAttribute("width", String(tw));
+            img.setAttribute("height", String(th));
+            img.style.width = `${tw}px`;
+            img.style.height = `${th}px`;
+            img.style.maxWidth = `${tw}px`;
+            img.style.maxHeight = `${th}px`;
+            img.style.objectFit = "contain";
+            img.style.display = "block";
+            if (nw <= tw + 2 && nh <= th + 2) {
+              finish();
+              return;
+            }
+            try {
+              const canvas = document.createElement("canvas");
+              canvas.width = tw;
+              canvas.height = th;
+              const ctx = canvas.getContext("2d");
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, tw, th);
+              const scale = Math.min(tw / nw, th / nh);
+              const dw = Math.max(1, Math.round(nw * scale));
+              const dh = Math.max(1, Math.round(nh * scale));
+              ctx.drawImage(img, Math.round((tw - dw) / 2), Math.round((th - dh) / 2), dw, dh);
+              img.src = canvas.toDataURL("image/jpeg", 0.9);
+            } catch (_) {}
+            finish();
+          };
+          if (img.complete && img.naturalWidth) go();
+          else {
+            img.onload = go;
+            img.onerror = finish;
+          }
+        })
+    )
+  );
+}
+
 /** Genera el PDF de la misma propuesta que Imprimir (html2pdf en esta ventana). */
 async function buildQuotePdfBlob(data, calc) {
   if (typeof ensureHtml2Pdf !== "function") throw new Error("PDF no disponible");
@@ -957,12 +1032,12 @@ async function buildQuotePdfBlob(data, calc) {
   host.className = "quote-print";
   host.setAttribute("data-rfs-quote-pdf", "1");
   host.style.cssText =
-    "position:fixed;left:0;top:0;width:794px;background:#fff;color:#111;padding:22px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.35;z-index:2147483000;pointer-events:none;";
+    "width:700px;max-width:700px;background:#fff;color:#111;padding:16px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.35;";
   host.innerHTML = `
     <style>
       ${quotePrintCss()}
       [data-rfs-quote-pdf] .brand{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-      [data-rfs-quote-pdf] .brand img{width:64px;height:64px;object-fit:contain}
+      [data-rfs-quote-pdf] .brand img{width:112px;height:112px;max-width:112px;max-height:112px;object-fit:contain;display:block}
       [data-rfs-quote-pdf] .brand h1{font-size:18px;margin:0 0 2px}
       [data-rfs-quote-pdf] table{width:100%;border-collapse:collapse}
       [data-rfs-quote-pdf] th,td{border:1px solid #333;padding:6px 8px;text-align:left}
@@ -971,14 +1046,14 @@ async function buildQuotePdfBlob(data, calc) {
       [data-rfs-quote-pdf] .sign-box{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:28px}
       [data-rfs-quote-pdf] .sign-line{border-top:2px solid #0b0b0c;margin-top:48px;padding-top:8px;font-size:11px;text-align:center}
       [data-rfs-quote-pdf] ul{padding-left:18px;margin:6px 0}
+      [data-rfs-quote-pdf] .q-clients img{width:100%;max-width:640px;height:auto}
     </style>
-    <div id="rfsQuotePdfInner">
-      <div class="brand">
-        <img src="${escapeHtml(quoteLogoUrl())}" alt="RFS" crossorigin="anonymous" />
-        <div>
-          <h1>Reaction Force Security</h1>
-          <div>${escapeHtml(caption)}</div>
-        </div>
+    <div id="rfsQuotePdfInner" style="width:668px;background:#fff;color:#111;">
+      <div class="brand" style="display:block;width:100%;background:#0b0b0c;color:#fff;border-left:6px solid #d41414;padding:12px 14px;margin:0 0 14px;box-sizing:border-box;">
+        <img src="${escapeHtml(quoteLogoUrl())}" alt="RFS" width="72" height="72" crossorigin="anonymous"
+          style="width:72px;height:72px;max-width:72px;max-height:72px;object-fit:contain;display:block;background:#fff;margin:0 0 8px;" />
+        <h1 style="color:#fff;font-size:18px;margin:0 0 2px;">Reaction Force Security</h1>
+        <div style="color:#fff;">${escapeHtml(caption)}</div>
       </div>
       ${buildQuoteBodyHtml(data, calc)}
     </div>
@@ -991,9 +1066,14 @@ async function buildQuotePdfBlob(data, calc) {
       img.setAttribute("src", new URL(src, window.location.href).href);
     } catch (_) {}
   });
-  document.body.appendChild(host);
+  const prevBodyOverflow = document.body.style.overflow;
+  const prevHtmlOverflow = document.documentElement.style.overflow;
+  document.body.style.overflow = "visible";
+  document.documentElement.style.overflow = "visible";
+  document.body.insertBefore(host, document.body.firstChild);
   try {
     if (typeof waitForImages === "function") await waitForImages(host);
+    await rasterizeQuoteImages(host);
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     const target = host.querySelector("#rfsQuotePdfInner") || host;
     const opt = {
@@ -1006,10 +1086,9 @@ async function buildQuotePdfBlob(data, calc) {
         allowTaint: true,
         logging: false,
         backgroundColor: "#ffffff",
-        windowWidth: 794,
       },
       jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+      pagebreak: { mode: ["css", "legacy"] },
     };
     let blob = null;
     try {
@@ -1020,6 +1099,8 @@ async function buildQuotePdfBlob(data, calc) {
     if (!blob || !blob.size) throw new Error("PDF vacío");
     return blob;
   } finally {
+    document.body.style.overflow = prevBodyOverflow;
+    document.documentElement.style.overflow = prevHtmlOverflow;
     host.remove();
   }
 }
@@ -1119,6 +1200,7 @@ function printQuoteProposal(dataIn) {
   openPrintWindow("Propuesta de servicios de seguridad", body, {
     bodyClass: "quote-print",
     extraCss: quotePrintCss(),
+    contentMaxWidth: 700,
     share: {
       text: caption,
       subject: caption,
