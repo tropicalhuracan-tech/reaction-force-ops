@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 216;
-const APP_VERSION_LABEL = "v216";
+const APP_BUILD = 217;
+const APP_VERSION_LABEL = "v217";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -6818,7 +6818,12 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             : pageSize
               ? `@page{size:${pageSize} ${orientation === "landscape" ? "landscape" : "portrait"};margin:8mm}`
               : "";
-  const bodyMax = wide ? "max-width:none;width:100%" : "max-width:900px";
+  const contentMaxWidth = Number(options && options.contentMaxWidth) || 0;
+  const bodyMax = wide
+    ? "max-width:none;width:100%"
+    : contentMaxWidth > 0
+      ? `max-width:${contentMaxWidth}px`
+      : "max-width:900px";
   const logoUrl = (() => {
     try {
       return new URL("logo.jpg", window.location.href).href;
@@ -7002,10 +7007,78 @@ function openPrintWindow(title, bodyHtml, options = {}) {
         setTimeout(function () { URL.revokeObjectURL(url); }, 2500);
       }
 
+      function shrinkPdfImage(img) {
+        return new Promise(function (resolve) {
+          function done() { resolve(); }
+          function go() {
+            var nw = img.naturalWidth || 0;
+            var nh = img.naturalHeight || 0;
+            if (!nw || !nh) { done(); return; }
+            var brand = false;
+            try { brand = !!(img.closest && img.closest(".brand")); } catch (eBrand) {}
+            var rect0 = img.getBoundingClientRect();
+            var laidW = Math.round(rect0.width || 0);
+            var laidH = Math.round(rect0.height || 0);
+            var maxW = brand ? (laidW >= 40 && laidW <= 140 ? laidW : 112) : 680;
+            var maxH = brand ? (laidH >= 40 && laidH <= 140 ? laidH : 112) : 900;
+            var tw = maxW;
+            var th = brand ? maxH : Math.max(1, Math.round((nh * tw) / nw));
+            if (!brand) {
+              var rect = img.getBoundingClientRect();
+              var rw = Math.round(rect.width || 0);
+              var rh = Math.round(rect.height || 0);
+              if (rw >= 48 && rw <= maxW && rh >= 24 && rh <= maxH) {
+                tw = rw;
+                th = rh;
+              } else if (th > maxH) {
+                th = maxH;
+                tw = Math.max(48, Math.round((nw * th) / nh));
+              }
+            }
+            img.setAttribute("width", String(tw));
+            img.setAttribute("height", String(th));
+            img.style.width = tw + "px";
+            img.style.height = th + "px";
+            img.style.maxWidth = tw + "px";
+            img.style.maxHeight = th + "px";
+            img.style.objectFit = "contain";
+            img.style.display = "block";
+            if (nw <= tw + 2 && nh <= th + 2) { done(); return; }
+            try {
+              var c = document.createElement("canvas");
+              c.width = tw;
+              c.height = th;
+              var ctx = c.getContext("2d");
+              ctx.fillStyle = "#ffffff";
+              ctx.fillRect(0, 0, tw, th);
+              var scale = Math.min(tw / nw, th / nh);
+              var dw = Math.max(1, Math.round(nw * scale));
+              var dh = Math.max(1, Math.round(nh * scale));
+              ctx.drawImage(img, Math.round((tw - dw) / 2), Math.round((th - dh) / 2), dw, dh);
+              img.src = c.toDataURL("image/jpeg", 0.9);
+            } catch (eDraw) {}
+            done();
+          }
+          if (img.complete && img.naturalWidth) go();
+          else {
+            img.onload = go;
+            img.onerror = done;
+          }
+        });
+      }
+
+      function shrinkPdfImages(root) {
+        var imgs = root.querySelectorAll("img");
+        var jobs = [];
+        for (var i = 0; i < imgs.length; i++) jobs.push(shrinkPdfImage(imgs[i]));
+        return Promise.all(jobs);
+      }
+
       function makePdfBlob() {
         var root = document.getElementById("rfsPrintRoot");
         if (!root) return Promise.reject(new Error("Sin contenido"));
         return loadPdfLib().then(function (html2pdf) {
+          return shrinkPdfImages(root).then(function () {
           var fmt = (pdfCfg && pdfCfg.format) || "a4";
           if (fmt === "carta") fmt = "letter";
           var ori = (pdfCfg && pdfCfg.orientation) || "portrait";
@@ -7060,6 +7133,7 @@ function openPrintWindow(title, bodyHtml, options = {}) {
             return html2pdf().set(opt).from(root).toPdf().get("pdf").then(function (pdf) {
               return pdf.output("blob");
             });
+          });
           });
         });
       }
@@ -14247,7 +14321,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=216").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=217").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14263,7 +14337,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v216")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v217")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
