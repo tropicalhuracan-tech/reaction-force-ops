@@ -5,6 +5,11 @@ let vargasData = emptyVargasData();
 let vargasFilterShift = "all"; // all | diurno | nocturno
 let vargasFilterBucket = "all"; // all | B | E | none
 let vargasSearch = "";
+const VARGAS_ACTIVE_KEY = "rfs-ops-vargas-active";
+let vargasActiveReportId = "";
+try {
+  vargasActiveReportId = localStorage.getItem(VARGAS_ACTIVE_KEY) || "";
+} catch (_) {}
 
 function emptyVargasData() {
   return { reports: [] };
@@ -276,10 +281,140 @@ function applyRemoteVargasData(remote) {
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
 }
 
+function setActiveVargasReport(id) {
+  vargasActiveReportId = String(id || "");
+  try {
+    localStorage.setItem(VARGAS_ACTIVE_KEY, vargasActiveReportId);
+  } catch (_) {}
+}
+
 function getActiveVargasReport() {
   ensureVargasSeedLoaded();
   vargasData = normalizeVargasData(vargasData);
+  const wanted = vargasData.reports.find((r) => r && r.id === vargasActiveReportId);
+  if (wanted) return wanted;
   return vargasData.reports[0] || null;
+}
+
+function vargasDaysInMonth(period) {
+  const [y, m] = String(period || "").split("-").map((n) => Number(n));
+  if (!y || !m) return 30;
+  return new Date(y, m, 0).getDate();
+}
+
+function vargasQuincenaSpec(period, half) {
+  const h = half === 2 || half === "2" ? 2 : 1;
+  const per = String(period || "").slice(0, 7);
+  const [y, m] = per.split("-").map((n) => Number(n));
+  const last = vargasDaysInMonth(per);
+  const start = h === 1 ? 1 : 16;
+  const end = h === 1 ? 15 : last;
+  const dayNums = [];
+  for (let d = start; d <= end; d += 1) dayNums.push(d);
+  const mm = String(m).padStart(2, "0");
+  const pad = (n) => String(n).padStart(2, "0");
+  return {
+    id: vargasReportId(per, h),
+    period: per,
+    half: h,
+    from: `${y}-${mm}-${pad(start)}`,
+    to: `${y}-${mm}-${pad(end)}`,
+    label: `DESDE ${start} AL ${end}/${mm}/${y}`,
+    dayNums,
+  };
+}
+
+function vargasQuincenaTitle(report) {
+  if (!report) return "";
+  const months = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+  ];
+  const [y, m] = String(report.period || "").split("-");
+  const name = months[(Number(m) || 1) - 1] || report.period;
+  const range = report.half === 2 || report.half === "2" ? "16–fin" : "1–15";
+  return `${range} ${name} ${y}`;
+}
+
+function nextVargasQuincena(report) {
+  const period = String((report && report.period) || "").slice(0, 7);
+  const half = report && (report.half === 2 || report.half === "2") ? 2 : 1;
+  if (!/^\d{4}-\d{2}$/.test(period)) return null;
+  if (half === 1) return { period, half: 2 };
+  const [y, m] = period.split("-").map((n) => Number(n));
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  return { period: `${ny}-${String(nm).padStart(2, "0")}`, half: 1 };
+}
+
+function findVargasReport(period, half) {
+  const id = vargasReportId(period, half === 2 || half === "2" ? 2 : 1);
+  return (vargasData.reports || []).find((r) => r && r.id === id) || null;
+}
+
+/** Nueva quincena: mismos empleados y B/E. Días en blanco. La anterior no se toca. */
+function createVargasQuincena(period, half, sourceReport) {
+  const spec = vargasQuincenaSpec(period, half);
+  if ((vargasData.reports || []).some((r) => r && r.id === spec.id)) {
+    return { ok: true, existed: true, report: findVargasReport(period, half) };
+  }
+  const src = sourceReport || null;
+  const report = {
+    ...spec,
+    sections: (src && src.sections ? src.sections : []).map((sec) => ({
+      shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
+      postName: String(sec.postName || "").trim() || "(sin puesto)",
+      employees: (sec.employees || [])
+        .map((emp) => {
+          const bucket = normalizeVargasPayBucket(emp.payBucket);
+          return {
+            fullName: String(emp.fullName || "").trim(),
+            marks: {},
+            payBucket: bucket,
+            payBucketSetAt: bucket ? String(emp.payBucketSetAt || "") : "",
+            volaosPagos: "",
+            horasExtras: 0,
+          };
+        })
+        .filter((emp) => emp.fullName),
+    })),
+    updatedAt: new Date().toISOString(),
+  };
+  vargasData.reports = vargasData.reports || [];
+  vargasData.reports.push(report);
+  saveVargasData(true);
+  return { ok: true, existed: false, report: findVargasReport(period, half) || report };
+}
+
+/** Abre 1–15 de noviembre 2026 si todavía no existe. No modifica octubre. */
+function ensureVargasNovember2026() {
+  vargasData = normalizeVargasData(vargasData);
+  if (findVargasReport("2026-11", 1)) return false;
+  const src =
+    findVargasReport("2026-10", 2) ||
+    (vargasData.reports || [])[0] ||
+    null;
+  if (!src) return false;
+  const created = createVargasQuincena("2026-11", 1, src);
+  if (created && created.ok && !created.existed) setActiveVargasReport("vargas-2026-11-h1");
+  return !!(created && created.ok && !created.existed);
+}
+
+function openNextVargasQuincena() {
+  const current = getActiveVargasReport();
+  if (!current) return { ok: false, reason: "no-report" };
+  const next = nextVargasQuincena(current);
+  if (!next) return { ok: false, reason: "no-next" };
+  const spec = vargasQuincenaSpec(next.period, next.half);
+  const existing = findVargasReport(next.period, next.half);
+  if (existing) {
+    setActiveVargasReport(existing.id);
+    return { ok: true, existed: true, report: existing, title: vargasQuincenaTitle(existing) };
+  }
+  const created = createVargasQuincena(next.period, next.half, current);
+  if (!created || !created.ok) return { ok: false, reason: "fail" };
+  setActiveVargasReport(spec.id);
+  return { ok: true, existed: false, report: created.report, title: vargasQuincenaTitle(spec) };
 }
 
 /** Marca 2 en el reporte = 1 día trabajado + RD$850 en Volaos (sin sumar día extra). */
@@ -985,6 +1120,45 @@ function ensureVargasPayrollShell(period, half, group, label) {
   return payroll;
 }
 
+const VARGAS_TYPED_MONEY_FIELDS = ["adelantos", "prestamos", "incentivos", "almuerzo", "feriado"];
+
+function vargasDonorLinesForMoney(payroll, displayName) {
+  if (!payroll || typeof findPayrollByGroup !== "function") return [];
+  const period = payroll.period;
+  const half = payroll.half === 2 || payroll.half === "2" ? 2 : 1;
+  const out = [];
+  ["reaction", "banco", "efectivo", "lavega"].forEach((group) => {
+    if (group === String(payroll.group || "")) return;
+    const other = findPayrollByGroup(period, half, group, "");
+    if (!other) return;
+    const hit = (other.lines || []).find((l) => {
+      if (!l) return false;
+      const a = vargasStripLaVegaTag(l.fullName);
+      const b = vargasStripLaVegaTag(displayName);
+      return vargasNamesMatch(l.fullName, displayName) || (a && b && vargasNamesMatch(a, b));
+    });
+    if (hit) out.push(hit);
+  });
+  return out;
+}
+
+/** Si el monto está en 0, lo toma de otra nómina del mismo corte. No pisa un monto ya escrito. */
+function fillVargasTypedMoney(line, payroll, displayName) {
+  if (!line) return line;
+  const donors = vargasDonorLinesForMoney(payroll, displayName);
+  VARGAS_TYPED_MONEY_FIELDS.forEach((field) => {
+    if (Number(line[field]) > 0) return;
+    const donor = donors.find((d) => Number(d[field]) > 0);
+    if (!donor) return;
+    line[field] = donor[field];
+  });
+  if (!String(line.cedula || "").trim()) {
+    const donor = donors.find((d) => String(d.cedula || "").trim());
+    if (donor) line.cedula = donor.cedula;
+  }
+  return line;
+}
+
 /**
  * Aplica filas Vargas a una nómina.
  * prune=true: deja SOLO a quienes están en el reporte (elimina mal escritos / sobrantes).
@@ -1030,8 +1204,8 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       typeof findReactionRosterHit === "function"
         ? findReactionRosterHit(displayName, rosterKind)
         : null;
-    const keepAdelantos = line ? Math.max(0, Number(line.adelantos) || 0) : 0;
-    const keepPrestamos = line ? Math.max(0, Number(line.prestamos) || 0) : 0;
+    let keepAdelantos = line ? Math.max(0, Number(line.adelantos) || 0) : 0;
+    let keepPrestamos = line ? Math.max(0, Number(line.prestamos) || 0) : 0;
     const keepExtrasManual = !!(line && line.horasExtrasManual);
     const keepExtras = keepExtrasManual ? Math.max(0, Number(line.horasExtras) || 0) : null;
     // Quitar el tramo Vargas previo para no duplicar al re-sincronizar.
@@ -1093,7 +1267,10 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       linesTouched += 1;
     }
 
-    // Días = marcas >0; volaos = 2 × 850; horas extras = base nómina + horas×60.
+    // Días y volaos vienen del reporte. Adelantos, préstamos, incentivos y comida no se borran.
+    fillVargasTypedMoney(line, payroll, displayName);
+    keepAdelantos = Math.max(keepAdelantos, Number(line.adelantos) || 0);
+    keepPrestamos = Math.max(keepPrestamos, Number(line.prestamos) || 0);
     line.daysWorked = nextDays;
     line.volaos = nextVolaos;
     line.adelantos = keepAdelantos;
@@ -1564,6 +1741,7 @@ function renderVargasModule() {
   if (typeof canAccessVargas === "function" && !canAccessVargas()) return;
   const scrollPos = captureVargasScroll();
   ensureVargasSeedLoaded();
+  ensureVargasNovember2026();
   const report = getActiveVargasReport();
   if (report) restoreVargasPayBucketsFromPayrolls(report);
   const summary = document.getElementById("vargasSummary");
@@ -1653,6 +1831,18 @@ function renderVargasModule() {
   host.innerHTML = `
     <div class="form-card vargas-toolbar">
       <div class="vargas-toolbar-row">
+        <label>Quincena
+          <select id="vargasReportSelect">
+            ${(vargasData.reports || [])
+              .map(
+                (r) =>
+                  `<option value="${escapeVargasAttr(r.id)}" ${r.id === report.id ? "selected" : ""}>${escapeVargasHtml(
+                    vargasQuincenaTitle(r)
+                  )}</option>`
+              )
+              .join("")}
+          </select>
+        </label>
         <label>Buscar
           <input id="vargasSearchInput" type="search" placeholder="Nombre o puesto" value="${escapeVargasAttr(vargasSearch)}" />
         </label>
@@ -1673,6 +1863,7 @@ function renderVargasModule() {
         </label>
       </div>
       <div class="vargas-actions">
+        <button type="button" class="secondary" id="btnVargasNuevaQuincena">Abrir siguiente quincena</button>
         <button type="button" class="secondary" id="btnVargasSuggestBE">Sugerir B/E</button>
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
         <button type="button" class="primary" id="btnVargasNominaGeneral">1. Nómina general</button>
@@ -1684,6 +1875,7 @@ function renderVargasModule() {
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
         <strong>Banco (B)</strong> o <strong>Efectivo (E)</strong> se queda en el reporte y en esa nómina hasta que lo cambies a mano.
+        Cada 15 días se abre otra quincena: se copian los empleados y el pago, los días quedan en blanco y la quincena anterior no se borra.
         Si el nombre o el puesto dice <strong>-LA VEGA</strong>, en <strong>La Vega Autopista</strong> queda el nombre completo del reporte (todos los nombres y apellidos, sin la palabra La Vega) y la lista va en orden alfabético.
         Día 31 no suma.
       </p>
@@ -1893,6 +2085,41 @@ function bindVargasUiHandlers() {
       }
     });
   });
+  const reportSel = document.getElementById("vargasReportSelect");
+  if (reportSel) {
+    reportSel.addEventListener("change", () => {
+      setActiveVargasReport(reportSel.value || "");
+      renderVargasModule();
+    });
+  }
+  const btnNextQ = document.getElementById("btnVargasNuevaQuincena");
+  if (btnNextQ) {
+    btnNextQ.addEventListener("click", () => {
+      const current = getActiveVargasReport();
+      const next = current ? nextVargasQuincena(current) : null;
+      const spec = next ? vargasQuincenaSpec(next.period, next.half) : null;
+      const title = spec ? vargasQuincenaTitle(spec) : "la siguiente";
+      const already = next ? findVargasReport(next.period, next.half) : null;
+      if (!already) {
+        if (
+          !confirm(
+            `¿Abrir la quincena ${title}?\n\nSe copian los empleados y Banco/Efectivo.\nLos días quedan en blanco.\nLa quincena que estás viendo no se borra.`
+          )
+        ) {
+          return;
+        }
+      }
+      const opened = openNextVargasQuincena();
+      if (!opened || !opened.ok) {
+        if (typeof toast === "function") toast("No se pudo abrir la quincena.");
+        return;
+      }
+      if (typeof toast === "function") {
+        toast(opened.existed ? `Quincena abierta: ${opened.title}` : `Nueva quincena: ${opened.title}`);
+      }
+      renderVargasModule();
+    });
+  }
   const btnSug = document.getElementById("btnVargasSuggestBE");
   if (btnSug) {
     btnSug.addEventListener("click", () => {

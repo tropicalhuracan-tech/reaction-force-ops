@@ -1278,7 +1278,7 @@
       if (!o) return l;
       const next = { ...l };
       // No pisar con 0 un monto que la otra copia sí tenía
-      ["adelantos", "prestamos", "incentivos", "almuerzo"].forEach((f) => {
+      ["adelantos", "prestamos", "incentivos", "almuerzo", "feriado", "rifa", "uniformes"].forEach((f) => {
         const wv = Number(next[f]) || 0;
         const ov = Number(o[f]) || 0;
         if (wv === 0 && ov > 0) next[f] = o[f];

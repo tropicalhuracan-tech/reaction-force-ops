@@ -996,7 +996,7 @@ function applyRemoteContabilidadData(remote) {
       const o = key ? otherByKey.get(key) : null;
       if (!o) return l;
       const next = { ...l };
-      ["adelantos", "prestamos", "incentivos", "almuerzo"].forEach((f) => {
+      ["adelantos", "prestamos", "incentivos", "almuerzo", "feriado", "rifa", "uniformes"].forEach((f) => {
         const wv = Number(next[f]) || 0;
         const ov = Number(o[f]) || 0;
         if (wv === 0 && ov > 0) next[f] = o[f];
@@ -4509,7 +4509,7 @@ function applyPayrollLiveUpdate(ev) {
             : profile.office
               ? OFFICE_PAYROLL_SFS
               : 0,
-          volaos: field === "daysWorked" ? 0 : l.volaos,
+          volaos: field === "daysWorked" && daysInfo.extraDays > 0 ? 0 : l.volaos,
           horasExtras: nextHoras,
         },
         opts
@@ -4554,6 +4554,58 @@ function bindPayrollLiveTotals() {
       schedulePayrollLiveUpdate(ev);
     }
   });
+}
+
+function pullSharedPayrollTypedAmounts(p) {
+  if (!p || payrollIsOffice(p) || p.group === "monorriel" || p.group === "lotedom") return false;
+  if (!payrollGroupUsesLvaParams(p)) return false;
+  const shareGroups = { reaction: 1, banco: 1, efectivo: 1, lavega: 1 };
+  if (!shareGroups[p.group]) return false;
+  const period = String(p.period || "").slice(0, 7);
+  const half = p.half === 2 || p.half === "2" ? 2 : 1;
+  const siblings = (contabilidadData.payrolls || []).filter((o) => {
+    if (!o || o.id === p.id) return false;
+    if (!shareGroups[o.group]) return false;
+    if (String(o.period || "").slice(0, 7) !== period) return false;
+    const oh = o.half === 2 || o.half === "2" ? 2 : 1;
+    return oh === half;
+  });
+  if (!siblings.length) return false;
+  const keyOf = (name) => {
+    const raw = typeof vargasStripLaVegaTag === "function" ? vargasStripLaVegaTag(name) : name;
+    if (typeof monoPayrollNameKey === "function") return monoPayrollNameKey(raw);
+    return String(raw || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+  const donorByKey = new Map();
+  siblings.forEach((o) => {
+    (o.lines || []).forEach((l) => {
+      const k = keyOf(l && l.fullName);
+      if (!k) return;
+      if (!donorByKey.has(k)) donorByKey.set(k, []);
+      donorByKey.get(k).push(l);
+    });
+  });
+  let changed = false;
+  (p.lines || []).forEach((line) => {
+    const donors = donorByKey.get(keyOf(line && line.fullName)) || [];
+    if (!donors.length || !line) return;
+    ["adelantos", "prestamos", "incentivos", "almuerzo", "feriado"].forEach((field) => {
+      if (Number(line[field]) > 0) return;
+      const donor = donors.find((d) => Number(d[field]) > 0);
+      if (!donor) return;
+      line[field] = donor[field];
+      changed = true;
+    });
+  });
+  if (!changed) return false;
+  const opts = payrollComputeOpts(p);
+  p.lines = (p.lines || []).map((l) => computePayrollLineTotals(l, opts));
+  p.updatedAt = new Date().toISOString();
+  saveContabilidadData(true);
+  return true;
 }
 
 function renderNominaTab() {
@@ -4780,6 +4832,7 @@ function renderNominaTab() {
     return;
   }
   selectedPayrollId = p.id;
+  pullSharedPayrollTypedAmounts(p);
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
@@ -4799,18 +4852,19 @@ function renderNominaTab() {
       const short = staff
         ? payrollShortEmployeeName(staff.name || staff.fullName)
         : payrollShortEmployeeName(l.fullName);
+      const officeManual = isManualPayrollLine(l);
       let next = computePayrollLineTotals(
         {
           ...l,
           fullName: short || l.fullName,
           daysWorked: "",
-          salaryQuincena: 0,
-          sfs: OFFICE_PAYROLL_SFS,
+          salaryQuincena: officeManual || l.quincenaManual ? l.salaryQuincena : 0,
+          sfs: l.sfsManual || officeManual ? l.sfs : OFFICE_PAYROLL_SFS,
           uniformes: 0,
           volaos: 0,
           almuerzo: 0,
           feriado: 0,
-          horasExtras: 0,
+          horasExtras: l.horasExtrasManual || officeManual ? l.horasExtras : 0,
           rifa: l.rifa != null && l.rifa !== "" ? l.rifa : OFFICE_PAYROLL_RIFA,
         },
         { office: true }
