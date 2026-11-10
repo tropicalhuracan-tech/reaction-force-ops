@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 227;
-const APP_VERSION_LABEL = "v227";
+const APP_BUILD = 228;
+const APP_VERSION_LABEL = "v228";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2428,6 +2428,7 @@ function refreshUiAfterCloudSync() {
       renderEmployees();
     }
     if (activeId === "loansView" || activeId === "loanDetailView" || activeId === "loanNewView") renderLoans();
+    if (activeId === "loanPaidView") renderPaidLoansList();
     if (
       activeId === "monorrielView" ||
       activeId === "monoReportDetailView" ||
@@ -4236,6 +4237,7 @@ const VIEW_TO_MODULE = {
   loansView: "loans",
   loanNewView: "loans",
   loanDetailView: "loans",
+  loanPaidView: "loans",
   monorrielView: "monorriel",
   vargasView: "vargas",
   monoReportEditView: "monorriel",
@@ -5489,6 +5491,7 @@ let loanSelectedEmployeeId = null; // legacy; nuevos préstamos usan loanSelecte
 let loanSelectedBorrowerKey = null;
 let loanRateUnlocked = false;
 let loansActiveTab = "listado"; // listado | resumen | cobro
+let loanDetailReturnView = "loansView";
 
 function normalizeLoanTrash(ids) {
   return [...new Set((Array.isArray(ids) ? ids : []).map(String).filter(Boolean))].slice(0, 500);
@@ -6493,13 +6496,63 @@ function loansSummaryStats() {
   };
 }
 
+function renderPaidLoansList() {
+  const list = document.getElementById("loanPaidList");
+  const countEl = document.getElementById("loanPaidCount");
+  if (!list) return;
+  const needle = String((document.getElementById("loanPaidSearch") || {}).value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  const paid = (loans || [])
+    .filter((l) => l && l.status === "paid")
+    .filter((l) => {
+      if (!needle) return true;
+      const blob = [l.employeeName, loanTypeLabel(l.type), l.note]
+        .join(" ")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      return blob.includes(needle);
+    })
+    .sort((a, b) => String(a.employeeName || "").localeCompare(String(b.employeeName || ""), "es"));
+  if (countEl) countEl.textContent = `${paid.length} saldado(s)`;
+  if (!paid.length) {
+    list.innerHTML = `<p class="empty">${needle ? "Ningún saldado coincide con la búsqueda." : "No hay préstamos saldados."}</p>`;
+    return;
+  }
+  list.innerHTML = paid
+    .map((l) => `<button class="loan-card" type="button" data-loan-id="${escapeHtml(l.id)}">
+        <div class="row">
+          <div>
+            <h3>${escapeHtml(l.employeeName || "Empleado")}</h3>
+            <p>${loanTypeLabel(l.type)} · Capital ${money(l.principal)}</p>
+            <p style="margin-top:6px">Cobrado ${money(l.paidTotal)}</p>
+          </div>
+          <span class="status-pill ok">Saldado</span>
+        </div>
+      </button>`)
+    .join("");
+  list.querySelectorAll("[data-loan-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openLoanDetail(btn.dataset.loanId));
+  });
+}
+
+function openPaidLoansView() {
+  switchView("loanPaidView");
+  renderPaidLoansList();
+}
+
 function renderLoansStats() {
   const el = document.getElementById("loansStats");
   const summary = document.getElementById("loansSummary");
   if (!el) return;
   const s = loansSummaryStats();
+  const paidBtn = document.getElementById("btnOpenPaidLoans");
+  if (paidBtn) paidBtn.textContent = `Saldados (${s.paid})`;
   if (summary) {
-    summary.textContent = `${s.active} activos · ${s.overdue} con cuota vencida · ${s.paid} saldados`;
+    summary.textContent = `${s.active} activos · ${s.overdue} con cuota vencida · ${s.paid} saldados aparte`;
   }
   el.innerHTML = `
     <div class="stat-box"><span class="muted">Por cobrar</span><strong>${money(s.toCollect)}</strong></div>
@@ -6587,16 +6640,20 @@ function renderLoansList() {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
-  const filtered = loans.filter((l) => {
+  const activeLoans = loans.filter((l) => l.status !== "paid");
+  const filtered = activeLoans.filter((l) => {
     if (!needle) return true;
     const blob = [l.employeeName, loanTypeLabel(l.type), l.note, l.status].join(" ").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     return blob.includes(needle);
   });
 
   if (!filtered.length) {
-    list.innerHTML = loans.length
-      ? `<p class="empty">Ningún préstamo coincide con la búsqueda.</p>`
-      : `<p class="empty">Aún no hay préstamos. Pulsa “Nuevo préstamo”.</p>`;
+    const paidCount = loans.filter((l) => l.status === "paid").length;
+    list.innerHTML = activeLoans.length
+      ? `<p class="empty">Ningún préstamo activo coincide con la búsqueda.</p>`
+      : paidCount
+        ? `<p class="empty">No hay préstamos activos. Los ${paidCount} saldados están en el botón Saldados.</p>`
+        : `<p class="empty">Aún no hay préstamos. Pulsa “Nuevo préstamo”.</p>`;
     return;
   }
 
@@ -6654,6 +6711,8 @@ function openLoanDetail(id) {
     return;
   }
   selectedLoanId = id;
+  const activeView = document.querySelector(".view.active");
+  loanDetailReturnView = activeView && activeView.id === "loanPaidView" ? "loanPaidView" : "loansView";
   document.getElementById("loanDetailTitle").textContent = loan.employeeName || "Préstamo";
   document.getElementById("loanDetailSub").textContent = `${loanTypeLabel(loan.type)} · ${loanStatusLabel(loan.status)}`;
   const nameInput = document.getElementById("loanDetailName");
@@ -6784,8 +6843,11 @@ function deleteSelectedLoan() {
   selectedLoanId = null;
   persistLoanTrashLocal();
   saveLoans();
-  switchView("loansView");
-  renderLoans();
+  const backTo = loanDetailReturnView === "loanPaidView" ? "loanPaidView" : "loansView";
+  loanDetailReturnView = "loansView";
+  switchView(backTo);
+  if (backTo === "loanPaidView") renderPaidLoansList();
+  else renderLoans();
   toast("Préstamo eliminado.");
 }
 
@@ -7408,6 +7470,7 @@ function loansForSummaryList() {
     .toLowerCase()
     .trim();
   return (loans || [])
+    .filter((l) => l && l.status !== "paid")
     .slice()
     .sort((a, b) => String(a.employeeName || "").localeCompare(String(b.employeeName || ""), "es"))
     .filter((l) => {
@@ -7730,9 +7793,23 @@ function bindLoansUi() {
   btnNew.addEventListener("click", openNewLoan);
   document.getElementById("btnBackLoansFromNew").addEventListener("click", () => switchView("loansView"));
   document.getElementById("btnBackLoansFromDetail").addEventListener("click", () => {
-    switchView("loansView");
-    renderLoans();
+    const backTo = loanDetailReturnView === "loanPaidView" ? "loanPaidView" : "loansView";
+    loanDetailReturnView = "loansView";
+    switchView(backTo);
+    if (backTo === "loanPaidView") renderPaidLoansList();
+    else renderLoans();
   });
+  const btnOpenPaid = document.getElementById("btnOpenPaidLoans");
+  if (btnOpenPaid) btnOpenPaid.addEventListener("click", openPaidLoansView);
+  const btnBackPaid = document.getElementById("btnBackLoansFromPaid");
+  if (btnBackPaid) {
+    btnBackPaid.addEventListener("click", () => {
+      switchView("loansView");
+      renderLoans();
+    });
+  }
+  const paidSearch = document.getElementById("loanPaidSearch");
+  if (paidSearch) paidSearch.addEventListener("input", renderPaidLoansList);
   document.getElementById("btnSaveLoan").addEventListener("click", saveNewLoan);
   document.getElementById("btnDeleteLoan").addEventListener("click", deleteSelectedLoan);
   const btnSaveLoanName = document.getElementById("btnSaveLoanName");
@@ -12666,6 +12743,7 @@ function switchView(viewId) {
     } catch (_) {}
     renderLoans();
   }
+  if (viewId === "loanPaidView") renderPaidLoansList();
   if (viewId === "loanNewView") {
     renderLoanEmployeePicker();
     renderLoanPreview();
@@ -14332,7 +14410,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=227").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=228").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14348,7 +14426,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v227")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v228")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
