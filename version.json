@@ -1,6 +1,6 @@
 {
-  "build": 225,
-  "label": "v225",
-  "minBuild": 225,
-  "note": "Reporte Monorriel en cuatro planillas, como el de Ramón. Llenar datos pasa los días a la nómina"
+  "build": 226,
+  "label": "v226",
+  "minBuild": 226,
+  "note": "Monorriel igual que Ramón: puesto, volaos pagos, horas extras y botón Enviar a nómina"
 }
