@@ -687,7 +687,7 @@ function refreshVargasSummaryBar() {
   if (!report) return null;
   const stats = vargasReportStats(report);
   if (summary) {
-    summary.textContent = `${report.label || report.period} · ${stats.total} empleados · B ${stats.banco} · E ${stats.efectivo} · sin marca ${stats.sinMarca}`;
+    summary.textContent = `${report.label || report.period} · ${stats.total} empleados · Diurno ${stats.diurno} · Nocturno ${stats.nocturno}`;
   }
   const shift = document.getElementById("vargasFilterShift");
   if (shift) {
@@ -828,7 +828,6 @@ function buildVargasPrintHtml(report, rows) {
         <td>${row.shift === "nocturno" ? "N" : "D"}</td>
         <td>${escapeVargasHtml(row.fullName)}</td>
         <td>${escapeVargasHtml(row.postName)}</td>
-        <td class="center">${escapeVargasHtml(row.payBucket || "—")}</td>
         <td class="center">${daysCell}</td>
         <td class="center">${escapeVargasHtml(pagosCell)}</td>
         <td class="center">${escapeVargasHtml(hexCell)}</td>
@@ -841,8 +840,6 @@ function buildVargasPrintHtml(report, rows) {
     <h2>${escapeVargasHtml(report.label || report.period)} · Corte ${report.half === 2 ? "16–30" : "01–15"}</h2>
     <div class="meta">
       <div><strong>Empleados:</strong><br/>${stats.total}</div>
-      <div><strong>Banco (B):</strong><br/>${stats.banco}</div>
-      <div><strong>Efectivo (E):</strong><br/>${stats.efectivo}</div>
       <div><strong>Diurno / Nocturno:</strong><br/>${stats.diurno} / ${stats.nocturno}</div>
     </div>
     <table class="vargas-print-table">
@@ -852,7 +849,6 @@ function buildVargasPrintHtml(report, rows) {
           <th>T</th>
           <th>Empleado</th>
           <th>Puesto</th>
-          <th>B/E</th>
           <th>Días</th>
           <th>Volaos pagos</th>
           <th>Horas ext.</th>
@@ -1324,6 +1320,11 @@ function applyVargasRowsToPayroll(payroll, rows, label, opts = {}) {
       recomputed.fromVargasReport = true;
       recomputed.fullName = displayName;
       Object.assign(line, recomputed);
+      if (String(payroll.group || "") === "reaction") {
+        const already = normalizePayrollPayBucket(line.payBucket);
+        const seeded = normalizePayrollPayBucket(row.payBucket);
+        line.payBucket = already || seeded || "";
+      }
     } else {
       line.fullName = displayName;
       line.volaos = nextVolaos;
@@ -1576,25 +1577,13 @@ function sendVargasPayrollToBuckets(opts = {}) {
 
 /** Compat: general + envío B/E. */
 function feedVargasPayrollFromReport(opts = {}) {
-  const quiet = opts.quiet !== false;
-  const general = syncVargasGeneralPayroll({ ...opts, quiet: true });
-  const buckets = sendVargasPayrollToBuckets({ ...opts, quiet: true });
-  if (!quiet && typeof toast === "function") {
-    toast(
-      `General ${general.kept || 0}` +
-        (general.removed ? ` (−${general.removed})` : "") +
-        ` · Banco ${buckets.banco || 0}` +
-        (buckets.removedB ? ` (−${buckets.removedB})` : "") +
-        ` · Efectivo ${buckets.efectivo || 0}` +
-        (buckets.removedE ? ` (−${buckets.removedE})` : "")
-    );
-  }
+  const general = syncVargasGeneralPayroll(opts);
   return {
-    updated: (general.updated || 0) + (buckets.updated || 0),
+    updated: general.updated || 0,
     kept: general.kept || 0,
     removed: general.removed || 0,
-    banco: buckets.banco || 0,
-    efectivo: buckets.efectivo || 0,
+    banco: 0,
+    efectivo: 0,
     skipped: 0,
   };
 }
@@ -1625,10 +1614,11 @@ function syncVargasGeneralPayrollAction() {
         `Período ${report.period} · corte ${report.half === 2 ? "16–30" : "01–15"}\n` +
         `Empleados del reporte: ${rows.length}\n` +
         `A La Vega Autopista (dicen -LA VEGA): ${rows.filter(vargasRowIsLaVega).length}\n\n` +
-        `La general solo deja a quienes no dicen -LA VEGA.\n` +
-        `Los de -LA VEGA pasan a La Vega Autopista del mismo corte.\n` +
-        `En esa nómina se borran los demás: solo quedan los del reporte.\n` +
-        `Día 31 no suma. Se conservan adelantos/préstamos.`
+        `El reporte solo actualiza la nómina general.\n` +
+        `Banco o Efectivo se marca en esa nómina, antes del nombre, y se reparte con su botón.\n` +
+        `Quienes dicen -LA VEGA pasan a La Vega Autopista del mismo corte.\n` +
+        `En La Vega solo quedan los del reporte.\n` +
+        `Día 31 no suma. Se conservan adelantos y préstamos.`
     )
   ) {
     return;
@@ -1743,7 +1733,6 @@ function renderVargasModule() {
   ensureVargasSeedLoaded();
   ensureVargasNovember2026();
   const report = getActiveVargasReport();
-  if (report) restoreVargasPayBucketsFromPayrolls(report);
   const summary = document.getElementById("vargasSummary");
   const host = document.getElementById("vargasReportHost");
   if (!host) return;
@@ -1759,7 +1748,7 @@ function renderVargasModule() {
 
   const stats = vargasReportStats(report);
   if (summary) {
-    summary.textContent = `${report.label || report.period} · ${stats.total} empleados · B ${stats.banco} · E ${stats.efectivo} · sin marca ${stats.sinMarca}`;
+    summary.textContent = `${report.label || report.period} · ${stats.total} empleados · Diurno ${stats.diurno} · Nocturno ${stats.nocturno}`;
   }
 
   const rows = flattenVargasEmployees(report, {
@@ -1790,12 +1779,6 @@ function renderVargasModule() {
           return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" contenteditable="true" spellcheck="false"${title}>${escapeVargasHtml(val)}</td>`;
         })
         .join("");
-      const bucketSel = `
-        <select class="vargas-bucket" data-s="${row.sectionIdx}" data-e="${row.empIdx}" aria-label="Pago B o E" title="Se queda guardado. Cámbialo solo si pasa al otro pago.">
-          ${row.payBucket ? "" : `<option value="" selected>—</option>`}
-          <option value="B" ${row.payBucket === "B" ? "selected" : ""}>B</option>
-          <option value="E" ${row.payBucket === "E" ? "selected" : ""}>E</option>
-        </select>`;
       const daysLabel =
         row.volaoMarks > 0
           ? `${row.daysPayroll}<span class="vargas-volao-hint" title="${row.volaoMarks} volao(s) × RD$${VARGAS_VOLAO_AMOUNT}"> · V${row.volaosAmount}</span>`
@@ -1811,7 +1794,6 @@ function renderVargasModule() {
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
         <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
         <td class="vargas-post">${escapeVargasHtml(row.postName)}</td>
-        <td class="vargas-bucket-cell">${bucketSel}</td>
         <td class="vargas-days-total">${daysLabel}</td>
         <td class="vargas-pagos-cell${pagosFilled ? " is-paid" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false" title="Volaos ya pagados (1 o 2). Solo control: no suma en nómina">${escapeVargasHtml(pagosVal)}</td>
         <td class="vargas-hex-cell${hexFilled ? " has-hex" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false"${hexTitle}>${escapeVargasHtml(hexVal)}</td>
@@ -1853,29 +1835,18 @@ function renderVargasModule() {
             <option value="nocturno" ${vargasFilterShift === "nocturno" ? "selected" : ""}>Nocturno (${stats.nocturno})</option>
           </select>
         </label>
-        <label>Pago
-          <select id="vargasFilterBucket">
-            <option value="all" ${vargasFilterBucket === "all" ? "selected" : ""}>Todos</option>
-            <option value="B" ${vargasFilterBucket === "B" ? "selected" : ""}>Banco (B)</option>
-            <option value="E" ${vargasFilterBucket === "E" ? "selected" : ""}>Efectivo (E)</option>
-            <option value="none" ${vargasFilterBucket === "none" ? "selected" : ""}>Sin marca</option>
-          </select>
-        </label>
       </div>
       <div class="vargas-actions">
         <button type="button" class="secondary" id="btnVargasNuevaQuincena">Abrir siguiente quincena</button>
-        <button type="button" class="secondary" id="btnVargasSuggestBE">Sugerir B/E</button>
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
-        <button type="button" class="primary" id="btnVargasNominaGeneral">1. Nómina general</button>
-        <button type="button" class="primary" id="btnVargasEnviarBE">2. Enviar a Banco / Efectivo</button>
-        <button type="button" class="secondary" id="btnVargasReorganizar">Ambos (general + B/E)</button>
+        <button type="button" class="primary" id="btnVargasNominaGeneral">Enviar a nómina general</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
         <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
-        <strong>Banco (B)</strong> o <strong>Efectivo (E)</strong> se queda en el reporte y en esa nómina hasta que lo cambies a mano.
-        Cada 15 días se abre otra quincena: se copian los empleados y el pago, los días quedan en blanco y la quincena anterior no se borra.
+        Este reporte solo envía a la <strong>nómina general</strong>. Banco (B) o Efectivo (E) se marca ahí, antes del nombre, y se reparte con un botón.
+        Cada 15 días se abre otra quincena: se copian los empleados, los días quedan en blanco y la quincena anterior no se borra.
         Si el nombre o el puesto dice <strong>-LA VEGA</strong>, en <strong>La Vega Autopista</strong> queda el nombre completo del reporte (todos los nombres y apellidos, sin la palabra La Vega) y la lista va en orden alfabético.
         Día 31 no suma.
       </p>
@@ -1897,13 +1868,6 @@ function renderVargasModule() {
             <option value="nocturno">Nocturno</option>
           </select>
         </label>
-        <label>B/E
-          <select id="vargasAddBucket">
-            <option value="">—</option>
-            <option value="B">B Banco</option>
-            <option value="E">E Efectivo</option>
-          </select>
-        </label>
       </div>
       <button type="button" class="primary" id="btnVargasAddEmp" style="margin-top:12px">Agregar al reporte</button>
     </div>
@@ -1916,7 +1880,6 @@ function renderVargasModule() {
               <th>T</th>
               <th class="sticky-name">Empleado</th>
               <th>Puesto</th>
-              <th>B/E</th>
               <th>Días</th>
               <th class="vargas-pagos-head" title="Volaos ya pagados — no entran a nómina">Volaos pagos</th>
               <th class="vargas-hex-head" title="Horas × RD$${VARGAS_EXTRA_HOUR_RATE} sumadas a Horas extras de nómina">Horas ext.</th>
@@ -1925,7 +1888,7 @@ function renderVargasModule() {
             </tr>
           </thead>
           <tbody>
-            ${body || `<tr><td colspan="${8 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
+            ${body || `<tr><td colspan="${7 + (report.dayNums || []).length}" class="muted" style="padding:16px">Ningún empleado con este filtro.</td></tr>`}
           </tbody>
         </table>
       </div>

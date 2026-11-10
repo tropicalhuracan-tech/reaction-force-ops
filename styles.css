@@ -2634,6 +2634,15 @@ body.lightbox-open {
   flex: 1 1 auto;
   min-width: 0;
 }
+.nomina-table .nomina-pay-bucket {
+  flex: 0 0 2.2rem;
+  width: 2.2rem;
+  min-width: 2.2rem;
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 4px 0;
+}
 .nomina-table .nomina-review-check {
   flex: 0 0 auto;
   display: inline-flex;
