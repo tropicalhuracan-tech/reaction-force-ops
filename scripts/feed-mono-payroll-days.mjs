@@ -289,12 +289,15 @@ async function feedHalfFromQuincena(period, half, quincena, payrollByKey, ids) {
     const rows = employees
       .map((emp) => {
         const count = countSheetMarks(emp.marks);
+        const hours = Math.max(0, Number(String(emp.horasExtras || "").replace(",", ".")) || 0);
         return {
           name: String(emp.fullName || "").trim(),
           employeeId: emp.employeeId || "",
           daysCount: count.days,
           volaos: count.volaoMarks * (VOLAO_RATE[tanda] || 0),
-          hasMarks: Object.keys(emp.marks || {}).length > 0,
+          extraPay: Math.round(hours * 60 * 100) / 100,
+          hours,
+          hasMarks: Object.keys(emp.marks || {}).length > 0 || hours > 0,
         };
       })
       .filter((row) => row.name && row.hasMarks);
@@ -312,16 +315,24 @@ async function feedHalfFromQuincena(period, half, quincena, payrollByKey, ids) {
       const prest = line.prestamos;
       const hex = line.horasExtras;
       const hm = line.horasExtrasManual;
-      if (String(line.daysWorked) !== String(row.daysCount) || Number(line.volaos) !== row.volaos) {
+      const prevExtra = Math.max(0, Number(line.monoExtraPay) || 0);
+      const nextHex = hm
+        ? Math.round((Math.max(0, (Number(hex) || 0) - prevExtra) + row.extraPay) * 100) / 100
+        : Math.round(((Number(hex) || 0) + row.extraPay - prevExtra) * 100) / 100;
+      if (
+        String(line.daysWorked) !== String(row.daysCount) ||
+        Number(line.volaos) !== row.volaos ||
+        Number(line.monoExtraPay) !== row.extraPay
+      ) {
         line.daysWorked = String(row.daysCount);
         line.volaos = row.volaos;
         line.daysFromMonorriel = true;
         line.adelantos = adel;
         line.prestamos = prest;
-        if (hm) {
-          line.horasExtras = hex;
-          line.horasExtrasManual = true;
-        }
+        line.horasExtras = Math.max(0, nextHex);
+        line.monoExtraHours = row.hours;
+        line.monoExtraPay = row.extraPay;
+        if (hm) line.horasExtrasManual = true;
         changed = true;
       }
     }

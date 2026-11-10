@@ -5617,7 +5617,7 @@ function renderNominaTab() {
         p.group === "reaction"
           ? " La primera columna es B/E: B = Banco, E = Efectivo. Se queda guardada. Los días vienen del reporte de Ramón. Cuando esté lista, pulsa Repartir Banco y Efectivo."
           : p.group === "monorriel"
-            ? " Llenar datos trae los días de esta planilla del reporte Monorriel. Los préstamos no se tocan: usa Cargar préstamos. Todos cobran en efectivo."
+            ? " Enviar a nómina trae puesto, días, volao de la marca 2 y horas extras. Los préstamos no se tocan. Todos cobran en efectivo."
             : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
@@ -5636,7 +5636,7 @@ function renderNominaTab() {
       }
       ${
         p.group === "monorriel"
-          ? `<button type="button" class="btn primary btn-sm" id="btnMonoLlenarDatos" style="width:auto" title="Trae los días de esta planilla en el reporte Monorriel. No toca los préstamos.">Llenar datos</button>`
+          ? `<button type="button" class="btn btn-sm" id="btnMonoLlenarDatos" style="width:auto;background:#ff7a00;color:#1a1000;font-weight:800;border:0;border-radius:10px;padding:10px 14px" title="Trae puesto, días, volaos de la marca 2 y horas extras. No toca los préstamos.">Enviar a nómina</button>`
           : ""
       }
       <button type="button" class="btn secondary btn-sm" id="btnToggleFeriado" style="width:auto">${
