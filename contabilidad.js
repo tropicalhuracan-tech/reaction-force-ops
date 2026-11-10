@@ -612,6 +612,7 @@ function normalizePayroll(p = {}) {
     svdaMealSplit: p.svdaMealSplit === true,
     seedRevision: String(p.seedRevision || "").trim(),
     rosterFromVargas: p.rosterFromVargas === true,
+    rosterFromMonorriel: p.rosterFromMonorriel === true,
     lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, formulaOpts)) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
@@ -1041,6 +1042,14 @@ function applyRemoteContabilidadData(remote) {
         map.set(row.id, row);
         return;
       }
+      const rowLocked = row.group === "monorriel" && row.rosterFromMonorriel === true;
+      const prevLocked = prev.group === "monorriel" && prev.rosterFromMonorriel === true;
+      if (rowLocked !== prevLocked) {
+        const locked = rowLocked ? row : prev;
+        const other = rowLocked ? prev : row;
+        map.set(row.id, mergePayrollLinesPreserveAmounts(locked, other));
+        return;
+      }
       const prevN = payrollNamedLineCount(prev);
       const rowN = payrollNamedLineCount(row);
       if (prevN > 0 && rowN === 0) return;
@@ -1056,7 +1065,11 @@ function applyRemoteContabilidadData(remote) {
       const intentionalShrink =
         winnerNewer &&
         wN < oN &&
-        (winner.rosterFromVargas || other.rosterFromVargas || oN - wN > 2);
+        (winner.rosterFromVargas ||
+          winner.rosterFromMonorriel ||
+          other.rosterFromVargas ||
+          other.rosterFromMonorriel ||
+          oN - wN > 2);
       // No devolver el roster viejo completo por tener más adelantos/préstamos
       if (!intentionalShrink && moneyScore(other) > moneyScore(winner) + 2 && Math.abs(oN - wN) <= 2) {
         const tmp = winner;
@@ -2586,7 +2599,7 @@ function feedMonorrielPayrollDaysFromReports(opts = {}) {
           });
           payroll = gen && gen.payroll;
         }
-        if (!payroll) return;
+        if (!payroll || payroll.rosterFromMonorriel) return;
 
         const formulaOpts = payrollComputeOpts(payroll);
         const prevById = new Map();
@@ -2780,6 +2793,8 @@ function generatePayrollForSelection(opts = {}) {
         "Banco/Efectivo ya vienen del reporte Vargas. Actualízalos con «2. Enviar a Banco / Efectivo»."
       );
     }
+  } else if (group === "monorriel" && existing && existing.rosterFromMonorriel) {
+    lines = (existing.lines || []).map((l) => computePayrollLineTotals(l, formulaOpts));
   } else {
     lines = staff.map((s) => {
       const prev =
@@ -2810,6 +2825,7 @@ function generatePayrollForSelection(opts = {}) {
     status: "draft",
     showFeriado: isOffice ? false : existing ? !!existing.showFeriado : false,
     rosterFromVargas: !!(existing && existing.rosterFromVargas),
+    rosterFromMonorriel: !!(existing && existing.rosterFromMonorriel),
     lines,
     note: isOffice
       ? `Nómina Oficina · ${halfLabel(half)} · ${monthLabel(period)} · SFS ${OFFICE_PAYROLL_SFS} · con rifa · sin días/unif/volao/comida/feriado/extras`
