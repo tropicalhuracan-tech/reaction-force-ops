@@ -1,6 +1,6 @@
 {
-  "build": 224,
-  "label": "v224",
-  "minBuild": 224,
-  "note": "SFS por defecto RD$ 800 en todas las nóminas; se puede cambiar a mano"
+  "build": 225,
+  "label": "v225",
+  "minBuild": 225,
+  "note": "Reporte Monorriel en cuatro planillas, como el de Ramón. Llenar datos pasa los días a la nómina"
 }

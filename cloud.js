@@ -1784,6 +1784,10 @@
         ? parseArrayField(loans, "loanTrashJson")
         : (legacy && legacy.loanTrash) || [],
       monorrielReports: readMonorrielFromParts(parts),
+      monorrielQuincenas: (() => {
+        const fields = (parts.monorriel && parts.monorriel.fields) || {};
+        return fields.monorrielQuincenasJson ? parseObjectField(fields, "monorrielQuincenasJson") : null;
+      })(),
       users: parseArrayField(main, "usersJson"),
       messages: parseArrayField(main, "messagesJson"),
       messagesClearedAt:
@@ -2205,10 +2209,28 @@
         updatedAt: { stringValue: updatedAt },
       }, ["vargasJson", "updatedAt"]),
       // Doc propio Monorriel (fuente de verdad + anti-pisotón con main)
-      patchDoc(partPath("monorriel"), {
-        monorrielReportsJson: { stringValue: JSON.stringify(monoToSave || []) },
-        updatedAt: { stringValue: updatedAt },
-      }, ["monorrielReportsJson", "updatedAt"]),
+      patchDoc(partPath("monorriel"), (() => {
+        const fields = {
+          monorrielReportsJson: { stringValue: JSON.stringify(monoToSave || []) },
+          updatedAt: { stringValue: updatedAt },
+        };
+        const mask = ["monorrielReportsJson", "updatedAt"];
+        if (typeof monorrielQuincenasForCloud === "function") {
+          const packed = monorrielQuincenasForCloud();
+          if (packed && Array.isArray(packed.reports) && packed.reports.length) {
+            fields.monorrielQuincenasJson = { stringValue: JSON.stringify(packed) };
+            mask.push("monorrielQuincenasJson");
+          }
+        }
+        return [fields, mask];
+      })()[0], (() => {
+        const mask = ["monorrielReportsJson", "updatedAt"];
+        if (typeof monorrielQuincenasForCloud === "function") {
+          const packed = monorrielQuincenasForCloud();
+          if (packed && Array.isArray(packed.reports) && packed.reports.length) mask.push("monorrielQuincenasJson");
+        }
+        return mask;
+      })()),
     ];
 
     await Promise.all(writes);
