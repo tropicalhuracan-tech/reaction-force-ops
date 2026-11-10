@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 224;
-const APP_VERSION_LABEL = "v224";
+const APP_BUILD = 225;
+const APP_VERSION_LABEL = "v225";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2698,6 +2698,9 @@ async function mergeRemoteBundleBeforeSave() {
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       persistMonorrielReportsSafetyNet(monorrielReports);
     }
+    if (remote.monorrielQuincenas && typeof applyRemoteMonorrielQuincenas === "function") {
+      applyRemoteMonorrielQuincenas(remote.monorrielQuincenas);
+    }
     if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
     if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     if (typeof flushOpenHrDraft === "function") flushOpenHrDraft(false);
@@ -2963,6 +2966,9 @@ async function syncFromCloud() {
       monorrielReports = mergeMonorrielReportsForCloud(monorrielReports, localMono);
     }
     persistMonorrielReportsSafetyNet(monorrielReports);
+    if (remote.monorrielQuincenas && typeof applyRemoteMonorrielQuincenas === "function") {
+      applyRemoteMonorrielQuincenas(remote.monorrielQuincenas);
+    }
     const remoteUsers = Array.isArray(remote.users) ? remote.users.map(normalizeUser) : [];
     if (remoteUsers.length) {
       appUsers = remoteUsers;
@@ -8543,6 +8549,10 @@ function renderMonorrielHome() {
       queueCloudSave();
     }
   } catch (_) {}
+  if (typeof renderMonorrielQuincenaModule === "function" && document.getElementById("monoQuincenaHost")) {
+    renderMonorrielQuincenaModule();
+    return;
+  }
   const summary = document.getElementById("monorrielSummary");
   if (summary) {
     const staff = getMonorrielEmployees().length;
@@ -9324,7 +9334,7 @@ function printMonoEmployeeSummary() {
 }
 
 function bindMonorrielUi() {
-  if (!document.getElementById("btnOpenMonoReportNew")) return;
+  if (!document.getElementById("btnMonoStaffInfo") && !document.getElementById("btnOpenMonoReportNew")) return;
   ["monoReportDate", "monoReportShift", "monoReportSupervisor", "monoReportNovedades"].forEach((id) => {
     const el = document.getElementById(id);
     if (!el || el.dataset.monoDraftBound === "1") return;
@@ -9338,7 +9348,7 @@ function bindMonorrielUi() {
     el.addEventListener("input", bump);
     el.addEventListener("change", bump);
   });
-  document.getElementById("btnOpenMonoReportNew").addEventListener("click", () => openMonoReportNew());
+  document.getElementById("btnOpenMonoReportNew")?.addEventListener("click", () => openMonoReportNew());
   document.getElementById("btnMonoStaffInfo").addEventListener("click", () => {
     renderMonoStaffList();
     switchView("monoStaffView");
@@ -9370,7 +9380,7 @@ function bindMonorrielUi() {
     shareMonoReport().catch(() => downloadMonoReport());
   });
   document.getElementById("btnDeleteMonoReport").addEventListener("click", deleteMonoReport);
-  document.getElementById("monoReportSearch").addEventListener("input", renderMonoReportsList);
+  document.getElementById("monoReportSearch")?.addEventListener("input", renderMonoReportsList);
   document.getElementById("monoReportShift").addEventListener("change", () => {
     // keep draft; only hint refresh
     updateMonoCoverageHint();
@@ -14322,7 +14332,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       refreshing = true;
       window.location.reload();
     });
-    navigator.serviceWorker.register("sw.js?v=224").then((reg) => {
+    navigator.serviceWorker.register("sw.js?v=225").then((reg) => {
       reg.update().catch(() => {});
       if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
       reg.addEventListener("updatefound", () => {
@@ -14338,7 +14348,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v224")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v225")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

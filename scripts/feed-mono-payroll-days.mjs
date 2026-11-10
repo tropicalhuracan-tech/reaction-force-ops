@@ -266,6 +266,84 @@ function nextYm(ym) {
   return `${y}-${String(m).padStart(2, "0")}`;
 }
 
+const VOLAO_RATE = { dia: 850, noche: 900, moto_dia: 1000, moto_noche: 1000 };
+
+function countSheetMarks(marks) {
+  let days = 0;
+  let volaoMarks = 0;
+  Object.keys(marks || {}).forEach((d) => {
+    if (Number(d) === 31) return;
+    const n = Number(marks[d]);
+    if (!(n > 0)) return;
+    days += 1;
+    if (n === 2) volaoMarks += 1;
+  });
+  return { days, volaoMarks };
+}
+
+async function feedHalfFromQuincena(period, half, quincena, payrollByKey, ids) {
+  const now = new Date().toISOString();
+  let touched = 0;
+  for (const tanda of ["dia", "noche", "moto_dia", "moto_noche"]) {
+    const employees = (quincena.sheets && quincena.sheets[tanda] && quincena.sheets[tanda].employees) || [];
+    const rows = employees
+      .map((emp) => {
+        const count = countSheetMarks(emp.marks);
+        return {
+          name: String(emp.fullName || "").trim(),
+          employeeId: emp.employeeId || "",
+          daysCount: count.days,
+          volaos: count.volaoMarks * (VOLAO_RATE[tanda] || 0),
+          hasMarks: Object.keys(emp.marks || {}).length > 0,
+        };
+      })
+      .filter((row) => row.name && row.hasMarks);
+    if (!rows.length) continue;
+    const pkey = `${period}|${half}|${tanda}`;
+    let p = payrollByKey.get(pkey);
+    if (!p) continue;
+    let changed = false;
+    for (const row of rows) {
+      const line = (p.lines || []).find(
+        (l) => (row.employeeId && l.employeeId === row.employeeId) || loose(l.fullName, row.name)
+      );
+      if (!line) continue;
+      const adel = line.adelantos;
+      const prest = line.prestamos;
+      const hex = line.horasExtras;
+      const hm = line.horasExtrasManual;
+      if (String(line.daysWorked) !== String(row.daysCount) || Number(line.volaos) !== row.volaos) {
+        line.daysWorked = String(row.daysCount);
+        line.volaos = row.volaos;
+        line.daysFromMonorriel = true;
+        line.adelantos = adel;
+        line.prestamos = prest;
+        if (hm) {
+          line.horasExtras = hex;
+          line.horasExtrasManual = true;
+        }
+        changed = true;
+      }
+    }
+    if (!changed) continue;
+    p.updatedAt = now;
+    await patchDoc(
+      `rfs_payrolls/${safeId(p.id)}`,
+      {
+        payrollJson: { stringValue: JSON.stringify(p) },
+        group: { stringValue: "monorriel" },
+        period: { stringValue: period },
+        updatedAt: { stringValue: now },
+      },
+      ["payrollJson", "group", "period", "updatedAt"]
+    );
+    payrollByKey.set(pkey, p);
+    touched += 1;
+    console.log("OK quincena", p.id, "lines", (p.lines || []).length);
+  }
+  return touched;
+}
+
 const now = new Date();
 const defaultPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const periodArg = process.argv[2] || "auto";
@@ -279,6 +357,11 @@ const periods =
 
 const main = await getDoc("rfs/main");
 const reports = JSON.parse(main.fields.monorrielReportsJson.stringValue || "[]");
+const monoDoc = await getDoc("rfs/monorriel");
+const quincenas = JSON.parse(
+  (monoDoc && monoDoc.fields && monoDoc.fields.monorrielQuincenasJson && monoDoc.fields.monorrielQuincenasJson.stringValue) ||
+    "null"
+);
 const idx = await getDoc("rfs/payroll_index");
 let ids = JSON.parse((idx && idx.fields.payrollIdsJson.stringValue) || "[]");
 const payrollByKey = new Map();
@@ -292,7 +375,13 @@ for (const id of ids) {
 
 let total = 0;
 for (const period of periods) {
-  for (const h of halves) total += await feedHalf(period, h, reports, payrollByKey, ids);
+  for (const h of halves) {
+    const quincena =
+      quincenas &&
+      (quincenas.reports || []).find((r) => r && r.period === period && (r.half === 2 ? 2 : 1) === h);
+    if (quincena) total += await feedHalfFromQuincena(period, h, quincena, payrollByKey, ids);
+    else total += await feedHalf(period, h, reports, payrollByKey, ids);
+  }
 }
 await patchDoc(
   "rfs/payroll_index",

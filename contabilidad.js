@@ -5616,7 +5616,9 @@ function renderNominaTab() {
       }${
         p.group === "reaction"
           ? " La primera columna es B/E: B = Banco, E = Efectivo. Se queda guardada. Los días vienen del reporte de Ramón. Cuando esté lista, pulsa Repartir Banco y Efectivo."
-          : ""
+          : p.group === "monorriel"
+            ? " Llenar datos trae los días de esta planilla del reporte Monorriel. Los préstamos no se tocan: usa Cargar préstamos. Todos cobran en efectivo."
+            : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
     <h2>NOMINA REACTION · ${escapeHtml(openTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
@@ -5630,6 +5632,11 @@ function renderNominaTab() {
       ${
         p.group === "reaction"
           ? `<button type="button" class="btn primary btn-sm" id="btnRepartirBE" style="width:auto">Repartir Banco y Efectivo</button>`
+          : ""
+      }
+      ${
+        p.group === "monorriel"
+          ? `<button type="button" class="btn primary btn-sm" id="btnMonoLlenarDatos" style="width:auto" title="Trae los días de esta planilla en el reporte Monorriel. No toca los préstamos.">Llenar datos</button>`
           : ""
       }
       <button type="button" class="btn secondary btn-sm" id="btnToggleFeriado" style="width:auto">${
@@ -5680,6 +5687,9 @@ function renderNominaTab() {
     });
   });
   document.getElementById("btnRepartirBE")?.addEventListener("click", () => repartirNominaGeneralAction());
+  document.getElementById("btnMonoLlenarDatos")?.addEventListener("click", () => {
+    if (typeof llenarMonorrielNominaDesdeReporte === "function") llenarMonorrielNominaDesdeReporte(p);
+  });
   document.getElementById("btnToggleFeriado")?.addEventListener("click", togglePayrollFeriado);
   document.getElementById("contabPayrollPaper2")?.addEventListener("change", (ev) => {
     const main = document.getElementById("contabPayrollPaper");
@@ -5836,14 +5846,7 @@ function bindContabilidadUi() {
   document.getElementById("btnContabGenPayroll")?.addEventListener("click", generateOfficePayroll);
   document.getElementById("btnContabGenMonoTandas")?.addEventListener("click", generateAllMonorrielTandas);
   document.getElementById("btnContabFeedMonoDays")?.addEventListener("click", () => {
-    const r = feedMonorrielPayrollDaysFromReports({
-      period: getSelectedMonth(),
-      quiet: false,
-      createMissing: true,
-      // Ambos cortes del mes + mes siguiente (nov, etc.)
-    });
-    renderNominaTab();
-    if (!(r && r.updated)) toast("No había días nuevos que actualizar desde reportes.");
+    if (typeof llenarMonorrielNominaDesdeReporte === "function") llenarMonorrielNominaDesdeReporte();
   });
   document.getElementById("btnContabLoadLoans")?.addEventListener("click", loadOpenPayrollLoans);
   document.getElementById("btnContabSavePayroll")?.addEventListener("click", saveOpenPayrollEdits);
