@@ -3216,10 +3216,32 @@ function collectPayrollLinesForLoanCheck(period, half) {
     (p.lines || []).forEach((l) => {
       const name = String(l && l.fullName || "").trim();
       if (!name) return;
-      lines.push({ name, where: where + tanda, employeeId: l.employeeId || "" });
+      lines.push({
+        name,
+        where: where + tanda,
+        group: p.group,
+        employeeId: l.employeeId || "",
+        prestamos: Math.max(0, Number(l.prestamos) || 0),
+      });
     });
   });
   return lines;
+}
+
+function loanInstallmentsOnDate(loan, payDate) {
+  return (loan && loan.schedule ? loan.schedule : []).filter((inst) => {
+    if (!inst || inst.paid) return false;
+    return String(inst.dueDate || "").slice(0, 10) === payDate;
+  });
+}
+
+function loanMatchesOneLine(loan, line) {
+  if (!loan || !line) return false;
+  if (loan.employeeId && line.employeeId && loan.employeeId === line.employeeId) return true;
+  const cands =
+    typeof loanMatchNameCandidates === "function" ? loanMatchNameCandidates(loan) : [loan.employeeName];
+  if (typeof loanNameMatchScore !== "function") return loanPersonKey(loan.employeeName) === loanPersonKey(line.name);
+  return cands.some((cand) => loanNameMatchScore(cand, line.name) >= 0.9);
 }
 
 function loanMatchesPayrollLines(loan, lines) {
@@ -3264,19 +3286,65 @@ function reviewPayrollLoanNames() {
   });
   const dupPayroll = [...byPayKey.values()].filter((arr) => arr.length > 1);
 
-  const missing = dueLoans.filter((loan) => !loanMatchesPayrollLines(loan, lines));
+  const entered = lines.filter((line) => line.prestamos > 0);
+  const missing = dueLoans.filter((loan) => {
+    const onDiscount = entered.some((line) => loanMatchesOneLine(loan, line));
+    return !onDiscount;
+  });
   const halfText = half === 2 ? "16 al fin" : "1 al 15";
-  const title = `Préstamos que no entraron · ${monthLabel(period)} · ${halfText} · pago ${payDate}`;
+  const title = `Préstamos del corte · ${monthLabel(period)} · ${halfText} · pago ${payDate}`;
 
   const row = (cells) => `<tr>${cells.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`;
+  const enteredSorted = entered.slice().sort((a, b) => {
+    const where = String(a.where).localeCompare(String(b.where), "es");
+    if (where) return where;
+    return String(a.name).localeCompare(String(b.name), "es");
+  });
+  const enteredRows = enteredSorted
+    .map((line) => {
+      const hits = dueLoans.filter((loan) => loanMatchesOneLine(loan, line));
+      const quotas = hits.flatMap((loan) => loanInstallmentsOnDate(loan, payDate));
+      const nums = [...new Set(quotas.map((inst) => String(inst.n || "")))].filter(Boolean);
+      const loanNames = [...new Set(hits.map((loan) => loan.employeeName || ""))].filter(Boolean);
+      return row([
+        line.name,
+        line.where,
+        nums.length ? nums.join(", ") : "—",
+        moneyRd(line.prestamos),
+        loanNames.join(" · ") || "—",
+      ]);
+    })
+    .join("");
+  const counted = new Map();
+  entered.forEach((line) => {
+    const key = loanPersonKey(line.name) || line.name;
+    const slot = line.group === "reaction" ? "reaction" : `${line.group}|${line.where}`;
+    if (!counted.has(key)) counted.set(key, []);
+    counted.get(key).push({ slot, amount: line.prestamos, general: line.group === "reaction" });
+  });
+  let enteredTotal = 0;
+  counted.forEach((arr) => {
+    const specific = arr.filter((item) => !item.general);
+    const use = specific.length ? specific : arr;
+    const bySlot = new Map();
+    use.forEach((item) => bySlot.set(item.slot, Math.max(bySlot.get(item.slot) || 0, item.amount)));
+    bySlot.forEach((amount) => {
+      enteredTotal += amount;
+    });
+  });
+  const missingTotal = missing.reduce((sum, loan) => sum + loanDueOnDate(loan, payDate), 0);
   const missingRows = missing
-    .map((loan) =>
-      row([
+    .map((loan) => {
+      const quotas = loanInstallmentsOnDate(loan, payDate);
+      const nums = [...new Set(quotas.map((inst) => String(inst.n || "")))].filter(Boolean);
+      const namedOn = lines.filter((line) => loanMatchesOneLine(loan, line)).map((line) => line.where);
+      return row([
         loan.employeeName || "(sin nombre)",
+        nums.length ? nums.join(", ") : "—",
         moneyRd(loanDueOnDate(loan, payDate)),
-        loan.employeeId || "—",
-      ])
-    )
+        namedOn.length ? `Nombre en ${namedOn.join(", ")}, cuota en 0` : "No está en ninguna nómina",
+      ]);
+    })
     .join("");
   const dupLoanRows = dupLoans
     .map((arr) =>
@@ -3299,11 +3367,19 @@ function reviewPayrollLoanNames() {
 
   const html = `
     <h2>${escapeHtml(title)}</h2>
-    <p>Se revisó Nómina general, Banco, Efectivo, La Vega, Monorriel, Oficina y Lotedom. Un nombre mal escrito no entra al descuento.</p>
-    <h3>No entraron a ninguna nómina (${missing.length})</h3>
+    <p>Úsalo después de jalar los préstamos. Revisa Nómina general, Banco, Efectivo, La Vega, Monorriel, Oficina y Lotedom.</p>
+    <h3>Entraron (${entered.length})</h3>
     <table>
-      <thead><tr><th>Nombre del préstamo</th><th>Cuota</th><th>Id</th></tr></thead>
-      <tbody>${missingRows || `<tr><td colspan="3">Todos los préstamos de este pago coincidieron con una nómina.</td></tr>`}</tbody>
+      <thead><tr><th>Nombre en la nómina</th><th>Nómina</th><th>Nº cuota</th><th>Monto</th><th>Préstamo</th></tr></thead>
+      <tbody>${enteredRows || `<tr><td colspan="5">Nadie tiene cuota cargada en estas nóminas.</td></tr>`}
+        <tr><td colspan="3"><strong>Total general</strong></td><td><strong>${escapeHtml(moneyRd(enteredTotal))}</strong></td><td></td></tr>
+      </tbody>
+    </table>
+    <p>El total no suma dos veces a quien está en la general y también en Banco o Efectivo.</p>
+    <h3>No entraron (${missing.length}) · cuotas ${escapeHtml(moneyRd(missingTotal))}</h3>
+    <table>
+      <thead><tr><th>Nombre del préstamo</th><th>Nº cuota</th><th>Monto</th><th>Por qué</th></tr></thead>
+      <tbody>${missingRows || `<tr><td colspan="4">Todos los préstamos de este pago entraron a una nómina.</td></tr>`}</tbody>
     </table>
     <h3>Nombres duplicados en préstamos (${dupLoans.length})</h3>
     <table>
@@ -3320,9 +3396,9 @@ function reviewPayrollLoanNames() {
     openPrintWindow(title, html, { autoPrint: false });
   }
   toast(
-    missing.length
-      ? `${missing.length} préstamo(s) no entraron. La lista quedó abierta para imprimir.`
-      : "Todos los préstamos de este pago entraron a una nómina. La lista quedó abierta por si hay duplicados."
+    `Entraron ${entered.length} · total ${moneyRd(enteredTotal)}` +
+      (missing.length ? ` · ${missing.length} no entraron.` : ". Todos entraron.") +
+      " Lista abierta para imprimir."
   );
 }
 
@@ -5562,7 +5638,7 @@ function renderNominaTab() {
         </select>
       </label>
       <button type="button" class="btn secondary" id="btnContabLoadLoans2" style="width:auto" title="Carga cuotas según pago día 5 o 20. No borra un monto que ya estaba si el nombre no coincide.">Cargar préstamos</button>
-      <button type="button" class="btn secondary" id="btnContabLoanCheck" style="width:auto" title="Nombres con préstamo que no entraron a ninguna nómina de este corte. La lista se puede imprimir.">Préstamos que no entraron</button>
+      <button type="button" class="btn secondary" id="btnContabLoanCheck" style="width:auto" title="Úsalo después de jalar los préstamos. Muestra quién entró, en qué nómina, el número de cuota, el monto y el total. También quién no entró. Se puede imprimir.">Revisar préstamos</button>
       <button type="button" class="btn secondary" id="btnContabAddManual2" style="width:auto" title="Fila sin fórmulas (trato especial)">＋ Manual</button>
       ${
         payrollSupportsReceiptPrint(p)
