@@ -167,7 +167,7 @@ async function feedHalf(period, half, reports, payrollByKey, ids) {
           adelantos: 0,
           prestamos: 0,
           horasExtras: 0,
-          sfs: 0,
+          sfs: 800,
           uniformes: 115,
           rifa: 85,
           volaos: 0,
@@ -208,6 +208,7 @@ async function feedHalf(period, half, reports, payrollByKey, ids) {
             adelantos: 0,
             prestamos: 0,
             horasExtras: 0,
+            sfs: 800,
             uniformes: 115,
             rifa: 85,
           };

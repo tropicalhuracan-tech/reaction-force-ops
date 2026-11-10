@@ -252,7 +252,8 @@ function emptyPayroll() {
 const LVA_PAYROLL_DEFAULT_MONTHLY = 24000;
 const LVA_PAYROLL_UNIFORMES = 115;
 const LVA_PAYROLL_RIFA = 85;
-const LVA_PAYROLL_SFS_RATE = 0.0591; // ~SFS/SVDS observado en nómina Excel
+/** SFS por defecto en todas las nóminas. Si lo cambian a mano, se queda (incluso 0). */
+const PAYROLL_DEFAULT_SFS = 800;
 const LVA_PAYROLL_DAY_BASE = 26;
 /** Seguro de vida (SVDA): fijo RD$ 90. Columna Comida / Seg. vida = comida (editable) + seguro. */
 const LVA_PAYROLL_SVDA = 90;
@@ -272,8 +273,8 @@ const MONO_TANDA_FORMULA = {
   moto_dia: { volaoPerExtraDay: 1000, extrasFromDaysPay: 0, autoExtrasFromDays: false },
   moto_noche: { volaoPerExtraDay: 1000, extrasFromDaysPay: 0, autoExtrasFromDays: false },
 };
-/** Nómina oficina: SFS fijo; quincena = sueldo mensual / 2 (días no influyen). */
-const OFFICE_PAYROLL_SFS = 800;
+/** Nómina oficina: quincena = sueldo mensual / 2 (días no influyen). SFS = el mismo 800. */
+const OFFICE_PAYROLL_SFS = PAYROLL_DEFAULT_SFS;
 const OFFICE_PAYROLL_RIFA = 85;
 
 function roundMoney2(n) {
@@ -401,7 +402,6 @@ function computePayrollLineTotals(line, opts = {}) {
   } else if (office) {
     // Oficina: quincena = mitad del sueldo; días no influyen. SFS por defecto fijo (editable a mano).
     salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : 0;
-    if (!sfsManual) sfs = hasName ? OFFICE_PAYROLL_SFS : 0;
     uniformes = 0;
     volaos = 0;
     if (!horasExtrasManual) horasExtras = 0;
@@ -422,11 +422,10 @@ function computePayrollLineTotals(line, opts = {}) {
       // Quincena = solo primera cifra de días (12/13/15…); el +N no suma aquí
       salaryQuincena = roundMoney2((salaryMonthly * baseDays) / LVA_PAYROLL_DAY_BASE);
     }
-    // SFS auto solo si no es manual (permite 0 = sin descuento de seguro)
-    if (!sfsManual) {
-      sfs = hasName && salaryQuincena ? roundMoney2(salaryQuincena * LVA_PAYROLL_SFS_RATE) : 0;
-    }
   }
+
+  // Todas las nóminas: SFS RD$ 800 si no lo fijaron a mano. 0 escrito a mano se queda.
+  if (!manual && !sfsManual) sfs = hasName ? PAYROLL_DEFAULT_SFS : 0;
 
   // LVA: comida editable + seguro de vida fijo 90 (filas manuales: sin seguro auto)
   const svda = lavega && hasName && !manual ? LVA_PAYROLL_SVDA : 0;
@@ -2257,9 +2256,8 @@ function buildPayrollLineFromPerson(person, prev, defaultPosition, options = {})
       daysWorked,
       salaryMonthly,
       salaryQuincena: 0,
-      sfs: isOffice
-        ? OFFICE_PAYROLL_SFS
-        : pickSeedNum(prevLine.sfs, person.sfs, 0),
+      sfs: prevLine.sfsManual ? Math.max(0, Number(prevLine.sfs) || 0) : PAYROLL_DEFAULT_SFS,
+      sfsManual: !!prevLine.sfsManual,
       // Oficina: sin uniforme/volao/comida/feriado/extras; sí rifa
       // La Vega/Monorriel/LOTEDOM: Unif/Rifa unidos (115/85); Seg. vida en Comida/Seg. vida
       uniformes: isOffice
@@ -3125,7 +3123,7 @@ function recalculateOpenPayroll(save = false) {
         ...l,
         salaryQuincena: 0,
         // Respeta SFS / horas extras tecleados a mano (incluido 0)
-        sfs: keepSfs ? Math.max(0, Number(l.sfs) || 0) : profile.office ? OFFICE_PAYROLL_SFS : 0,
+        sfs: keepSfs ? Math.max(0, Number(l.sfs) || 0) : PAYROLL_DEFAULT_SFS,
         sfsManual: keepSfs,
         volaos: 0,
         horasExtras: keepHex
@@ -3498,7 +3496,7 @@ function addManualPayrollRows() {
           almuerzo: 0,
           feriado: 0,
           horasExtras: 0,
-          sfs: 0,
+          sfs: PAYROLL_DEFAULT_SFS,
           sfsManual: true,
           horasExtrasManual: true,
           quincenaManual: false,
@@ -3747,11 +3745,7 @@ function syncOpenPayrollFromDom(recalc = false) {
         ? {
             ...l,
             salaryQuincena: 0,
-            sfs: l.sfsManual
-              ? Math.max(0, Number(l.sfs) || 0)
-              : profile.office
-                ? OFFICE_PAYROLL_SFS
-                : 0,
+            sfs: l.sfsManual ? Math.max(0, Number(l.sfs) || 0) : PAYROLL_DEFAULT_SFS,
           }
         : l,
       opts
@@ -4954,11 +4948,7 @@ function applyPayrollLiveUpdate(ev) {
         {
           ...l,
           salaryQuincena: 0,
-          sfs: l.sfsManual
-            ? Math.max(0, Number(l.sfs) || 0)
-            : profile.office
-              ? OFFICE_PAYROLL_SFS
-              : 0,
+          sfs: l.sfsManual ? Math.max(0, Number(l.sfs) || 0) : PAYROLL_DEFAULT_SFS,
           volaos: field === "daysWorked" && daysInfo.extraDays > 0 ? 0 : l.volaos,
           horasExtras: nextHoras,
         },
@@ -5385,6 +5375,7 @@ function renderNominaTab() {
           next = { ...next, fullName: short };
         }
       }
+      const prevSfs = Number(next.sfs) || 0;
       if (Number(next.uniformes) === 215) {
         cleaned = true;
         next = computePayrollLineTotals(
@@ -5398,9 +5389,23 @@ function renderNominaTab() {
       } else {
         next = computePayrollLineTotals(next, openFormulaOpts);
       }
+      if ((Number(next.sfs) || 0) !== prevSfs) cleaned = true;
       return next;
     });
     if (cleaned) {
+      p.updatedAt = new Date().toISOString();
+      saveContabilidadData(true);
+    }
+  }
+  if (!payrollIsOffice(p) && !payrollUsesLvaParams(p)) {
+    const openFormulaOpts = payrollComputeOpts(p);
+    let sfsChanged = false;
+    p.lines = (p.lines || []).map((l) => {
+      const next = computePayrollLineTotals(l, openFormulaOpts);
+      if ((Number(next.sfs) || 0) !== (Number(l.sfs) || 0)) sfsChanged = true;
+      return next;
+    });
+    if (sfsChanged) {
       p.updatedAt = new Date().toISOString();
       saveContabilidadData(true);
     }
@@ -5458,7 +5463,7 @@ function renderNominaTab() {
                       : ""
                   }`
                 : key === "sfs"
-                  ? `${label} · Editable: pon el monto o 0 si no lleva descuento de seguro`
+                  ? `${label} · Por defecto RD$ ${PAYROLL_DEFAULT_SFS}. Cámbialo a mano; 0 se queda si no lleva seguro`
                 : kind === "almuerzoSvda"
                   ? `${label} · comida editable / Seguro de vida fijo RD$ ${LVA_PAYROLL_SVDA}`
                   : label;
@@ -5537,7 +5542,7 @@ function renderNominaTab() {
           if (manual && kind === "num") {
             title = ' title="Manual: escribe el monto (sin fórmula automática)"';
           } else if (key === "sfs") {
-            title = ' title="Editable: pon el monto o 0 si no lleva seguro"';
+            title = ` title="Por defecto RD$ ${PAYROLL_DEFAULT_SFS}. Si lo cambias, se queda guardado"`;
           } else if (key === "horasExtras") {
             title = ' title="Editable: pon el monto o 0 si no lleva horas extras"';
           }
