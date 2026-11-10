@@ -1,6 +1,6 @@
 {
-  "build": 220,
-  "label": "v220",
-  "minBuild": 220,
-  "note": "Nómina general: B o E antes del nombre y un botón reparte Banco y Efectivo"
+  "build": 221,
+  "label": "v221",
+  "minBuild": 221,
+  "note": "Respaldo de nómina cada 10 min solo si se está trabajando, y lista imprimible de préstamos que no entraron"
 }
