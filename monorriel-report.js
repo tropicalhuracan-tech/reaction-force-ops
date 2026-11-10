@@ -373,7 +373,7 @@ function renderMonorrielQuincenaModule() {
       const horas = monoQHoras(emp.horasExtras);
       const horasTxt = horas ? String(horas) : "";
       return `<tr>
-        <td class="sticky-name vargas-name monoq-name" contenteditable="true" spellcheck="false" data-i="${idx}">${monoQEsc(emp.fullName)}</td>
+        <td class="sticky-name vargas-name monoq-name" contenteditable="true" spellcheck="false" data-i="${idx}" title="${monoQEsc(emp.fullName)}">${monoQEsc(emp.fullName)}</td>
         <td class="vargas-post monoq-post" contenteditable="true" spellcheck="false" data-i="${idx}">${monoQEsc(emp.position || "")}</td>
         <td class="vargas-days-total">${daysLabel}</td>
         <td class="vargas-pagos-cell monoq-pagos${pagos ? " is-paid" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" title="Volaos ya pagados. Solo control: no suma en la nómina">${monoQEsc(pagos === "" ? "" : String(pagos))}</td>
@@ -411,13 +411,14 @@ function renderMonorrielQuincenaModule() {
         Igual que Ramón. <strong>1</strong> = un día. <strong>2</strong> = el mismo día + volao
         (día RD$ 850, noche RD$ 900, moto RD$ 1,000). <strong>Volaos pagos</strong> es solo control y no suma.
         <strong>Horas ext.</strong> = horas × RD$ 60, sumadas a la nómina sin quitar lo ya calculado.
-        El día 31 se ve y no cuenta. Cada botón naranja envía esa planilla a su nómina.
-        Los préstamos no se tocan. Todos cobran en efectivo.
+        El día 31 se ve y no cuenta.         Cada botón naranja envía esa planilla a su nómina y deja solo esos nombres.
+        Los de la nómina anterior que no están en esta planilla se quitan.
+        El préstamo de quien se queda no se toca. Todos cobran en efectivo.
       </p>
     </div>
     <div class="form-card">
       <h2 style="margin:0 0 10px;font-size:16px">Agregar a ${monoQEsc(sheetMeta.label)}</h2>
-      <div class="coords-row">
+      <div class="vargas-add-grid">
         <label>Nombre<input id="monoQAddName" type="text" placeholder="Nombre completo" /></label>
         <label>Puesto<input id="monoQAddPost" type="text" placeholder="Puesto" /></label>
       </div>
@@ -426,12 +427,21 @@ function renderMonorrielQuincenaModule() {
     <div class="form-card" style="padding:0;overflow:hidden">
       <div class="vargas-table-wrap">
         <table class="vargas-table">
+          <colgroup>
+            <col style="width:190px" />
+            <col style="width:130px" />
+            <col style="width:96px" />
+            <col style="width:78px" />
+            <col style="width:72px" />
+            ${(report.dayNums || []).map(() => '<col style="width:36px" />').join("")}
+            <col style="width:36px" />
+          </colgroup>
           <thead><tr>
             <th class="sticky-name">Nombre</th>
             <th>Puesto</th>
             <th>Días</th>
-            <th title="Solo control. No entra en la nómina">Volaos pagos</th>
-            <th title="Horas × RD$60, sumadas a Horas extras">Horas ext.</th>
+            <th class="vargas-pagos-head" title="Solo control. No entra en la nómina">Volaos pagos</th>
+            <th class="vargas-hex-head" title="Horas × RD$60, sumadas a Horas extras">Horas ext.</th>
             ${dayHeaders}
             <th></th>
           </tr></thead>
@@ -680,16 +690,22 @@ function llenarMonorrielNominaDesdeReporte(payroll) {
   }
   const employees = (report.sheets[sheetMeta.id] && report.sheets[sheetMeta.id].employees) || [];
   const opts = typeof payrollComputeOpts === "function" ? payrollComputeOpts(p) : {};
-  let touched = 0;
+  const previous = new Map();
+  (p.lines || []).forEach((line) => {
+    const key = monoQKey(line && line.fullName);
+    if (key && !previous.has(key)) previous.set(key, line);
+  });
+  const nextLines = [];
   employees.forEach((emp) => {
     const fullName = String(emp.fullName || "").trim();
     if (!fullName) return;
     const hours = monoQHoras(emp.horasExtras);
-    if (!Object.keys(emp.marks || {}).length && !hours) return;
+    const hasMark = Object.keys(emp.marks || {}).some((day) => Number(emp.marks[day]) > 0);
+    if (!hasMark && !hours) return;
     const count = monoQCount(emp.marks, report.dayNums);
     const volaos = count.volaoMarks * sheetMeta.volao;
     const extraPay = monoQMoney(hours * 60);
-    let line = (p.lines || []).find((l) => monoQKey(l.fullName) === monoQKey(fullName));
+    let line = previous.get(monoQKey(fullName));
     if (!line) {
       line = {
         employeeId: emp.employeeId || "",
@@ -709,8 +725,6 @@ function llenarMonorrielNominaDesdeReporte(payroll) {
         almuerzo: 0,
         feriado: 0,
       };
-      p.lines = p.lines || [];
-      p.lines.push(line);
     }
     const keepPrestamos = Math.max(0, Number(line.prestamos) || 0);
     const keepAdelantos = Math.max(0, Number(line.adelantos) || 0);
@@ -762,16 +776,23 @@ function llenarMonorrielNominaDesdeReporte(payroll) {
     next.sfsManual = keepSfs;
     next.daysWorked = String(count.days);
     next.daysFromMonorriel = true;
-    Object.assign(line, next);
-    touched += 1;
+    next.sentFromMonorriel = true;
+    nextLines.push({ ...line, ...next });
   });
+  if (!nextLines.length) {
+    if (typeof toast === "function") toast("Esta planilla no tiene días ni horas para enviar.");
+    return { ok: false, touched: 0 };
+  }
+  nextLines.sort((a, b) => String(a.fullName).localeCompare(String(b.fullName), "es"));
+  p.lines = nextLines;
+  p.rosterFromMonorriel = true;
   p.updatedAt = new Date().toISOString();
   if (typeof saveContabilidadData === "function") saveContabilidadData(true);
   if (typeof renderNominaTab === "function") renderNominaTab();
   if (typeof toast === "function") {
-    toast(`${sheetMeta.label}: ${touched} con datos del reporte. Los préstamos no se tocaron.`);
+    toast(`${sheetMeta.label}: quedaron ${nextLines.length} del reporte. Los nombres viejos se quitaron.`);
   }
-  return { ok: true, touched };
+  return { ok: true, touched: nextLines.length };
 }
 
 if (typeof window !== "undefined") {

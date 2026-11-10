@@ -2918,39 +2918,48 @@ body.lightbox-open {
 }
 
 /* ==== Ramón Vargas — reporte B/E ==== */
-#vargasView .vargas-toolbar-row {
+.vargas-sheet .vargas-toolbar-row {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr;
   gap: 10px;
   align-items: end;
 }
-#vargasView .vargas-actions {
+.vargas-sheet .vargas-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
-#vargasView .vargas-table-wrap {
+.vargas-sheet .vargas-table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   max-height: min(70vh, 720px);
   overflow-y: auto;
 }
-#vargasView .vargas-table {
+.vargas-sheet .vargas-table {
   width: 100%;
   min-width: 1080px;
   border-collapse: collapse;
   font-size: 12px;
   color: #e8e8ea;
 }
-#vargasView .vargas-table th,
-#vargasView .vargas-table td {
+#monorrielView .vargas-table {
+  width: max-content;
+  table-layout: fixed;
+}
+#monorrielView .vargas-table th,
+#monorrielView .vargas-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vargas-sheet .vargas-table th,
+.vargas-sheet .vargas-table td {
   border: 1px solid rgba(255, 255, 255, 0.1);
   padding: 5px 6px;
   white-space: nowrap;
   vertical-align: middle;
 }
-#vargasView .vargas-table th {
+.vargas-sheet .vargas-table th {
   background: #1c1c20;
   font-weight: 700;
   position: sticky;
@@ -2961,8 +2970,8 @@ body.lightbox-open {
   color: #c4c4cc;
   border-bottom: 1px solid rgba(255, 255, 255, 0.16);
 }
-#vargasView .vargas-table th.sticky-name,
-#vargasView .vargas-table td.sticky-name {
+.vargas-sheet .vargas-table th.sticky-name,
+.vargas-sheet .vargas-table td.sticky-name {
   position: sticky;
   left: 0;
   z-index: 1;
@@ -2971,50 +2980,50 @@ body.lightbox-open {
   text-align: left;
   color: #f2f2f4;
 }
-#vargasView .vargas-table th.sticky-name {
+.vargas-sheet .vargas-table th.sticky-name {
   z-index: 3;
   background: #1c1c20;
 }
-#vargasView .vargas-table th.vargas-day-excl {
+.vargas-sheet .vargas-table th.vargas-day-excl {
   color: #b0b0b8;
   font-weight: 600;
 }
-#vargasView .vargas-name[contenteditable="true"] {
+.vargas-sheet .vargas-name[contenteditable="true"] {
   outline: none;
   cursor: text;
   min-width: 160px;
 }
-#vargasView .vargas-name[contenteditable="true"]:focus {
+.vargas-sheet .vargas-name[contenteditable="true"]:focus {
   background: rgba(255, 255, 255, 0.06);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
-#vargasView .vargas-day-cell {
+.vargas-sheet .vargas-day-cell {
   text-align: center;
   min-width: 2.2em;
   outline: none;
   color: #d4d4d8;
 }
-#vargasView .vargas-day-cell.is-work {
+.vargas-sheet .vargas-day-cell.is-work {
   background: rgba(255, 255, 255, 0.07);
   color: #f4f4f5;
   font-weight: 700;
 }
-#vargasView .vargas-day-cell.is-volao {
+.vargas-sheet .vargas-day-cell.is-volao {
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
   font-weight: 800;
   box-shadow: inset 0 -2px 0 rgba(148, 163, 184, 0.55);
 }
-#vargasView .vargas-day-cell.is-excl {
+.vargas-sheet .vargas-day-cell.is-excl {
   opacity: 0.55;
 }
-#vargasView .vargas-volao-hint {
+.vargas-sheet .vargas-volao-hint {
   font-size: 11px;
   font-weight: 600;
   color: #a1a1aa;
   white-space: nowrap;
 }
-#vargasView .vargas-bucket {
+.vargas-sheet .vargas-bucket {
   width: 3.2em;
   text-align: center;
   font-weight: 700;
@@ -3023,24 +3032,24 @@ body.lightbox-open {
   color: #e4e4e7;
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
-#vargasView .vargas-bucket-cell {
+.vargas-sheet .vargas-bucket-cell {
   text-align: center;
 }
-#vargasView .vargas-days-total {
+.vargas-sheet .vargas-days-total {
   text-align: center;
   font-weight: 700;
   color: #f4f4f5;
 }
-#vargasView .vargas-pagos-head,
-#vargasView .vargas-hex-head {
+.vargas-sheet .vargas-pagos-head,
+.vargas-sheet .vargas-hex-head {
   min-width: 4.2em;
   font-size: 11px;
   line-height: 1.15;
   color: #a1a1aa;
   font-weight: 700;
 }
-#vargasView .vargas-pagos-cell,
-#vargasView .vargas-hex-cell {
+.vargas-sheet .vargas-pagos-cell,
+.vargas-sheet .vargas-hex-cell {
   text-align: center;
   min-width: 3.2em;
   font-weight: 700;
@@ -3048,35 +3057,35 @@ body.lightbox-open {
   background: rgba(255, 255, 255, 0.03);
   color: #d4d4d8;
 }
-#vargasView .vargas-pagos-cell.is-paid,
-#vargasView .vargas-hex-cell.has-hex {
+.vargas-sheet .vargas-pagos-cell.is-paid,
+.vargas-sheet .vargas-hex-cell.has-hex {
   background: rgba(255, 255, 255, 0.09);
   color: #fafafa;
 }
-#vargasView .vargas-shift {
+.vargas-sheet .vargas-shift {
   text-align: center;
   font-weight: 700;
   color: #a1a1aa;
 }
-#vargasView .vargas-post {
+.vargas-sheet .vargas-post {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 @media (max-width: 720px) {
-  #vargasView .vargas-toolbar-row {
+  .vargas-sheet .vargas-toolbar-row {
     grid-template-columns: 1fr;
   }
 }
 
 /* Vargas — agregar / eliminar */
-#vargasView .vargas-add-grid {
+.vargas-sheet .vargas-add-grid {
   display: grid;
   grid-template-columns: 1.4fr 1.2fr 0.8fr 0.6fr;
   gap: 10px;
   align-items: end;
 }
-#vargasView .vargas-del-btn {
+.vargas-sheet .vargas-del-btn {
   border: 0;
   background: transparent;
   color: #f87171;
@@ -3086,15 +3095,15 @@ body.lightbox-open {
   padding: 4px 8px;
   border-radius: 6px;
 }
-#vargasView .vargas-del-btn:hover {
+.vargas-sheet .vargas-del-btn:hover {
   background: rgba(248, 113, 113, 0.15);
 }
-#vargasView .vargas-del-cell {
+.vargas-sheet .vargas-del-cell {
   text-align: center;
   width: 36px;
 }
 @media (max-width: 720px) {
-  #vargasView .vargas-add-grid {
+  .vargas-sheet .vargas-add-grid {
     grid-template-columns: 1fr;
   }
 }

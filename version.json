@@ -1,6 +1,6 @@
 {
-  "build": 226,
-  "label": "v226",
-  "minBuild": 226,
-  "note": "Monorriel igual que Ramón: puesto, volaos pagos, horas extras y botón Enviar a nómina"
+  "build": 227,
+  "label": "v227",
+  "minBuild": 227,
+  "note": "Monorriel: el cuadro queda alineado como Ramón y la nómina solo conserva los nombres enviados"
 }
