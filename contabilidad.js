@@ -681,6 +681,7 @@ function payrollBackupReasonLabel(reason) {
   if (reason === "generate") return "Antes de regenerar";
   if (reason === "before_restore") return "Antes de restaurar";
   if (reason === "manual") return "Manual";
+  if (reason === "auto_10m") return "Automático cada 10 min";
   return "Al guardar";
 }
 
@@ -2795,7 +2796,7 @@ function generatePayrollForSelection(opts = {}) {
       return line;
     });
     if (group === "monorriel") {
-      lines = applyMonorrielLoanDeductionsToLines(lines, payDate, { forceClear: true }).map((l) =>
+      lines = applyMonorrielLoanDeductionsToLines(lines, payDate, { forceClear: false }).map((l) =>
         computePayrollLineTotals(l, formulaOpts)
       );
     }
@@ -3173,6 +3174,158 @@ function saveOpenPayrollEdits() {
  * Botón por nómina: cargar cuotas de préstamos según fecha de pago 5/20.
  * Incluye filas manuales (trato especial) si el nombre coincide.
  */
+const LOAN_CHECK_GROUPS = {
+  reaction: "Nómina general",
+  banco: "Banco",
+  efectivo: "Efectivo",
+  lavega: "La Vega",
+  monorriel: "Monorriel",
+  oficina: "Oficina",
+  lotedom: "Lotedom",
+};
+
+function loanDueOnDate(loan, payDate) {
+  if (!loan || loan.status === "paid" || !payDate) return 0;
+  let total = 0;
+  (loan.schedule || []).forEach((inst) => {
+    if (!inst || inst.paid) return;
+    if (String(inst.dueDate || "").slice(0, 10) === payDate) total += Number(inst.payment) || 0;
+  });
+  return Math.round(total * 100) / 100;
+}
+
+function loanPersonKey(name) {
+  if (typeof normalizePersonKey === "function") return normalizePersonKey(name);
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function collectPayrollLinesForLoanCheck(period, half) {
+  const lines = [];
+  (contabilidadData.payrolls || []).forEach((p) => {
+    if (!p || !LOAN_CHECK_GROUPS[p.group]) return;
+    if (String(p.period || "").slice(0, 7) !== period) return;
+    const h = p.half === 2 || p.half === "2" ? 2 : 1;
+    if (h !== half) return;
+    const where = LOAN_CHECK_GROUPS[p.group];
+    const tanda = p.group === "monorriel" && p.tanda ? ` ${p.tanda}` : "";
+    (p.lines || []).forEach((l) => {
+      const name = String(l && l.fullName || "").trim();
+      if (!name) return;
+      lines.push({ name, where: where + tanda, employeeId: l.employeeId || "" });
+    });
+  });
+  return lines;
+}
+
+function loanMatchesPayrollLines(loan, lines) {
+  const cands =
+    typeof loanMatchNameCandidates === "function"
+      ? loanMatchNameCandidates(loan)
+      : [loan && loan.employeeName];
+  return lines.some((line) => {
+    if (loan.employeeId && line.employeeId && loan.employeeId === line.employeeId) return true;
+    if (typeof loanNameMatchScore !== "function") return loanPersonKey(loan.employeeName) === loanPersonKey(line.name);
+    return cands.some((cand) => loanNameMatchScore(cand, line.name) >= 0.9);
+  });
+}
+
+function reviewPayrollLoanNames() {
+  const p = ensureOpenPayrollDraft();
+  if (!p) {
+    toast("Abre una nómina del día de pago.");
+    return;
+  }
+  const period = String(p.period || "").slice(0, 7);
+  const half = p.half === 2 || p.half === "2" ? 2 : 1;
+  const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(period, half);
+  const lines = collectPayrollLinesForLoanCheck(period, half);
+  const dueLoans = (typeof loans !== "undefined" ? loans : []).filter((loan) => loanDueOnDate(loan, payDate) > 0);
+
+  const byLoanKey = new Map();
+  dueLoans.forEach((loan) => {
+    const key = loanPersonKey(loan.employeeName);
+    if (!key) return;
+    if (!byLoanKey.has(key)) byLoanKey.set(key, []);
+    byLoanKey.get(key).push(loan);
+  });
+  const dupLoans = [...byLoanKey.values()].filter((arr) => arr.length > 1);
+
+  const byPayKey = new Map();
+  lines.forEach((line) => {
+    const key = loanPersonKey(line.name);
+    if (!key) return;
+    if (!byPayKey.has(key)) byPayKey.set(key, []);
+    byPayKey.get(key).push(line);
+  });
+  const dupPayroll = [...byPayKey.values()].filter((arr) => arr.length > 1);
+
+  const missing = dueLoans.filter((loan) => !loanMatchesPayrollLines(loan, lines));
+  const halfText = half === 2 ? "16 al fin" : "1 al 15";
+  const title = `Préstamos que no entraron · ${monthLabel(period)} · ${halfText} · pago ${payDate}`;
+
+  const row = (cells) => `<tr>${cells.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`;
+  const missingRows = missing
+    .map((loan) =>
+      row([
+        loan.employeeName || "(sin nombre)",
+        moneyRd(loanDueOnDate(loan, payDate)),
+        loan.employeeId || "—",
+      ])
+    )
+    .join("");
+  const dupLoanRows = dupLoans
+    .map((arr) =>
+      row([
+        arr.map((loan) => loan.employeeName || "(sin nombre)").join(" · "),
+        String(arr.length),
+        moneyRd(arr.reduce((sum, loan) => sum + loanDueOnDate(loan, payDate), 0)),
+      ])
+    )
+    .join("");
+  const dupPayRows = dupPayroll
+    .map((arr) =>
+      row([
+        arr.map((line) => line.name).join(" · "),
+        arr.map((line) => line.where).join(", "),
+        String(arr.length),
+      ])
+    )
+    .join("");
+
+  const html = `
+    <h2>${escapeHtml(title)}</h2>
+    <p>Se revisó Nómina general, Banco, Efectivo, La Vega, Monorriel, Oficina y Lotedom. Un nombre mal escrito no entra al descuento.</p>
+    <h3>No entraron a ninguna nómina (${missing.length})</h3>
+    <table>
+      <thead><tr><th>Nombre del préstamo</th><th>Cuota</th><th>Id</th></tr></thead>
+      <tbody>${missingRows || `<tr><td colspan="3">Todos los préstamos de este pago coincidieron con una nómina.</td></tr>`}</tbody>
+    </table>
+    <h3>Nombres duplicados en préstamos (${dupLoans.length})</h3>
+    <table>
+      <thead><tr><th>Nombres</th><th>Cuántos</th><th>Cuotas</th></tr></thead>
+      <tbody>${dupLoanRows || `<tr><td colspan="3">No hay nombres repetidos en los préstamos de este pago.</td></tr>`}</tbody>
+    </table>
+    <h3>Nombres duplicados en nómina (${dupPayroll.length})</h3>
+    <table>
+      <thead><tr><th>Nombres</th><th>Dónde</th><th>Cuántos</th></tr></thead>
+      <tbody>${dupPayRows || `<tr><td colspan="3">No hay nombres repetidos en las nóminas de este corte.</td></tr>`}</tbody>
+    </table>`;
+
+  if (typeof openPrintWindow === "function") {
+    openPrintWindow(title, html, { autoPrint: false });
+  }
+  toast(
+    missing.length
+      ? `${missing.length} préstamo(s) no entraron. La lista quedó abierta para imprimir.`
+      : "Todos los préstamos de este pago entraron a una nómina. La lista quedó abierta por si hay duplicados."
+  );
+}
+
 function loadOpenPayrollLoans() {
   if (!canAccessContabilidad()) {
     toast("No tienes acceso a Contabilidad.");
@@ -3201,7 +3354,7 @@ function loadOpenPayrollLoans() {
   const opts = payrollComputeOpts(p);
   const before = (p.lines || []).map((l) => Number(l.prestamos) || 0);
   let workLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
-    forceClear: true,
+    forceClear: false,
     skipManual: false,
   }).map((l) => computePayrollLineTotals(l, opts));
   p.lines = workLines;
@@ -4340,6 +4493,36 @@ function markPayrollEdited() {
   if (typeof lastLocalEditAt !== "undefined") lastLocalEditAt = Date.now();
 }
 
+/** Cada 10 minutos, solo si alguien está editando la nómina. Si no hay trabajo, no guarda. */
+function backupOpenPayrollIfWorking() {
+  if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  if (!lastPayrollEditAt) return;
+  const tenMin = 10 * 60 * 1000;
+  if (Date.now() - lastPayrollEditAt > tenMin) return;
+  if (Date.now() - (backupOpenPayrollIfWorking.lastAt || 0) < tenMin) return;
+  const p = (contabilidadData.payrolls || []).find((x) => x && x.id === selectedPayrollId);
+  if (!p) return;
+  try {
+    flushOpenPayrollDraft(false);
+  } catch (_) {}
+  const fresh = (contabilidadData.payrolls || []).find((x) => x && x.id === p.id) || p;
+  const entry = snapshotPayrollBackup(fresh, "auto_10m");
+  if (!entry) return;
+  backupOpenPayrollIfWorking.lastAt = Date.now();
+  saveContabilidadData(true);
+}
+
+function startPayrollWorkBackup() {
+  if (startPayrollWorkBackup.started) return;
+  startPayrollWorkBackup.started = true;
+  setInterval(() => {
+    try {
+      backupOpenPayrollIfWorking();
+    } catch (_) {}
+  }, 60 * 1000);
+}
+startPayrollWorkBackup();
+
 /** Copia DOM → memoria local (sin subir a la nube). */
 function flushOpenPayrollDraft(push = false) {
   try {
@@ -5378,7 +5561,8 @@ function renderNominaTab() {
           <option value="letter"${exportPaper === "letter" ? " selected" : ""}>Carta</option>
         </select>
       </label>
-      <button type="button" class="btn secondary" id="btnContabLoadLoans2" style="width:auto" title="Carga cuotas según pago día 5 o 20">Cargar préstamos</button>
+      <button type="button" class="btn secondary" id="btnContabLoadLoans2" style="width:auto" title="Carga cuotas según pago día 5 o 20. No borra un monto que ya estaba si el nombre no coincide.">Cargar préstamos</button>
+      <button type="button" class="btn secondary" id="btnContabLoanCheck" style="width:auto" title="Nombres con préstamo que no entraron a ninguna nómina de este corte. La lista se puede imprimir.">Préstamos que no entraron</button>
       <button type="button" class="btn secondary" id="btnContabAddManual2" style="width:auto" title="Fila sin fórmulas (trato especial)">＋ Manual</button>
       ${
         payrollSupportsReceiptPrint(p)
@@ -5406,6 +5590,7 @@ function renderNominaTab() {
     if (main) main.value = ev.target.value;
   });
   document.getElementById("btnContabLoadLoans2")?.addEventListener("click", () => loadOpenPayrollLoans());
+  document.getElementById("btnContabLoanCheck")?.addEventListener("click", () => reviewPayrollLoanNames());
   document.getElementById("btnContabAddManual2")?.addEventListener("click", () => addManualPayrollRows());
   document.getElementById("btnContabPrintReceipts2")?.addEventListener("click", () => printOpenPayrollReceipts());
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", () => printOpenPayrollSheet());
@@ -5446,7 +5631,7 @@ function renderPayrollBackupsPanel(payrollId) {
     return;
   }
   box.innerHTML = `<h2>Respaldos de nómina</h2>
-    <p class="muted tight">Última copia de cada nómina (${allCount}). Al guardar se actualiza el del día; no se acumulan versiones.</p>
+    <p class="muted tight">Última copia de cada nómina (${allCount}). Mientras alguien está editando, se guarda sola cada 10 minutos. Si nadie trabaja, no se crean copias.</p>
     <div class="card-list" style="margin-top:8px">${related
       .map((b) => {
         const when = b.createdAt ? new Date(b.createdAt).toLocaleString("es") : "—";
