@@ -1,6 +1,6 @@
 {
-  "build": 223,
-  "label": "v223",
-  "minBuild": 223,
-  "note": "Nómina general: columna B/E visible y días del reporte de Ramón"
+  "build": 224,
+  "label": "v224",
+  "minBuild": 224,
+  "note": "SFS por defecto RD$ 800 en todas las nóminas; se puede cambiar a mano"
 }
