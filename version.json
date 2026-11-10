@@ -1,6 +1,6 @@
 {
-  "build": 221,
-  "label": "v221",
-  "minBuild": 221,
-  "note": "Respaldo de nómina cada 10 min solo si se está trabajando, y lista imprimible de préstamos que no entraron"
+  "build": 222,
+  "label": "v222",
+  "minBuild": 222,
+  "note": "Revisar préstamos: quién entró, en qué nómina, número de cuota, monto y total"
 }
