@@ -3083,9 +3083,12 @@ function readPayrollLinesFromDom(payrollId) {
         adelantos: g("adelantos"),
         prestamos: g("prestamos"),
         reviewed: reviewedEl ? !!reviewedEl.checked : !!prev.reviewed,
-        payBucket: tr.querySelector('[data-f="payBucket"]')
-          ? tr.querySelector('[data-f="payBucket"]').value
-          : prev.payBucket,
+        payBucket: (() => {
+          const el = tr.querySelector('[data-f="payBucket"]');
+          const next = normalizePayrollPayBucket(el ? el.value : "");
+          const prevBucket = normalizePayrollPayBucket(prev.payBucket);
+          return next || prevBucket || "";
+        })(),
         manualEntry: isManual,
       },
       formulaOpts
@@ -3568,13 +3571,15 @@ function payrollShowsFeriado(p) {
 function getPayrollEditorCols(p) {
   if (payrollIsOffice(p)) return PAYROLL_OFFICE_TABLE_COLS;
   const lavega = payrollUsesLvaParams(p);
-  return PAYROLL_TABLE_COLS_BASE.filter(([key]) => {
+  const cols = PAYROLL_TABLE_COLS_BASE.filter(([key]) => {
     if (key === "feriado") return payrollShowsFeriado(p);
     return true;
   }).map(([key, label, kind]) => {
     if (lavega && key === "almuerzo") return ["almuerzo", "Comida / Seg. vida", "almuerzoSvda"];
     return [key, label, kind];
   });
+  if (p && p.group === "reaction") cols.unshift(["payBucket", "B/E", "be"]);
+  return cols;
 }
 
 function getPayrollPrintCols(p) {
@@ -4999,7 +5004,7 @@ function bindPayrollLiveTotals() {
       schedulePayrollLiveUpdate(ev);
       return;
     }
-    if (t.classList && t.classList.contains("nomina-inp")) {
+    if (t.classList && (t.classList.contains("nomina-inp") || t.classList.contains("nomina-pay-bucket"))) {
       schedulePayrollLiveUpdate(ev);
     }
   });
@@ -5432,15 +5437,20 @@ function renderNominaTab() {
     cols
       .map(([key, label, kind]) => {
         let cls = "nomina-col-fit";
-        if (key === "fullName") cls = "sticky-name";
+        if (key === "payBucket") cls = "nomina-col-be";
+        else if (key === "fullName") cls = "sticky-name";
         else if (key === "sfs") cls = "nomina-col-fit nomina-col-sfs";
         else if (key === "redondeo") cls = "nomina-col-fit nomina-col-redondeo";
         else if (kind === "days") cls = "nomina-col-fit nomina-col-days";
         const tip =
           key === "fullName"
             ? `${label} · casilla = revisado (solo edición, no sale en impresión)`
+            : key === "payBucket"
+              ? "B = Banco, E = Efectivo. Se guarda y no se borra solo."
             : key === "daysWorked"
-              ? `${label} · Ej. 13+2: quincena con 13 días; el +2 = RD$ ${formulaProfile.volaoPerExtraDay}×2 solo en Volaos`
+              ? p.group === "reaction"
+                ? `${label} · Viene del reporte de Ramón. Cada día con marca cuenta 1. El +N suma volaos.`
+                : `${label} · Ej. 13+2: quincena con 13 días; el +2 = RD$ ${formulaProfile.volaoPerExtraDay}×2 solo en Volaos`
               : key === "horasExtras"
                 ? `${label} · Editable: pon el monto o 0 si no aplica.${
                     formulaProfile.autoExtrasFromDays
@@ -5466,19 +5476,21 @@ function renderNominaTab() {
       const manual = isManualPayrollLine(l);
       const tds = cols
         .map(([key, , kind]) => {
+          if (key === "payBucket") {
+            const bucket = normalizePayrollPayBucket(l.payBucket);
+            const blank = bucket ? "" : `<option value="">—</option>`;
+            return `<td class="nomina-col-be"><select class="nomina-pay-bucket" data-f="payBucket" title="B = Banco. E = Efectivo. Se guarda y no se borra solo.">
+              ${blank}
+              <option value="B"${bucket === "B" ? " selected" : ""}>B</option>
+              <option value="E"${bucket === "E" ? " selected" : ""}>E</option>
+            </select></td>`;
+          }
           if (key === "fullName") {
             const checked = l.reviewed ? " checked" : "";
             const manualTag = manual
               ? `<span class="nomina-manual-tag" title="Trato especial · sin fórmulas">M</span>`
               : "";
-            const bucketBox =
-              p.group === "reaction"
-                ? `<input class="nomina-inp nomina-pay-bucket" data-f="payBucket" type="text" maxlength="1" inputmode="text" autocomplete="off" title="B = Banco, E = Efectivo" value="${escapeHtml(
-                    normalizePayrollPayBucket(l.payBucket)
-                  )}" />`
-                : "";
             return `<td class="sticky-name"><div class="nomina-name-cell">
-              ${bucketBox}
               <label class="nomina-review-check" title="Marcar como revisado en esta nómina (no se imprime)">
                 <input type="checkbox" data-f="reviewed"${checked} />
               </label>
@@ -5547,6 +5559,7 @@ function renderNominaTab() {
   const totalRow =
     cols
       .map(([key, , kind]) => {
+        if (key === "payBucket") return `<td class="nomina-col-be"></td>`;
         if (key === "daysWorked") return `<td class="nomina-col-fit"><strong>TOTAL</strong></td>`;
         if (key === "cedula") return `<td class="nomina-col-fit"></td>`;
         if (key === "fullName") return `<td class="sticky-name"></td>`;
@@ -5597,7 +5610,7 @@ function renderNominaTab() {
         manualN ? ` ${manualN} fila(s) manual(es) sin fórmulas.` : " «＋ Manual» = trato especial sin fórmulas."
       }${
         p.group === "reaction"
-          ? " Antes del nombre: B = Banco, E = Efectivo. Cuando esté lista, pulsa Repartir Banco y Efectivo. Un cambio aquí se copia a Banco o Efectivo, y al revés."
+          ? " La primera columna es B/E: B = Banco, E = Efectivo. Se queda guardada. Los días vienen del reporte de Ramón. Cuando esté lista, pulsa Repartir Banco y Efectivo."
           : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
@@ -5620,7 +5633,9 @@ function renderNominaTab() {
     </div>`
     }
     <div class="nomina-table-wrap${isOfficeOpen ? " nomina-table-wrap-office" : ""}">
-      <table class="nomina-table${isOfficeOpen ? " nomina-table-office" : ""}">
+      <table class="nomina-table${isOfficeOpen ? " nomina-table-office" : ""}${
+        p.group === "reaction" ? " nomina-table-be" : ""
+      }">
         <thead><tr>${head}</tr></thead>
         <tbody>${body || `<tr><td colspan="${cols.length + 1}">Sin líneas</td></tr>`}</tbody>
         <tfoot><tr class="nomina-total-row">${totalRow}</tr></tfoot>
