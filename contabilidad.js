@@ -478,6 +478,13 @@ function computePayrollLineTotalsForPayroll(p, line) {
   return computePayrollLineTotals(line, payrollComputeOpts(p));
 }
 
+function normalizePayrollPayBucket(value) {
+  const v = String(value || "").trim().toUpperCase();
+  if (v === "B") return "B";
+  if (v === "E") return "E";
+  return "";
+}
+
 function normalizePayrollLine(l = {}, opts = {}) {
   const office = !!(opts && opts.office);
   const lavega = !!(opts && opts.lavega);
@@ -520,6 +527,8 @@ function normalizePayrollLine(l = {}, opts = {}) {
     reviewed: !!l.reviewed,
     /** Trato especial: sin fórmulas (días/volao/extras/quincena auto). */
     manualEntry: !!(l.manualEntry || l.manual),
+    /** Nómina general: B = Banco, E = Efectivo. Vacío = todavía no se reparte. */
+    payBucket: normalizePayrollPayBucket(l.payBucket),
   };
   // Si viene de nómina oficina antigua (solo salary/net), conservar
   if (!base.salaryMonthly && base.salary) base.salaryMonthly = base.salary;
@@ -1001,6 +1010,9 @@ function applyRemoteContabilidadData(remote) {
         const ov = Number(o[f]) || 0;
         if (wv === 0 && ov > 0) next[f] = o[f];
       });
+      if (!normalizePayrollPayBucket(next.payBucket) && normalizePayrollPayBucket(o.payBucket)) {
+        next.payBucket = normalizePayrollPayBucket(o.payBucket);
+      }
       if (!(Number(next.horasExtras) > 0) && Number(o.horasExtras) > 0 && !next.horasExtrasManual) {
         next.horasExtras = o.horasExtras;
         if (o.horasExtrasManual) next.horasExtrasManual = true;
@@ -3070,6 +3082,9 @@ function readPayrollLinesFromDom(payrollId) {
         adelantos: g("adelantos"),
         prestamos: g("prestamos"),
         reviewed: reviewedEl ? !!reviewedEl.checked : !!prev.reviewed,
+        payBucket: tr.querySelector('[data-f="payBucket"]')
+          ? tr.querySelector('[data-f="payBucket"]').value
+          : prev.payBucket,
         manualEntry: isManual,
       },
       formulaOpts
@@ -4438,6 +4453,177 @@ function updatePayrollReadonlyDom(p) {
   }
 }
 
+function payrollNamesMatch(a, b) {
+  const key = (name) => {
+    const raw = typeof vargasStripLaVegaTag === "function" ? vargasStripLaVegaTag(name) : name;
+    return String(raw || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+  const ka = key(a);
+  const kb = key(b);
+  return !!ka && ka === kb;
+}
+
+const PAYROLL_MIRROR_FIELDS = [
+  "fullName",
+  "cedula",
+  "position",
+  "daysWorked",
+  "salaryMonthly",
+  "salaryQuincena",
+  "quincenaManual",
+  "sfs",
+  "sfsManual",
+  "uniformes",
+  "rifa",
+  "volaos",
+  "incentivos",
+  "horasExtras",
+  "horasExtrasManual",
+  "feriado",
+  "almuerzo",
+  "adelantos",
+  "prestamos",
+  "reviewed",
+];
+
+function payrollMirrorTargets(group) {
+  if (group === "reaction") return ["banco", "efectivo"];
+  if (group === "banco" || group === "efectivo") return ["reaction"];
+  return [];
+}
+
+function payrollMirrorFields(field) {
+  if (field === "unifRifa") return ["uniformes", "rifa"];
+  if (field === "almuerzoSvda") return ["almuerzo"];
+  if (field === "sfs") return ["sfs", "sfsManual"];
+  if (field === "horasExtras") return ["horasExtras", "horasExtrasManual"];
+  if (field === "salaryQuincena") return ["salaryQuincena", "quincenaManual"];
+  if (field === "salaryMonthly") return ["salaryMonthly", "salaryQuincena"];
+  if (field === "daysWorked") return ["daysWorked", "salaryQuincena", "volaos", "horasExtras", "sfs"];
+  if (PAYROLL_MIRROR_FIELDS.includes(field)) return [field];
+  return [];
+}
+
+/** Un cambio en general, banco o efectivo se copia a la nómina hermana del mismo corte. */
+function mirrorPayrollLineEdit(payroll, newLine, oldLine, field) {
+  const fields = payrollMirrorFields(field);
+  if (!payroll || !newLine || !fields.length) return false;
+  const targets = payrollMirrorTargets(payroll.group);
+  if (!targets.length || typeof findPayrollByGroup !== "function") return false;
+  const names = [oldLine && oldLine.fullName, newLine.fullName].filter((n) => String(n || "").trim());
+  if (!names.length) return false;
+  const period = String(payroll.period || "").slice(0, 7);
+  const half = payroll.half === 2 || payroll.half === "2" ? 2 : 1;
+  let changed = false;
+  targets.forEach((group) => {
+    const other = findPayrollByGroup(period, half, group, "");
+    if (!other) return;
+    const idx = (other.lines || []).findIndex((l) => l && names.some((n) => payrollNamesMatch(l.fullName, n)));
+    if (idx < 0) return;
+    const line = { ...other.lines[idx] };
+    fields.forEach((key) => {
+      line[key] = newLine[key];
+    });
+    other.lines[idx] = computePayrollLineTotals(line, payrollComputeOpts(other));
+    other.updatedAt = new Date().toISOString();
+    changed = true;
+  });
+  return changed;
+}
+
+function upsertGeneralLineOnPayroll(dest, source) {
+  if (!dest || !source || !String(source.fullName || "").trim()) return false;
+  dest.lines = dest.lines || [];
+  const idx = dest.lines.findIndex((l) => l && payrollNamesMatch(l.fullName, source.fullName));
+  const prev = idx >= 0 ? dest.lines[idx] : {};
+  const next = computePayrollLineTotals(
+    {
+      ...prev,
+      ...source,
+      employeeId: prev.employeeId || source.employeeId || "",
+      fullName: source.fullName,
+      payBucket: normalizePayrollPayBucket(source.payBucket),
+    },
+    payrollComputeOpts(dest)
+  );
+  if (idx >= 0) dest.lines[idx] = next;
+  else dest.lines.push(next);
+  dest.updatedAt = new Date().toISOString();
+  return true;
+}
+
+function removePayrollName(dest, fullName) {
+  if (!dest || !String(fullName || "").trim()) return 0;
+  const before = (dest.lines || []).length;
+  dest.lines = (dest.lines || []).filter((l) => !l || !payrollNamesMatch(l.fullName, fullName));
+  const removed = before - dest.lines.length;
+  if (removed) dest.updatedAt = new Date().toISOString();
+  return removed;
+}
+
+function repartirNominaGeneralAction() {
+  const p = ensureOpenPayrollDraft();
+  if (!p || p.group !== "reaction") {
+    toast("Abre la nómina general de Reaction.");
+    return;
+  }
+  const lines = readPayrollLinesFromDom(p.id);
+  if (!lines) return;
+  p.lines = lines;
+  const named = lines.filter((l) => String(l.fullName || "").trim());
+  const bancoLines = named.filter((l) => normalizePayrollPayBucket(l.payBucket) === "B");
+  const efectivoLines = named.filter((l) => normalizePayrollPayBucket(l.payBucket) === "E");
+  const unmarked = named.length - bancoLines.length - efectivoLines.length;
+  if (!bancoLines.length && !efectivoLines.length) {
+    toast("Escribe B o E antes del nombre y vuelve a repartir.");
+    return;
+  }
+  if (
+    !confirm(
+      `¿Repartir la nómina general?\n\n` +
+        `Banco (B): ${bancoLines.length}\n` +
+        `Efectivo (E): ${efectivoLines.length}\n` +
+        `Sin marca: ${unmarked} (se quedan solo en general)\n\n` +
+        `Los montos de la general pasan a Banco o Efectivo.\n` +
+        `Si alguien cambia de B a E, se mueve y no se le borra el monto.`
+    )
+  ) {
+    return;
+  }
+  const period = String(p.period || "").slice(0, 7);
+  const half = p.half === 2 || p.half === "2" ? 2 : 1;
+  if (typeof ensureVargasPayrollShell !== "function") {
+    toast("No se pudo abrir Banco o Efectivo. Recarga la app.");
+    return;
+  }
+  const banco = ensureVargasPayrollShell(period, half, "banco", "Reaction Banco");
+  const efectivo = ensureVargasPayrollShell(period, half, "efectivo", "Reaction Efectivo");
+  if (!banco || !efectivo) {
+    toast("No se pudo abrir Banco o Efectivo.");
+    return;
+  }
+  bancoLines.forEach((line) => {
+    upsertGeneralLineOnPayroll(banco, line);
+    removePayrollName(efectivo, line.fullName);
+  });
+  efectivoLines.forEach((line) => {
+    upsertGeneralLineOnPayroll(efectivo, line);
+    removePayrollName(banco, line.fullName);
+  });
+  p.updatedAt = new Date().toISOString();
+  saveContabilidadData(true);
+  toast(
+    `Repartido: Banco ${bancoLines.length} · Efectivo ${efectivoLines.length}` +
+      (unmarked ? ` · sin marca ${unmarked}` : "")
+  );
+  renderNominaTab();
+}
+
 function applyPayrollLiveUpdate(ev) {
   const field = ev && ev.target && ev.target.dataset ? ev.target.dataset.f : "";
   const tr = ev && ev.target && ev.target.closest ? ev.target.closest("tr[data-line-idx]") : null;
@@ -4522,7 +4708,11 @@ function applyPayrollLiveUpdate(ev) {
     const payDate = effectivePayrollPayDate(p) || payrollPayDateFor(p.period, p.half);
     if (payDate) p.payDate = payDate;
   }
+  const previous = idx >= 0 ? (p.lines || [])[idx] : null;
   p.lines = workLines;
+  if (idx >= 0 && workLines[idx] && field !== "payBucket") {
+    mirrorPayrollLineEdit(p, workLines[idx], previous, field);
+  }
   p.updatedAt = new Date().toISOString();
   updatePayrollReadonlyDom(p);
   schedulePayrollAutosave();
@@ -5022,7 +5212,14 @@ function renderNominaTab() {
             const manualTag = manual
               ? `<span class="nomina-manual-tag" title="Trato especial · sin fórmulas">M</span>`
               : "";
+            const bucketBox =
+              p.group === "reaction"
+                ? `<input class="nomina-inp nomina-pay-bucket" data-f="payBucket" type="text" maxlength="1" inputmode="text" autocomplete="off" title="B = Banco, E = Efectivo" value="${escapeHtml(
+                    normalizePayrollPayBucket(l.payBucket)
+                  )}" />`
+                : "";
             return `<td class="sticky-name"><div class="nomina-name-cell">
+              ${bucketBox}
               <label class="nomina-review-check" title="Marcar como revisado en esta nómina (no se imprime)">
                 <input type="checkbox" data-f="reviewed"${checked} />
               </label>
@@ -5139,6 +5336,10 @@ function renderNominaTab() {
           : ""
       } Usa «Cargar préstamos» para la cuota del pago ${escapeHtml((p.payDate || "").slice(8, 10) || "5/20")} (${loanAutoN} con cuota).${
         manualN ? ` ${manualN} fila(s) manual(es) sin fórmulas.` : " «＋ Manual» = trato especial sin fórmulas."
+      }${
+        p.group === "reaction"
+          ? " Antes del nombre: B = Banco, E = Efectivo. Cuando esté lista, pulsa Repartir Banco y Efectivo. Un cambio aquí se copia a Banco o Efectivo, y al revés."
+          : ""
       } Feriado ${p.showFeriado ? "ON" : "OFF"}. Impresión centrada (${paperLabel}) sin cédula ni RD$.`;
   detail.innerHTML = `
     <h2>NOMINA REACTION · ${escapeHtml(openTitle)} · ${escapeHtml(halfLabel(p.half || 1).toUpperCase())} · ${escapeHtml(
@@ -5149,6 +5350,11 @@ function renderNominaTab() {
       isOfficeOpen
         ? ""
         : `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px">
+      ${
+        p.group === "reaction"
+          ? `<button type="button" class="btn primary btn-sm" id="btnRepartirBE" style="width:auto">Repartir Banco y Efectivo</button>`
+          : ""
+      }
       <button type="button" class="btn secondary btn-sm" id="btnToggleFeriado" style="width:auto">${
         p.showFeriado ? "Ocultar feriado" : "Habilitar feriado"
       }</button>
@@ -5193,6 +5399,7 @@ function renderNominaTab() {
       removePayrollLineAt(btn.dataset.idx);
     });
   });
+  document.getElementById("btnRepartirBE")?.addEventListener("click", () => repartirNominaGeneralAction());
   document.getElementById("btnToggleFeriado")?.addEventListener("click", togglePayrollFeriado);
   document.getElementById("contabPayrollPaper2")?.addEventListener("change", (ev) => {
     const main = document.getElementById("contabPayrollPaper");

@@ -1283,6 +1283,11 @@
         const ov = Number(o[f]) || 0;
         if (wv === 0 && ov > 0) next[f] = o[f];
       });
+      const nextBucket = String(next.payBucket || "").trim().toUpperCase();
+      const otherBucket = String(o.payBucket || "").trim().toUpperCase();
+      if (nextBucket !== "B" && nextBucket !== "E" && (otherBucket === "B" || otherBucket === "E")) {
+        next.payBucket = otherBucket;
+      }
       if (!(Number(next.horasExtras) > 0) && Number(o.horasExtras) > 0 && !next.horasExtrasManual) {
         next.horasExtras = o.horasExtras;
         if (o.horasExtrasManual) next.horasExtrasManual = true;
