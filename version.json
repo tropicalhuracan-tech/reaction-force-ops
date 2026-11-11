@@ -1,6 +1,6 @@
 {
-  "build": 228,
-  "label": "v228",
-  "minBuild": 228,
-  "note": "Préstamos saldados en una ventana aparte, fuera de la lista de activos"
+  "build": 229,
+  "label": "v229",
+  "minBuild": 229,
+  "note": "Monorriel: los nombres corregidos a mano ya no se borran al sincronizar"
 }

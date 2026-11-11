@@ -99,9 +99,124 @@ function monoQEmptySheets() {
       });
     });
     employees.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
-    sheets[s.id] = { employees };
+    sheets[s.id] = { employees, deletedKeys: [] };
   });
   return sheets;
+}
+
+function monoQSheetDeleted(rawSheet) {
+  return Array.isArray(rawSheet && rawSheet.deletedKeys)
+    ? rawSheet.deletedKeys.map((k) => String(k || "").trim()).filter(Boolean)
+    : [];
+}
+
+function monoQMarksFingerprint(emp) {
+  const m = (emp && emp.marks) || {};
+  const parts = Object.keys(m)
+    .sort((a, b) => Number(a) - Number(b))
+    .filter((d) => Number(m[d]) > 0)
+    .map((d) => `${d}:${m[d]}`);
+  return parts.length ? parts.join("|") : "";
+}
+
+function monoQEmpMatchScore(a, b) {
+  if (!a || !b) return 0;
+  const idA = String(a.employeeId || "").trim();
+  const idB = String(b.employeeId || "").trim();
+  if (idA && idB && idA === idB) return 100;
+  const nkA = monoQKey(a.fullName);
+  const nkB = monoQKey(b.fullName);
+  if (nkA && nkA === nkB) return 80;
+  const fa = monoQMarksFingerprint(a);
+  const fb = monoQMarksFingerprint(b);
+  if (fa && fa === fb) return 60;
+  return 0;
+}
+
+function monoQFindBestMatch(emp, list, taken) {
+  let best = null;
+  let bestIdx = -1;
+  let bestScore = 0;
+  (list || []).forEach((other, idx) => {
+    if (taken && taken.has(idx)) return;
+    const score = monoQEmpMatchScore(emp, other);
+    if (score > bestScore) {
+      bestScore = score;
+      best = other;
+      bestIdx = idx;
+    }
+  });
+  if (!best || bestScore < 60) return null;
+  return { emp: best, idx: bestIdx, score: bestScore };
+}
+
+function mergeMonoEmployeeFields(winner, loser) {
+  if (!winner || !loser) return;
+  Object.keys(loser.marks || {}).forEach((d) => {
+    const n = Number(loser.marks[d]);
+    if (!(n > 0)) return;
+    const prev = Number(winner.marks && winner.marks[d]) || 0;
+    if (!winner.marks) winner.marks = {};
+    winner.marks[d] = n === 2 || prev === 2 ? 2 : 1;
+  });
+  if (loser.nameManual) {
+    if (!winner.nameManual || String(loser.nameEditedAt || "") > String(winner.nameEditedAt || "")) {
+      winner.fullName = String(loser.fullName || "").trim() || winner.fullName;
+      winner.nameManual = true;
+      winner.nameEditedAt = loser.nameEditedAt || winner.nameEditedAt;
+    }
+  } else if (!winner.nameManual && String(loser.fullName || "").trim().length > String(winner.fullName || "").trim().length) {
+    winner.fullName = String(loser.fullName || "").trim();
+  }
+  if (!winner.employeeId && loser.employeeId) winner.employeeId = String(loser.employeeId);
+  if (!winner.position && loser.position) winner.position = String(loser.position).trim();
+  if (!winner.volaosPagos && loser.volaosPagos) winner.volaosPagos = monoQPagos(loser.volaosPagos);
+  if (!(Number(winner.horasExtras) > 0) && Number(loser.horasExtras) > 0) {
+    winner.horasExtras = monoQHoras(loser.horasExtras);
+  }
+}
+
+function mergeMonoSheetSticky(baseSheet, otherSheet) {
+  const deleted = new Set([...monoQSheetDeleted(baseSheet), ...monoQSheetDeleted(otherSheet)]);
+  const out = ((baseSheet && baseSheet.employees) || []).map((e) => ({
+    ...e,
+    marks: { ...(e.marks || {}) },
+  }));
+  const taken = new Set();
+  out.forEach((emp) => {
+    const hit = monoQFindBestMatch(emp, (otherSheet && otherSheet.employees) || [], taken);
+    if (!hit) return;
+    taken.add(hit.idx);
+    mergeMonoEmployeeFields(emp, hit.emp);
+  });
+  ((otherSheet && otherSheet.employees) || []).forEach((otherEmp, oi) => {
+    if (taken.has(oi)) return;
+    const key = monoQKey(otherEmp.fullName);
+    const id = String(otherEmp.employeeId || "").trim();
+    if (key && deleted.has(key)) return;
+    if (id && deleted.has(`id:${id}`)) return;
+    if (monoQFindBestMatch(otherEmp, out)) return;
+    const hasMarks = Object.keys(otherEmp.marks || {}).some((d) => Number(otherEmp.marks[d]) > 0);
+    if (!hasMarks && !otherEmp.nameManual && !(Number(otherEmp.horasExtras) > 0)) return;
+    out.push({
+      ...otherEmp,
+      marks: { ...(otherEmp.marks || {}) },
+    });
+  });
+  out.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
+  return { employees: out, deletedKeys: [...deleted] };
+}
+
+function mergeMonoReportSticky(base, other) {
+  if (!base) return monoQNormalizeReport(other);
+  if (!other) return monoQNormalizeReport(base);
+  const sheets = {};
+  MONOQ_SHEETS.forEach((s) => {
+    sheets[s.id] = mergeMonoSheetSticky(base.sheets && base.sheets[s.id], other.sheets && other.sheets[s.id]);
+  });
+  const updatedAt =
+    String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
+  return monoQNormalizeReport({ ...base, sheets, updatedAt });
 }
 
 function monoQNormalizeReport(raw) {
@@ -109,7 +224,12 @@ function monoQNormalizeReport(raw) {
   const seed = !(raw && raw.sheets);
   const sheets = seed ? monoQEmptySheets() : {};
   MONOQ_SHEETS.forEach((s) => {
-    if (!sheets[s.id]) sheets[s.id] = { employees: [] };
+    if (!sheets[s.id]) {
+      sheets[s.id] = {
+        employees: [],
+        deletedKeys: monoQSheetDeleted(raw && raw.sheets && raw.sheets[s.id]),
+      };
+    }
     const src = raw && raw.sheets && raw.sheets[s.id] && raw.sheets[s.id].employees;
     const seen = new Set((sheets[s.id].employees || []).map((e) => monoQKey(e.fullName)));
     (src || []).forEach((emp) => {
@@ -131,6 +251,11 @@ function monoQNormalizeReport(raw) {
         if (!(Number(existing.horasExtras) > 0) && Number(emp.horasExtras) > 0) {
           existing.horasExtras = monoQHoras(emp.horasExtras);
         }
+        if (emp.nameManual) {
+          existing.fullName = fullName;
+          existing.nameManual = true;
+          existing.nameEditedAt = emp.nameEditedAt || existing.nameEditedAt;
+        }
         return;
       }
       if (seen.has(key)) return;
@@ -142,6 +267,8 @@ function monoQNormalizeReport(raw) {
         marks,
         volaosPagos: monoQPagos(emp && emp.volaosPagos),
         horasExtras: monoQHoras(emp && emp.horasExtras),
+        nameManual: !!emp.nameManual,
+        nameEditedAt: emp.nameEditedAt || "",
       });
     });
     sheets[s.id].employees.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
@@ -217,26 +344,22 @@ function buildMonorrielQuincenasFromDaily(dailyReports) {
 function monoQMerge(localRaw, remoteRaw) {
   const local = localRaw && Array.isArray(localRaw.reports) ? localRaw.reports : [];
   const remote = remoteRaw && Array.isArray(remoteRaw.reports) ? remoteRaw.reports : [];
-  const map = new Map();
-  [...local, ...remote].forEach((r) => {
-    if (!r || !r.id) return;
-    const prev = map.get(r.id);
-    map.set(r.id, prev ? monoQNormalizeReport({ ...prev, sheets: mergeSheetPair(prev, r) }) : monoQNormalizeReport(r));
+  const ids = new Set([...local, ...remote].map((r) => r && r.id).filter(Boolean));
+  const reports = [];
+  ids.forEach((id) => {
+    const a = local.find((r) => r && r.id === id);
+    const b = remote.find((r) => r && r.id === id);
+    if (a && b) {
+      const localNewer = String(a.updatedAt || "") >= String(b.updatedAt || "");
+      reports.push(mergeMonoReportSticky(localNewer ? a : b, localNewer ? b : a));
+    } else {
+      reports.push(monoQNormalizeReport(a || b));
+    }
   });
-  const reports = [...map.values()].sort(
-    (a, b) => String(b.period).localeCompare(String(a.period)) || (b.half || 1) - (a.half || 1)
+  reports.sort(
+    (x, y) => String(y.period).localeCompare(String(x.period)) || (y.half || 1) - (x.half || 1)
   );
   return { reports };
-}
-
-function mergeSheetPair(a, b) {
-  const sheets = {};
-  MONOQ_SHEETS.forEach((s) => {
-    const listA = (a.sheets && a.sheets[s.id] && a.sheets[s.id].employees) || [];
-    const listB = (b.sheets && b.sheets[s.id] && b.sheets[s.id].employees) || [];
-    sheets[s.id] = { employees: listA.concat(listB) };
-  });
-  return sheets;
 }
 
 function monoQSave(push) {
@@ -586,10 +709,27 @@ function bindMonorrielQuincenaUi(report) {
       const emp = sheet && sheet.employees[Number(cell.getAttribute("data-i"))];
       if (!emp) return;
       const next = String(cell.textContent || "").replace(/\s+/g, " ").trim();
-      if (!next) return;
+      if (!next) {
+        cell.textContent = emp.fullName;
+        return;
+      }
+      if (monoQKey(next) === monoQKey(emp.fullName) && next === emp.fullName) return;
+      const dup = sheet.employees.some(
+        (e, j) => j !== Number(cell.getAttribute("data-i")) && monoQKey(e.fullName) === monoQKey(next)
+      );
+      if (dup) {
+        if (typeof toast === "function") toast("Ese nombre ya está en esta planilla.");
+        cell.textContent = emp.fullName;
+        return;
+      }
       emp.fullName = next;
-      current.updatedAt = new Date().toISOString();
+      emp.nameManual = true;
+      emp.nameEditedAt = new Date().toISOString();
+      current.updatedAt = emp.nameEditedAt;
       monoQSave(true);
+      try {
+        if (typeof flushCloudSave === "function") flushCloudSave();
+      } catch (_) {}
     });
   });
   host.querySelectorAll(".monoq-del").forEach((btn) => {
@@ -600,6 +740,13 @@ function bindMonorrielQuincenaUi(report) {
       const emp = sheet && sheet.employees[idx];
       if (!emp) return;
       if (!confirm(`¿Quitar a ${emp.fullName} de esta planilla?`)) return;
+      sheet.deletedKeys = sheet.deletedKeys || [];
+      const dk = monoQKey(emp.fullName);
+      if (dk && !sheet.deletedKeys.includes(dk)) sheet.deletedKeys.push(dk);
+      if (emp.employeeId) {
+        const idk = `id:${emp.employeeId}`;
+        if (!sheet.deletedKeys.includes(idk)) sheet.deletedKeys.push(idk);
+      }
       sheet.employees.splice(idx, 1);
       current.updatedAt = new Date().toISOString();
       monoQSave(true);
