@@ -341,6 +341,26 @@ function buildMonorrielQuincenasFromDaily(dailyReports) {
   return { reports };
 }
 
+function monoQReportMarkScore(report) {
+  let n = 0;
+  MONOQ_SHEETS.forEach((s) => {
+    const list = (report && report.sheets && report.sheets[s.id] && report.sheets[s.id].employees) || [];
+    list.forEach((emp) => {
+      Object.keys(emp.marks || {}).forEach((d) => {
+        if (Number(emp.marks[d]) > 0) n += 1;
+      });
+    });
+  });
+  return n;
+}
+
+function syncMonorrielQuincenasPacked(packed) {
+  if (!packed || !Array.isArray(packed.reports)) return;
+  ensureMonorrielQuincenasLoaded();
+  monoQData = { reports: packed.reports.map((r) => monoQNormalizeReport(r)), _ready: true };
+  monoQSave(false);
+}
+
 function monoQMerge(localRaw, remoteRaw) {
   const local = localRaw && Array.isArray(localRaw.reports) ? localRaw.reports : [];
   const remote = remoteRaw && Array.isArray(remoteRaw.reports) ? remoteRaw.reports : [];
@@ -350,8 +370,22 @@ function monoQMerge(localRaw, remoteRaw) {
     const a = local.find((r) => r && r.id === id);
     const b = remote.find((r) => r && r.id === id);
     if (a && b) {
-      const localNewer = String(a.updatedAt || "") >= String(b.updatedAt || "");
-      reports.push(mergeMonoReportSticky(localNewer ? a : b, localNewer ? b : a));
+      const ls = monoQReportMarkScore(a);
+      const rs = monoQReportMarkScore(b);
+      let base;
+      let other;
+      if (ls > rs + 1) {
+        base = a;
+        other = b;
+      } else if (rs > ls + 1) {
+        base = b;
+        other = a;
+      } else {
+        const localNewer = String(a.updatedAt || "") >= String(b.updatedAt || "");
+        base = localNewer ? a : b;
+        other = localNewer ? b : a;
+      }
+      reports.push(mergeMonoReportSticky(base, other));
     } else {
       reports.push(monoQNormalizeReport(a || b));
     }
@@ -949,4 +983,6 @@ if (typeof window !== "undefined") {
   window.renderMonorrielQuincenaModule = renderMonorrielQuincenaModule;
   window.llenarMonorrielNominaDesdeReporte = llenarMonorrielNominaDesdeReporte;
   window.enviarMonorrielPlanillaANomina = enviarMonorrielPlanillaANomina;
+  window.monoQMerge = monoQMerge;
+  window.syncMonorrielQuincenasPacked = syncMonorrielQuincenasPacked;
 }

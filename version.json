@@ -1,6 +1,6 @@
 {
-  "build": 229,
-  "label": "v229",
-  "minBuild": 229,
-  "note": "Monorriel: los nombres corregidos a mano ya no se borran al sincronizar"
+  "build": 230,
+  "label": "v230",
+  "minBuild": 230,
+  "note": "Ramón y Monorriel: al sincronizar ya no se pierden días ni nombres"
 }
