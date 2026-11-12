@@ -164,6 +164,8 @@ function normalizeVargasReport(raw = {}) {
           : "",
         volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
         horasExtras: normalizeVargasHorasExtras(emp.horasExtras),
+        nameManual: emp.nameManual === true,
+        nameEditedAt: String(emp.nameEditedAt || ""),
       })),
     })),
     updatedAt: raw.updatedAt || new Date().toISOString(),
@@ -193,10 +195,126 @@ function ensureVargasSeedLoaded() {
   return true;
 }
 
-function saveVargasData(push = true) {
+function saveVargasData(push = true, urgent = false) {
   vargasData = normalizeVargasData(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
   if (push && typeof queueCloudSave === "function") queueCloudSave();
+  if (urgent && typeof flushCloudSave === "function") {
+    try {
+      flushCloudSave().catch(() => {});
+    } catch (_) {}
+  }
+}
+
+function vargasMarksFingerprint(emp) {
+  const m = (emp && emp.marks) || {};
+  const parts = Object.keys(m)
+    .sort((a, b) => Number(a) - Number(b))
+    .filter((d) => {
+      const n = Number(m[d]);
+      return n > 0 || (typeof m[d] === "string" && String(m[d]).trim());
+    })
+    .map((d) => `${d}:${m[d]}`);
+  return parts.length ? parts.join("|") : "";
+}
+
+function vargasReportMarkScore(report) {
+  let n = 0;
+  (report && report.sections ? report.sections : []).forEach((sec) => {
+    (sec.employees || []).forEach((emp) => {
+      Object.keys(emp.marks || {}).forEach((d) => {
+        const raw = emp.marks[d];
+        if (Number(raw) > 0 || (typeof raw === "string" && String(raw).trim())) n += 1;
+      });
+    });
+  });
+  return n;
+}
+
+function vargasEmpMatchScore(a, b) {
+  if (!a || !b) return 0;
+  const na = vargasNameKey(a.fullName);
+  const nb = vargasNameKey(b.fullName);
+  if (na && na === nb) return 80;
+  const fa = vargasMarksFingerprint(a);
+  const fb = vargasMarksFingerprint(b);
+  if (fa && fa === fb) return 60;
+  return 0;
+}
+
+function vargasFindBestMatch(emp, list, taken) {
+  let best = null;
+  let bestIdx = -1;
+  let bestScore = 0;
+  (list || []).forEach((other, idx) => {
+    if (taken && taken.has(idx)) return;
+    const score = vargasEmpMatchScore(emp, other);
+    if (score > bestScore) {
+      bestScore = score;
+      best = other;
+      bestIdx = idx;
+    }
+  });
+  if (!best || bestScore < 60) return null;
+  return { emp: best, idx: bestIdx, score: bestScore };
+}
+
+function mergeVargasMarksInto(winner, loser) {
+  Object.keys((loser && loser.marks) || {}).forEach((d) => {
+    const raw = loser.marks[d];
+    const n = Number(raw);
+    if (!(n > 0) && !(typeof raw === "string" && String(raw).trim())) return;
+    if (!winner.marks) winner.marks = {};
+    const prev = Number(winner.marks[d]) || 0;
+    if (n === 2 || prev === 2) winner.marks[d] = 2;
+    else if (n > 0) winner.marks[d] = n;
+    else winner.marks[d] = raw;
+  });
+}
+
+function mergeVargasEmployeeFields(winner, loser) {
+  if (!winner || !loser) return;
+  mergeVargasMarksInto(winner, loser);
+  const picked = pickStickyVargasPayBucket(winner, loser);
+  winner.payBucket = picked.payBucket;
+  winner.payBucketSetAt = picked.payBucketSetAt;
+  if (loser.nameManual) {
+    if (!winner.nameManual || String(loser.nameEditedAt || "") >= String(winner.nameEditedAt || "")) {
+      winner.fullName = String(loser.fullName || "").trim() || winner.fullName;
+      winner.nameManual = true;
+      winner.nameEditedAt = loser.nameEditedAt || winner.nameEditedAt;
+    }
+  } else if (!winner.nameManual && String(loser.fullName || "").trim().length > String(winner.fullName || "").trim().length) {
+    winner.fullName = String(loser.fullName || "").trim();
+  }
+  if (!winner.volaosPagos && loser.volaosPagos) winner.volaosPagos = normalizeVargasVolaosPagos(loser.volaosPagos);
+  if (!(Number(winner.horasExtras) > 0) && Number(loser.horasExtras) > 0) {
+    winner.horasExtras = normalizeVargasHorasExtras(loser.horasExtras);
+  }
+}
+
+function vargasSectionKey(sec) {
+  const shift = sec && sec.shift === "nocturno" ? "nocturno" : "diurno";
+  return `${shift}|${vargasNameKey(sec && sec.postName)}`;
+}
+
+function mergeVargasReportsPair(localReport, remoteReport) {
+  const ls = vargasReportMarkScore(localReport);
+  const rs = vargasReportMarkScore(remoteReport);
+  let base;
+  let other;
+  if (ls > rs + 1) {
+    base = localReport;
+    other = remoteReport;
+  } else if (rs > ls + 1) {
+    base = remoteReport;
+    other = localReport;
+  } else {
+    const localNewer = String(localReport.updatedAt || "") >= String(remoteReport.updatedAt || "");
+    base = localNewer ? localReport : remoteReport;
+    other = localNewer ? remoteReport : localReport;
+  }
+  return mergeVargasReportSticky(base, other);
 }
 
 function vargasEmployeeExactKey(section, emp) {
@@ -225,53 +343,67 @@ function pickStickyVargasPayBucket(baseEmp, otherEmp) {
 }
 
 function mergeVargasReportSticky(base, other) {
-  if (!base) return other;
-  if (!other) return base;
-  const byExact = new Map();
-  const byName = new Map();
-  (other.sections || []).forEach((sec) => {
+  if (!base) return normalizeVargasReport(other);
+  if (!other) return normalizeVargasReport(base);
+  const out = normalizeVargasReport(JSON.parse(JSON.stringify(base)));
+  const otherSections = new Map();
+  (other.sections || []).forEach((sec) => otherSections.set(vargasSectionKey(sec), sec));
+  (out.sections || []).forEach((sec) => {
+    const osec = otherSections.get(vargasSectionKey(sec));
+    if (!osec) return;
+    otherSections.delete(vargasSectionKey(sec));
+    const taken = new Set();
     (sec.employees || []).forEach((emp) => {
-      byExact.set(vargasEmployeeExactKey(sec, emp), emp);
-      const nk = vargasNameKey(emp.fullName);
-      if (!nk) return;
-      if (!byName.has(nk)) byName.set(nk, []);
-      byName.get(nk).push(emp);
+      const hit = vargasFindBestMatch(emp, osec.employees || [], taken);
+      if (!hit) return;
+      taken.add(hit.idx);
+      mergeVargasEmployeeFields(emp, hit.emp);
+    });
+    (osec.employees || []).forEach((oemp, oi) => {
+      if (taken.has(oi)) return;
+      if (vargasFindBestMatch(oemp, sec.employees || [])) return;
+      const hasMarks = Object.keys(oemp.marks || {}).some((d) => {
+        const raw = oemp.marks[d];
+        return Number(raw) > 0 || (typeof raw === "string" && String(raw).trim());
+      });
+      if (!hasMarks && !(Number(oemp.horasExtras) > 0) && !oemp.nameManual) return;
+      sec.employees.push({
+        ...oemp,
+        marks: { ...(oemp.marks || {}) },
+      });
     });
   });
-  (base.sections || []).forEach((sec) => {
-    (sec.employees || []).forEach((emp) => {
-      let prev = byExact.get(vargasEmployeeExactKey(sec, emp));
-      if (!prev) {
-        const list = byName.get(vargasNameKey(emp.fullName)) || [];
-        if (list.length === 1) prev = list[0];
-      }
-      if (!prev) return;
-      const picked = pickStickyVargasPayBucket(emp, prev);
-      emp.payBucket = picked.payBucket;
-      emp.payBucketSetAt = picked.payBucketSetAt;
+  otherSections.forEach((sec) => {
+    const emps = (sec.employees || []).filter((e) => {
+      const hasMarks = Object.keys(e.marks || {}).some((d) => Number(e.marks[d]) > 0);
+      return hasMarks || e.nameManual || Number(e.horasExtras) > 0;
+    });
+    if (!emps.length) return;
+    out.sections.push({
+      shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
+      postName: sec.postName,
+      employees: emps.map((e) => ({ ...e, marks: { ...(e.marks || {}) } })),
     });
   });
-  return base;
+  out.updatedAt =
+    String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
+  return normalizeVargasReport(out);
 }
 
-/** Une reportes. Los días los trae el más reciente. Banco/Efectivo no se borra si el otro lado viene vacío. */
+/** Une reportes: los días se combinan de ambos lados; no gana la copia vacía por fecha. */
 function mergeVargasDataSticky(localRaw, remoteRaw) {
   const local = normalizeVargasData(localRaw || {});
   const remote = normalizeVargasData(remoteRaw || {});
-  const map = new Map();
-  [...local.reports, ...remote.reports].forEach((r) => {
-    if (!r || !r.id) return;
-    const prev = map.get(r.id);
-    if (!prev) {
-      map.set(r.id, r);
-      return;
-    }
-    const prevIsNewer = String(prev.updatedAt || "") > String(r.updatedAt || "");
-    const base = prevIsNewer ? prev : r;
-    const other = prevIsNewer ? r : prev;
-    map.set(r.id, mergeVargasReportSticky(base, other));
+  const ids = new Set([...local.reports, ...remote.reports].map((r) => r && r.id).filter(Boolean));
+  const reports = [];
+  ids.forEach((id) => {
+    const lr = local.reports.find((r) => r && r.id === id);
+    const rr = remote.reports.find((r) => r && r.id === id);
+    if (lr && rr) reports.push(mergeVargasReportsPair(lr, rr));
+    else reports.push(normalizeVargasReport(lr || rr));
   });
-  return { reports: [...map.values()] };
+  reports.sort((a, b) => String(b.period).localeCompare(String(a.period)) || (b.half || 0) - (a.half || 0));
+  return { reports };
 }
 
 function applyRemoteVargasData(remote) {
@@ -649,8 +781,10 @@ function setVargasEmployeeName(sectionIdx, empIdx, value) {
   );
   if (dup) return { ok: false, reason: "duplicate", fullName: next };
   emp.fullName = next;
-  report.updatedAt = new Date().toISOString();
-  saveVargasData(true);
+  emp.nameManual = true;
+  emp.nameEditedAt = new Date().toISOString();
+  report.updatedAt = emp.nameEditedAt;
+  saveVargasData(true, true);
   return { ok: true, fullName: next, previous: prev };
 }
 
@@ -920,7 +1054,7 @@ function setVargasEmployeeMark(sectionIdx, empIdx, day, value) {
     emp.marks[key] = raw;
   }
   report.updatedAt = new Date().toISOString();
-  saveVargasData(true);
+  saveVargasData(true, true);
 }
 
 function flattenVargasEmployees(report, opts = {}) {

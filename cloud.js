@@ -2045,6 +2045,34 @@
       }
     }
 
+    let monorrielQuincenasPacked = null;
+    try {
+      const localQ =
+        typeof monorrielQuincenasForCloud === "function" ? monorrielQuincenasForCloud() : null;
+      const remoteMonoQDoc = await getDoc(partPath("monorriel")).catch(() => null);
+      const remoteQ =
+        remoteMonoQDoc &&
+        remoteMonoQDoc.fields &&
+        remoteMonoQDoc.fields.monorrielQuincenasJson
+          ? parseObjectField(remoteMonoQDoc.fields, "monorrielQuincenasJson")
+          : null;
+      if (localQ && remoteQ && typeof monoQMerge === "function") {
+        monorrielQuincenasPacked = monoQMerge(localQ, remoteQ);
+      } else if (localQ) {
+        monorrielQuincenasPacked = localQ;
+      } else if (remoteQ) {
+        monorrielQuincenasPacked = remoteQ;
+      }
+      if (monorrielQuincenasPacked && typeof syncMonorrielQuincenasPacked === "function") {
+        syncMonorrielQuincenasPacked(monorrielQuincenasPacked);
+      }
+    } catch (err) {
+      console.warn("RFS: no se pudieron fusionar quincenas Monorriel al guardar", err);
+      if (typeof monorrielQuincenasForCloud === "function") {
+        monorrielQuincenasPacked = monorrielQuincenasForCloud();
+      }
+    }
+
     const empPack = await stripEmployees(employeesToSave);
     const pettyPack = await stripPettyCash(pettyCash);
     const hrPack = await stripHr(hr);
@@ -2215,20 +2243,20 @@
           updatedAt: { stringValue: updatedAt },
         };
         const mask = ["monorrielReportsJson", "updatedAt"];
-        if (typeof monorrielQuincenasForCloud === "function") {
-          const packed = monorrielQuincenasForCloud();
-          if (packed && Array.isArray(packed.reports) && packed.reports.length) {
-            fields.monorrielQuincenasJson = { stringValue: JSON.stringify(packed) };
-            mask.push("monorrielQuincenasJson");
-          }
+        const packed =
+          monorrielQuincenasPacked ||
+          (typeof monorrielQuincenasForCloud === "function" ? monorrielQuincenasForCloud() : null);
+        if (packed && Array.isArray(packed.reports) && packed.reports.length) {
+          fields.monorrielQuincenasJson = { stringValue: JSON.stringify(packed) };
+          mask.push("monorrielQuincenasJson");
         }
-        return [fields, mask];
-      })()[0], (() => {
+        return fields;
+      })(), (() => {
         const mask = ["monorrielReportsJson", "updatedAt"];
-        if (typeof monorrielQuincenasForCloud === "function") {
-          const packed = monorrielQuincenasForCloud();
-          if (packed && Array.isArray(packed.reports) && packed.reports.length) mask.push("monorrielQuincenasJson");
-        }
+        const packed =
+          monorrielQuincenasPacked ||
+          (typeof monorrielQuincenasForCloud === "function" ? monorrielQuincenasForCloud() : null);
+        if (packed && Array.isArray(packed.reports) && packed.reports.length) mask.push("monorrielQuincenasJson");
         return mask;
       })()),
     ];
