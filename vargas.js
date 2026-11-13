@@ -1,5 +1,6 @@
 /* ==== MÓDULO RAMÓN VARGAS — reporte diurno/nocturno → Reaction Banco / Efectivo ==== */
 const VARGAS_KEY = "rfs-ops-vargas";
+const VARGAS_SAFETY_KEY = "rfs-ops-vargas-payroll-safety";
 
 let vargasData = emptyVargasData();
 let vargasFilterShift = "all"; // all | diurno | nocturno
@@ -196,7 +197,9 @@ function ensureVargasSeedLoaded() {
 }
 
 function saveVargasData(push = true, urgent = false) {
+  restoreVargasFromSafetyNet();
   vargasData = normalizeVargasData(vargasData);
+  persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
   if (push && typeof queueCloudSave === "function") queueCloudSave();
   if (urgent && typeof flushCloudSave === "function") {
@@ -231,6 +234,56 @@ function vargasReportMarkScore(report) {
   return n;
 }
 
+function vargasDataMarkScore(data) {
+  return (normalizeVargasData(data || {}).reports || []).reduce((s, r) => s + vargasReportMarkScore(r), 0);
+}
+
+function persistVargasSafetyNet(data) {
+  try {
+    const prev = JSON.parse(localStorage.getItem(VARGAS_SAFETY_KEY) || "null");
+    const merged = mergeVargasDataSticky(prev && prev.reports ? prev : { reports: [] }, data || vargasData);
+    if (vargasDataMarkScore(merged) > 0) {
+      localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(merged));
+    }
+  } catch (_) {}
+}
+
+/** Recupera marcas si un sync dejó el reporte más vacío que la copia de seguridad local. */
+function restoreVargasFromSafetyNet() {
+  try {
+    const raw = localStorage.getItem(VARGAS_SAFETY_KEY);
+    if (!raw) return 0;
+    const safety = JSON.parse(raw);
+    if (!safety || !Array.isArray(safety.reports) || !safety.reports.length) return 0;
+    const before = vargasDataMarkScore(vargasData);
+    vargasData = mergeVargasDataSticky(vargasData, safety);
+    ensureVargasSeedLoaded();
+    vargasData = normalizeVargasData(vargasData);
+    const after = vargasDataMarkScore(vargasData);
+    if (after > before) {
+      localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
+      return after - before;
+    }
+  } catch (_) {}
+  return 0;
+}
+
+function vargasMarkOverlapScore(a, b) {
+  let n = 0;
+  const ma = (a && a.marks) || {};
+  const mb = (b && b.marks) || {};
+  Object.keys(ma).forEach((d) => {
+    const rawA = ma[d];
+    const rawB = mb[d];
+    const okA = Number(rawA) > 0 || (typeof rawA === "string" && String(rawA).trim());
+    const okB = Number(rawB) > 0 || (typeof rawB === "string" && String(rawB).trim());
+    if (okA && okB) n += 1;
+  });
+  if (n >= 4) return 72;
+  if (n >= 2) return 58;
+  return 0;
+}
+
 function vargasEmpMatchScore(a, b) {
   if (!a || !b) return 0;
   const na = vargasNameKey(a.fullName);
@@ -239,7 +292,7 @@ function vargasEmpMatchScore(a, b) {
   const fa = vargasMarksFingerprint(a);
   const fb = vargasMarksFingerprint(b);
   if (fa && fa === fb) return 60;
-  return 0;
+  return vargasMarkOverlapScore(a, b);
 }
 
 function vargasFindBestMatch(emp, list, taken) {
@@ -407,9 +460,12 @@ function mergeVargasDataSticky(localRaw, remoteRaw) {
 }
 
 function applyRemoteVargasData(remote) {
+  restoreVargasFromSafetyNet();
   vargasData = mergeVargasDataSticky(vargasData, remote || {});
+  restoreVargasFromSafetyNet();
   ensureVargasSeedLoaded();
   vargasData = normalizeVargasData(vargasData);
+  persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
 }
 
@@ -2292,11 +2348,20 @@ function bindVargasUiHandlers() {
 }
 
 // Expose for cloud / app wiring
+if (typeof window !== "undefined") {
+  window.vargasDataMarkScore = vargasDataMarkScore;
+  window.restoreVargasFromSafetyNet = restoreVargasFromSafetyNet;
+  window.persistVargasSafetyNet = persistVargasSafetyNet;
+}
+
 window.RFSVargas = {
   emptyVargasData,
   normalizeVargasData,
   applyRemoteVargasData,
   mergeVargasDataSticky,
+  vargasDataMarkScore,
+  restoreVargasFromSafetyNet,
+  persistVargasSafetyNet,
   saveVargasData,
   ensureVargasSeedLoaded,
   getActiveVargasReport,

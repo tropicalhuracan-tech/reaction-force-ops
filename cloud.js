@@ -2046,16 +2046,22 @@
     }
 
     let monorrielQuincenasPacked = null;
+    let remoteQ = null;
+    let remoteQMarkScore = 0;
     try {
+      if (typeof restoreMonoQFromSafetyNet === "function") restoreMonoQFromSafetyNet();
       const localQ =
         typeof monorrielQuincenasForCloud === "function" ? monorrielQuincenasForCloud() : null;
       const remoteMonoQDoc = await getDoc(partPath("monorriel")).catch(() => null);
-      const remoteQ =
+      remoteQ =
         remoteMonoQDoc &&
         remoteMonoQDoc.fields &&
         remoteMonoQDoc.fields.monorrielQuincenasJson
           ? parseObjectField(remoteMonoQDoc.fields, "monorrielQuincenasJson")
           : null;
+      if (typeof monoQDataMarkScore === "function" && remoteQ) {
+        remoteQMarkScore = monoQDataMarkScore(remoteQ);
+      }
       if (localQ && remoteQ && typeof monoQMerge === "function") {
         monorrielQuincenasPacked = monoQMerge(localQ, remoteQ);
       } else if (localQ) {
@@ -2063,14 +2069,35 @@
       } else if (remoteQ) {
         monorrielQuincenasPacked = remoteQ;
       }
+      if (
+        monorrielQuincenasPacked &&
+        remoteQMarkScore > 0 &&
+        typeof monoQDataMarkScore === "function" &&
+        typeof monoQMerge === "function"
+      ) {
+        const mergedScore = monoQDataMarkScore(monorrielQuincenasPacked);
+        if (mergedScore < remoteQMarkScore) {
+          console.warn("RFS: re-fusion Monorriel quincenas (evitar pérdida de marcas)");
+          monorrielQuincenasPacked = monoQMerge(remoteQ, localQ || { reports: [] });
+        }
+        if (monoQDataMarkScore(monorrielQuincenasPacked) < remoteQMarkScore) {
+          monorrielQuincenasPacked = remoteQ;
+        }
+      }
       if (monorrielQuincenasPacked && typeof syncMonorrielQuincenasPacked === "function") {
         syncMonorrielQuincenasPacked(monorrielQuincenasPacked);
       }
     } catch (err) {
       console.warn("RFS: no se pudieron fusionar quincenas Monorriel al guardar", err);
-      if (typeof monorrielQuincenasForCloud === "function") {
+      if (remoteQMarkScore > 0 && remoteQ) {
+        monorrielQuincenasPacked = remoteQ;
+        if (typeof syncMonorrielQuincenasPacked === "function") {
+          syncMonorrielQuincenasPacked(monorrielQuincenasPacked);
+        }
+      } else if (typeof monorrielQuincenasForCloud === "function") {
         monorrielQuincenasPacked = monorrielQuincenasForCloud();
       }
+      if (remoteQMarkScore > 0) throw err;
     }
 
     const empPack = await stripEmployees(employeesToSave);
@@ -2078,26 +2105,60 @@
     const hrPack = await stripHr(hr);
     const depPack = await stripDepuracion(depuracion);
     const supPack = await stripSuplidores(suplidores);
+    if (typeof restoreVargasFromSafetyNet === "function") restoreVargasFromSafetyNet();
     let vargasToSave = vargas && typeof vargas === "object" ? vargas : emptyVargas();
+    let remoteVargas = null;
+    let remoteVargasMarkScore = 0;
     try {
       const remoteVargasDoc = await getDoc(partPath("vargas")).catch(() => null);
-      const remoteVargas =
+      remoteVargas =
         remoteVargasDoc && remoteVargasDoc.fields && remoteVargasDoc.fields.vargasJson
           ? parseObjectField(remoteVargasDoc.fields, "vargasJson")
           : null;
+      if (typeof vargasDataMarkScore === "function" && remoteVargas) {
+        remoteVargasMarkScore = vargasDataMarkScore(remoteVargas);
+      }
       if (remoteVargas && typeof mergeVargasDataSticky === "function") {
         vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
+        if (
+          remoteVargasMarkScore > 0 &&
+          typeof vargasDataMarkScore === "function"
+        ) {
+          const mergedScore = vargasDataMarkScore(vargasToSave);
+          if (mergedScore < remoteVargasMarkScore) {
+            console.warn("RFS: re-fusion Ramón Vargas (evitar pérdida de marcas)");
+            vargasToSave = mergeVargasDataSticky(remoteVargas, vargas);
+          }
+          if (vargasDataMarkScore(vargasToSave) < remoteVargasMarkScore) {
+            vargasToSave = remoteVargas;
+          }
+        }
         if (typeof vargasData !== "undefined") {
           vargasData = vargasToSave;
           try {
             if (typeof VARGAS_KEY !== "undefined") {
               localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
             }
+            if (typeof persistVargasSafetyNet === "function") persistVargasSafetyNet(vargasData);
           } catch (_) {}
         }
+      } else if (remoteVargasMarkScore > 0 && remoteVargas) {
+        vargasToSave = remoteVargas;
+      }
+      if (
+        remoteVargasMarkScore > 0 &&
+        typeof vargasDataMarkScore === "function" &&
+        vargasDataMarkScore(vargasToSave) < remoteVargasMarkScore
+      ) {
+        console.warn("RFS: se evitó publicar Ramón Vargas con menos marcas que la nube");
+        vargasToSave = remoteVargas;
       }
     } catch (err) {
       console.warn("RFS: no se pudo fusionar Banco/Efectivo de Vargas al guardar", err);
+      if (remoteVargasMarkScore > 0 && remoteVargas) {
+        vargasToSave = remoteVargas;
+      }
+      if (remoteVargasMarkScore > 0) throw err;
     }
     let contabToSave = contabilidad;
     try {

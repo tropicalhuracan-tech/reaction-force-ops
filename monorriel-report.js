@@ -5,6 +5,7 @@
  * Todos cobran en efectivo: aquí no hay B/E. Los préstamos se cargan en la nómina.
  */
 const MONOQ_KEY = "rfs-ops-monorriel-quincenas";
+const MONOQ_SAFETY_KEY = "rfs-ops-monoq-payroll-safety";
 const MONOQ_ACTIVE_KEY = "rfs-ops-monorriel-quincena-active";
 const MONOQ_SHEETS = [
   { id: "dia", label: "Empleados día", volao: 850 },
@@ -119,6 +120,18 @@ function monoQMarksFingerprint(emp) {
   return parts.length ? parts.join("|") : "";
 }
 
+function monoQMarkOverlapScore(a, b) {
+  let n = 0;
+  const ma = (a && a.marks) || {};
+  const mb = (b && b.marks) || {};
+  Object.keys(ma).forEach((d) => {
+    if (Number(ma[d]) > 0 && Number(mb[d]) > 0) n += 1;
+  });
+  if (n >= 4) return 72;
+  if (n >= 2) return 58;
+  return 0;
+}
+
 function monoQEmpMatchScore(a, b) {
   if (!a || !b) return 0;
   const idA = String(a.employeeId || "").trim();
@@ -130,7 +143,7 @@ function monoQEmpMatchScore(a, b) {
   const fa = monoQMarksFingerprint(a);
   const fb = monoQMarksFingerprint(b);
   if (fa && fa === fb) return 60;
-  return 0;
+  return monoQMarkOverlapScore(a, b);
 }
 
 function monoQFindBestMatch(emp, list, taken) {
@@ -354,6 +367,42 @@ function monoQReportMarkScore(report) {
   return n;
 }
 
+function monoQDataMarkScore(data) {
+  const reports = data && Array.isArray(data.reports) ? data.reports : [];
+  return reports.reduce((s, r) => s + monoQReportMarkScore(r), 0);
+}
+
+function persistMonoQSafetyNet(data) {
+  try {
+    const prev = JSON.parse(localStorage.getItem(MONOQ_SAFETY_KEY) || "null");
+    const merged = monoQMerge(prev && prev.reports ? prev : { reports: [] }, data || monoQData);
+    if (monoQDataMarkScore(merged) > 0) {
+      localStorage.setItem(MONOQ_SAFETY_KEY, JSON.stringify({ reports: merged.reports }));
+    }
+  } catch (_) {}
+}
+
+function restoreMonoQFromSafetyNet() {
+  try {
+    const raw = localStorage.getItem(MONOQ_SAFETY_KEY);
+    if (!raw) return 0;
+    const safety = JSON.parse(raw);
+    if (!safety || !Array.isArray(safety.reports) || !safety.reports.length) return 0;
+    ensureMonorrielQuincenasLoaded();
+    const before = monoQDataMarkScore(monoQData);
+    monoQData = monoQMerge(monoQData, safety);
+    monoQData._ready = true;
+    const after = monoQDataMarkScore(monoQData);
+    if (after > before) {
+      try {
+        localStorage.setItem(MONOQ_KEY, JSON.stringify(monoQData));
+      } catch (_) {}
+      return after - before;
+    }
+  } catch (_) {}
+  return 0;
+}
+
 function syncMonorrielQuincenasPacked(packed) {
   if (!packed || !Array.isArray(packed.reports)) return;
   ensureMonorrielQuincenasLoaded();
@@ -397,9 +446,11 @@ function monoQMerge(localRaw, remoteRaw) {
 }
 
 function monoQSave(push) {
+  restoreMonoQFromSafetyNet();
   try {
     localStorage.setItem(MONOQ_KEY, JSON.stringify(monoQData));
     localStorage.setItem(MONOQ_ACTIVE_KEY, monoQActiveId);
+    persistMonoQSafetyNet(monoQData);
   } catch (_) {}
   if (push && typeof queueCloudSave === "function") queueCloudSave();
 }
@@ -437,8 +488,11 @@ function monorrielQuincenasForCloud() {
 function applyRemoteMonorrielQuincenas(remote) {
   if (!remote || !Array.isArray(remote.reports)) return;
   ensureMonorrielQuincenasLoaded();
+  restoreMonoQFromSafetyNet();
   monoQData = monoQMerge(monoQData, remote);
+  restoreMonoQFromSafetyNet();
   monoQData._ready = true;
+  persistMonoQSafetyNet(monoQData);
   monoQSave(false);
   if (document.getElementById("monoQuincenaHost")) renderMonorrielQuincenaModule();
 }
@@ -984,5 +1038,7 @@ if (typeof window !== "undefined") {
   window.llenarMonorrielNominaDesdeReporte = llenarMonorrielNominaDesdeReporte;
   window.enviarMonorrielPlanillaANomina = enviarMonorrielPlanillaANomina;
   window.monoQMerge = monoQMerge;
+  window.monoQDataMarkScore = monoQDataMarkScore;
+  window.restoreMonoQFromSafetyNet = restoreMonoQFromSafetyNet;
   window.syncMonorrielQuincenasPacked = syncMonorrielQuincenasPacked;
 }

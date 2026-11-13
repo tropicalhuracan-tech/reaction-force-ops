@@ -1,6 +1,6 @@
 {
-  "build": 230,
-  "label": "v230",
-  "minBuild": 230,
-  "note": "Ramón y Monorriel: al sincronizar ya no se pierden días ni nombres"
+  "build": 231,
+  "label": "v231",
+  "minBuild": 231,
+  "note": "Candado nómina: Ramón Vargas y Monorriel quincenas no se borran al sync"
 }
