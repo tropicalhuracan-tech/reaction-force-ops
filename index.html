@@ -1650,7 +1650,7 @@
     <section id="quotesView" class="view scroll-view">
       <div class="section-head">
         <h1>Cotizaciones</h1>
-        <p id="quotesSummary">Tres modelos ejecutivos. Cada hombre = 12 h. Marca cuántos van de día y de noche. Cálculo a 30 días + ITBIS 18%.</p>
+        <p id="quotesSummary">Tres modelos ejecutivos. Horas por hombre configurables (hasta 23 h/día). Tarifa extra después de la 12.ª hora. Cálculo a 30 días + ITBIS 18%.</p>
       </div>
 
       <div class="form-card">
@@ -1672,7 +1672,7 @@
           </label>
         </div>
 
-        <p class="muted tight" style="margin:4px 0 8px">Turnos (cada hombre trabaja 12 horas). Puedes poner varios solo de día, solo de noche, o combinar.</p>
+        <p class="muted tight" style="margin:4px 0 8px">Turnos diurnos y/o nocturnos. Ajusta cuántas horas trabaja cada hombre por día (hasta 23 h, sin llegar a 24).</p>
         <div class="quote-shift-grid">
           <div class="quote-shift-box">
             <strong>Día</strong>
@@ -1692,6 +1692,19 @@
           </div>
         </div>
         <p id="quoteTotalMenLabel" class="muted tight" style="margin-top:8px">1 hombre · 12 h/día</p>
+
+        <label>Horas por hombre / día (máx. 23)
+          <input id="quoteHoursPerMan" type="number" min="1" max="23" step="0.5" value="12" />
+        </label>
+        <p class="muted tight" id="quoteHoursHint">Hasta 12 h se facturan a la tarifa del turno. Horas 13–23 usan la tarifa extra (abajo).</p>
+        <div id="quoteExtraRatesBlock" class="coords-row" hidden>
+          <label>Tarifa / h extra — día (después de la 12.ª)
+            <input id="quoteDayExtraRate" type="number" min="0" step="0.01" placeholder="Vacío = misma tarifa día" />
+          </label>
+          <label>Tarifa / h extra — noche (después de la 12.ª)
+            <input id="quoteNightExtraRate" type="number" min="0" step="0.01" placeholder="Vacío = misma tarifa noche" />
+          </label>
+        </div>
 
         <label>Fecha
           <input id="quoteDate" type="date" />
@@ -1732,7 +1745,7 @@
 
       <div class="form-card">
         <h2>3. Cálculo automático</h2>
-        <p class="muted tight">Día y noche con su propio precio/hora × 12 h × 30 días − descuento (+ ITBIS 18% si está marcado).</p>
+        <p class="muted tight">Tarifa del turno × horas (12 h base + horas extra si aplica) × 30 días − descuento (+ ITBIS 18% si está marcado).</p>
         <div id="quoteTotalsBox"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
           <button id="btnQuotePrint" class="btn primary" type="button">Imprimir / PDF propuesta</button>
@@ -2061,7 +2074,7 @@
   <script src="contabilidad.js?v=227"></script>
   <script src="monorriel-report.js?v=230"></script>
   <script src="vargas.js?v=230"></script>
-  <script src="quotes.js?v=217"></script>
+  <script src="quotes.js?v=232"></script>
   <script src="app.js?v=230"></script>
 
   <div id="appVersionGate" class="app-version-gate" hidden>
