@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#0b0b0c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Cotizaciones y propuestas RFS para vendedores" />
+  <title>RFS Cotizaciones</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="stylesheet" href="../styles.css?v=231" />
+  <style>
+    #app {
+      height: 100%;
+      display: grid;
+      grid-template-rows: calc(var(--topbar-h) + var(--safe-top)) 1fr;
+    }
+    #app.logged-out #quotesView { display: none !important; }
+    #app.logged-in #loginView { display: none !important; }
+    .cotiz-install-hint { margin: 10px 0 0; font-size: 13px; color: #a1a1aa; }
+    #cotizVersionGate {
+      position: fixed;
+      inset: 0;
+      z-index: 10050;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(5, 5, 6, 0.92);
+    }
+    #cotizVersionGate[hidden] { display: none !important; }
+    .cotiz-gate-card {
+      width: min(420px, 100%);
+      background: #141416;
+      border: 1px solid rgba(251, 191, 36, 0.45);
+      border-radius: 14px;
+      padding: 22px 20px;
+    }
+    .cotiz-gate-card h2 { margin: 0 0 10px; color: #fbbf24; }
+    .brand span { font-size: 12px; color: var(--muted); display: block; }
+  </style>
+</head>
+<body>
+  <div id="app" class="logged-out">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../logo.jpg?v=231" alt="RFS" class="brand-logo" width="44" height="44" />
+        <div class="brand-text">
+          <strong>RFS Cotizaciones</strong>
+          <span>Propuestas para vendedores</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="sessionUserLabel" class="session-user" hidden></span>
+        <button id="btnRefreshApp" class="icon-btn" type="button" aria-label="Actualizar" title="Actualizar">⟳</button>
+        <button id="btnLogoutUser" class="icon-btn" type="button" aria-label="Salir" title="Cambiar vendedor" hidden>⎋</button>
+      </div>
+    </header>
+
+    <section id="loginView" class="view active scroll-view home-view">
+      <div class="welcome-card login-card">
+        <div class="welcome-logo-wrap">
+          <img src="../logo.jpg?v=231" alt="Reaction Force Security" class="welcome-logo" />
+        </div>
+        <h1>Cotizaciones</h1>
+        <p class="welcome-sub">Solo propuestas comerciales · no usa nómina ni operaciones</p>
+        <div class="form-card">
+          <label>Tu nombre (para el historial interno)
+            <input id="vendorDisplayName" type="text" autocomplete="name" placeholder="Ej. Juan — vendedor" />
+          </label>
+          <button id="btnVendorEnter" class="btn primary" type="button">Entrar</button>
+          <p class="muted tight" style="margin-top:10px">
+            El historial queda guardado en este teléfono. La app principal de Operaciones no cambia: allí sigue existiendo la pestaña Cotizaciones.
+          </p>
+          <p class="cotiz-install-hint">En el celular: menú del navegador → <strong>Instalar app</strong> / Añadir a inicio.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="quotesView" class="view scroll-view">
+      <div class="section-head">
+        <h1>Cotizaciones</h1>
+        <p id="quotesSummary">Tres modelos ejecutivos. Cada hombre = 12 h. Marca cuántos van de día y de noche. Cálculo a 30 días + ITBIS 18%.</p>
+        <p id="appVersionBadge" class="muted tight app-version-badge"></p>
+      </div>
+
+      <div class="form-card">
+        <h2>1. Elige el modelo</h2>
+        <div id="quoteModelCards" class="quote-model-grid"></div>
+      </div>
+
+      <div class="form-card">
+        <h2>2. Datos del cliente y servicio</h2>
+        <label>Nombre del cliente
+          <input id="quoteClientName" type="text" placeholder="Ej. Empresa o residencial" autocomplete="organization" />
+        </label>
+        <div class="coords-row">
+          <label>RNC (opcional)
+            <input id="quoteClientRnc" type="text" placeholder="RNC del cliente" />
+          </label>
+          <label>Atención a
+            <input id="quoteAttentionTo" type="text" placeholder="Nombre de quien recibe la propuesta" />
+          </label>
+        </div>
+
+        <p class="muted tight" style="margin:4px 0 8px">Turnos (cada hombre trabaja 12 horas). Puedes poner varios solo de día, solo de noche, o combinar.</p>
+        <div class="quote-shift-grid">
+          <div class="quote-shift-box">
+            <strong>Día</strong>
+            <span class="muted">Hombres diurnos</span>
+            <input id="quoteDayMen" type="number" min="0" step="1" value="1" />
+            <label class="tight-label">Precio/hora día (RD$)
+              <input id="quoteDayRate" type="number" min="0" step="0.01" value="155" />
+            </label>
+          </div>
+          <div class="quote-shift-box">
+            <strong>Noche</strong>
+            <span class="muted">Hombres nocturnos</span>
+            <input id="quoteNightMen" type="number" min="0" step="1" value="0" />
+            <label class="tight-label">Precio/hora noche (RD$)
+              <input id="quoteNightRate" type="number" min="0" step="0.01" value="175" />
+            </label>
+          </div>
+        </div>
+        <p id="quoteTotalMenLabel" class="muted tight" style="margin-top:8px">1 hombre · 12 h/día</p>
+
+        <label>Fecha
+          <input id="quoteDate" type="date" />
+        </label>
+        <p class="muted tight" style="margin:8px 0 6px">Descuento especial (opcional): puedes aplicar uno al turno de día, al de noche, o a ambos.</p>
+        <div class="coords-row">
+          <label>Descuento turno día
+            <select id="quoteDayDiscountType">
+              <option value="none" selected>Sin descuento</option>
+              <option value="percent">Porcentaje (%)</option>
+              <option value="amount">Monto (RD$)</option>
+            </select>
+          </label>
+          <label id="quoteDayDiscountValueWrap" hidden>Valor día
+            <input id="quoteDayDiscountValue" type="number" min="0" step="0.01" value="0" />
+          </label>
+        </div>
+        <div class="coords-row">
+          <label>Descuento turno noche
+            <select id="quoteNightDiscountType">
+              <option value="none" selected>Sin descuento</option>
+              <option value="percent">Porcentaje (%)</option>
+              <option value="amount">Monto (RD$)</option>
+            </select>
+          </label>
+          <label id="quoteNightDiscountValueWrap" hidden>Valor noche
+            <input id="quoteNightDiscountValue" type="number" min="0" step="0.01" value="0" />
+          </label>
+        </div>
+        <label class="quote-check-label">
+          <input id="quoteIncludeItbis" type="checkbox" checked />
+          Incluir ITBIS 18% en la propuesta
+        </label>
+        <label>Nota adicional (opcional)
+          <textarea id="quoteNote" rows="2" placeholder="Condiciones o aclaraciones para esta propuesta"></textarea>
+        </label>
+      </div>
+
+      <div class="form-card">
+        <h2>3. Cálculo automático</h2>
+        <p class="muted tight">Día y noche con su propio precio/hora × 12 h × 30 días − descuento (+ ITBIS 18% si está marcado).</p>
+        <div id="quoteTotalsBox"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+          <button id="btnQuotePrint" class="btn primary" type="button">Imprimir / PDF propuesta</button>
+          <button id="btnQuoteWhatsApp" class="btn secondary" type="button">WhatsApp PDF</button>
+          <button id="btnQuoteEmail" class="btn secondary" type="button">Correo PDF</button>
+          <button id="btnQuoteReset" class="btn ghost" type="button">Limpiar</button>
+        </div>
+        <div id="quoteShareBox" class="quote-share-box" hidden>
+          <p class="muted tight" id="quoteShareHint">Propuesta lista. WhatsApp y correo envían el PDF.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+            <button id="btnQuoteShareWa" class="btn primary" type="button" style="width:auto">Enviar PDF por WhatsApp</button>
+            <button id="btnQuoteShareMail" class="btn secondary" type="button" style="width:auto">Enviar PDF por correo</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <h2>Historial en este equipo</h2>
+        <p class="muted tight">Aquí se ve quién creó cada cotización (solo uso interno; no sale en la propuesta del cliente).</p>
+        <div id="quoteHistoryList" class="card-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="cotizVersionGate" hidden>
+    <div class="cotiz-gate-card">
+      <h2>Actualización disponible</h2>
+      <p id="cotizVersionGateMsg">Hay una versión nueva. Actualiza antes de continuar.</p>
+      <button id="btnForceAppUpdate" class="btn primary" type="button">Actualizar ahora</button>
+    </div>
+  </div>
+
+  <script src="cotizaciones-app.js?v=231"></script>
+  <script src="../quotes.js?v=231"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      cotizacionesBoot();
+    });
+  </script>
+</body>
+</html>

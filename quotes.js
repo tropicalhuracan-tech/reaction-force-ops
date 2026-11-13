@@ -1,4 +1,14 @@
 /* ==== MÓDULO COTIZACIONES / PROPUESTAS ==== */
+function rfsQuoteAsset(rel) {
+  const base =
+    typeof window !== "undefined" && window.RFS_QUOTE_MEDIA_BASE ? String(window.RFS_QUOTE_MEDIA_BASE) : "";
+  const path = base + String(rel || "").replace(/^\//, "");
+  try {
+    return new URL(path, window.location.href).href;
+  } catch (_) {
+    return path;
+  }
+}
 const QUOTES_KEY = "rfs-ops-quotes";
 const QUOTE_DAYS = 30;
 const QUOTE_ITBIS = 0.18;
@@ -421,9 +431,9 @@ function buildClientsBlock() {
     <p style="font-size:12px;line-height:1.45"><strong>Referencias:</strong> ${escapeHtml(QUOTE_REF_CLIENTS.join(" · "))}</p>
     <p style="margin:10px 0 6px;font-size:12px;color:#444">Logotipos / cartera de clientes (material RFS):</p>
     <div class="q-clients" style="display:grid;gap:10px;margin:8px 0 14px">
-      <img src="quote-assets/clientes-rfs-1.jpg" alt="Clientes Reaction Force Security 1"
+      <img src="${rfsQuoteAsset("quote-assets/clientes-rfs-1.jpg")}" alt="Clientes Reaction Force Security 1"
         style="width:100%;max-width:640px" />
-      <img src="quote-assets/clientes-rfs-2.jpg" alt="Clientes Reaction Force Security 2"
+      <img src="${rfsQuoteAsset("quote-assets/clientes-rfs-2.jpg")}" alt="Clientes Reaction Force Security 2"
         style="width:100%;max-width:640px" />
     </div>
     <p style="font-size:12px;color:#444">Esta cartera demuestra experiencia comprobada y la tranquilidad de quienes ya nos eligieron como su aliado de seguridad.</p>`;
@@ -941,11 +951,7 @@ function quotePdfFileName(data) {
 }
 
 function quoteLogoUrl() {
-  try {
-    return new URL("logo.jpg", window.location.href).href;
-  } catch (_) {
-    return "logo.jpg";
-  }
+  return rfsQuoteAsset("logo.jpg");
 }
 
 /**
