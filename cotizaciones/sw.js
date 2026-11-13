@@ -1,15 +1,15 @@
-const CACHE = "rfs-cotizaciones-v231";
+const CACHE = "rfs-cotizaciones-v232";
 const ASSETS = [
   "./",
   "./index.html",
-  "./cotizaciones-app.js?v=231",
+  "./cotizaciones-app.js?v=232",
   "./manifest.json",
   "./version.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-180.png",
-  "../styles.css?v=231",
-  "../quotes.js?v=231",
+  "../styles.css?v=232",
+  "../quotes.js?v=232",
   "../logo.jpg",
   "../quote-assets/clientes-rfs-1.jpg",
   "../quote-assets/clientes-rfs-2.jpg",

@@ -12,8 +12,29 @@ function rfsQuoteAsset(rel) {
 const QUOTES_KEY = "rfs-ops-quotes";
 const QUOTE_DAYS = 30;
 const QUOTE_ITBIS = 0.18;
-/** Cada hombre trabaja siempre 12 horas */
-const QUOTE_HOURS_PER_MAN = 12;
+/** Primeras horas de cada jornada a tarifa base del turno */
+const QUOTE_HOURS_BASE = 12;
+/** Máximo horas por hombre / día (sin llegar a 24) */
+const QUOTE_HOURS_PER_MAN_MAX = 23;
+
+function normalizeQuoteHoursPerMan(raw) {
+  let h = Number(raw);
+  if (!Number.isFinite(h) || h <= 0) h = QUOTE_HOURS_BASE;
+  return Math.min(QUOTE_HOURS_PER_MAN_MAX, Math.max(1, h));
+}
+
+function quoteShiftLaborTotals(menCount, hoursPerMan, days, baseRate, extraRateInput) {
+  const men = Math.max(0, Number(menCount) || 0);
+  const hpm = normalizeQuoteHoursPerMan(hoursPerMan);
+  const baseH = Math.min(hpm, QUOTE_HOURS_BASE);
+  const extraH = Math.max(0, hpm - QUOTE_HOURS_BASE);
+  const baseRateN = Math.max(0, Number(baseRate) || 0);
+  let extraRateN = Math.max(0, Number(extraRateInput) || 0);
+  if (extraH > 0 && extraRateN <= 0) extraRateN = baseRateN;
+  const hoursMonth = men * hpm * days;
+  const gross = men * days * (baseH * baseRateN + extraH * extraRateN);
+  return { baseH, extraH, baseRate: baseRateN, extraRate: extraRateN, hoursMonth, gross };
+}
 
 const RFS_COMPANY = {
   name: "Reaction Force Security, S.R.L.",
@@ -111,6 +132,9 @@ function emptyQuoteForm() {
     nightDiscountValue: 0,
     discountType: "none",
     discountValue: 0,
+    hoursPerMan: QUOTE_HOURS_BASE,
+    dayExtraHourlyRate: 0,
+    nightExtraHourlyRate: 0,
     includeItbis: true,
     note: "",
     date: new Date().toISOString().slice(0, 10),
@@ -137,7 +161,7 @@ function calcQuoteTotals(input = {}) {
   }
 
   const men = dayMen + nightMen;
-  const hoursPerMan = QUOTE_HOURS_PER_MAN;
+  const hoursPerMan = normalizeQuoteHoursPerMan(input.hoursPerMan);
   const hoursPerDay = men * hoursPerMan;
   const legacyRate = Math.max(0, Number(input.hourlyRate) || 0);
   let dayRate = Math.max(0, Number(input.dayHourlyRate));
@@ -156,12 +180,20 @@ function calcQuoteTotals(input = {}) {
     nightRate = legacyRate;
   }
   const days = QUOTE_DAYS;
-  const dayHoursMonth = dayMen * hoursPerMan * days;
-  const nightHoursMonth = nightMen * hoursPerMan * days;
+  const dayExtraRateIn = input.dayExtraHourlyRate;
+  const nightExtraRateIn = input.nightExtraHourlyRate;
+  const dayLab = quoteShiftLaborTotals(dayMen, hoursPerMan, days, dayRate, dayExtraRateIn);
+  const nightLab = quoteShiftLaborTotals(nightMen, hoursPerMan, days, nightRate, nightExtraRateIn);
+  const dayHoursMonth = dayLab.hoursMonth;
+  const nightHoursMonth = nightLab.hoursMonth;
   const hoursMonth = dayHoursMonth + nightHoursMonth;
-  const dayGross = dayHoursMonth * dayRate;
-  const nightGross = nightHoursMonth * nightRate;
+  const dayGross = dayLab.gross;
+  const nightGross = nightLab.gross;
   const gross = dayGross + nightGross;
+  const baseHoursPerMan = dayLab.baseH;
+  const extraHoursPerMan = dayLab.extraH;
+  const dayExtraRate = dayLab.extraRate;
+  const nightExtraRate = nightLab.extraRate;
   const rate = men > 0 ? gross / Math.max(1, hoursMonth) : dayRate || nightRate || legacyRate;
 
   function shiftDiscount(grossPart, type, value) {
@@ -218,10 +250,14 @@ function calcQuoteTotals(input = {}) {
     nightMen,
     men,
     hoursPerMan,
+    baseHoursPerMan,
+    extraHoursPerMan,
     hoursPerDay,
     days,
     dayRate,
     nightRate,
+    dayExtraRate,
+    nightExtraRate,
     rate,
     dayHoursMonth,
     nightHoursMonth,
@@ -271,8 +307,11 @@ function readQuoteForm() {
     attentionTo: String(document.getElementById("quoteAttentionTo")?.value || "").trim(),
     dayMen: Number(document.getElementById("quoteDayMen")?.value || 0),
     nightMen: Number(document.getElementById("quoteNightMen")?.value || 0),
+    hoursPerMan: Number(document.getElementById("quoteHoursPerMan")?.value || QUOTE_HOURS_BASE),
     dayHourlyRate: Number(document.getElementById("quoteDayRate")?.value || 0),
     nightHourlyRate: Number(document.getElementById("quoteNightRate")?.value || 0),
+    dayExtraHourlyRate: Number(document.getElementById("quoteDayExtraRate")?.value || 0),
+    nightExtraHourlyRate: Number(document.getElementById("quoteNightExtraRate")?.value || 0),
     hourlyRate: Number(
       document.getElementById("quoteDayRate")?.value || document.getElementById("quoteNightRate")?.value || 0
     ),
@@ -366,8 +405,9 @@ function quotePrintCss() {
   }`;
 }
 
-function quoteMandatoryNoteHtml() {
-  return `<p class="q-note"><strong>Nota importante:</strong> ${escapeHtml(quoteNoteBlock())}</p>`;
+function quoteMandatoryNoteHtml(calc) {
+  const h = calc && calc.hoursPerMan != null ? calc.hoursPerMan : QUOTE_HOURS_BASE;
+  return `<p class="q-note"><strong>Nota importante:</strong> ${escapeHtml(quoteNoteBlock(h))}</p>`;
 }
 
 function quoteAttentionHtml(data) {
@@ -395,8 +435,56 @@ function quoteShiftLabel(calc) {
   return parts.join(" + ") || "Sin personal";
 }
 
-function quoteNoteBlock() {
-  return "Los valores fueron calculados para un período de 30 días. Cada hombre labora 12 horas por jornada. La facturación puede variar en meses de 28, 29 o 31 días, así como por la incidencia de días feriados, conforme al calendario y a las condiciones del servicio.";
+function quoteNoteBlock(hoursPerMan = QUOTE_HOURS_BASE) {
+  const h = normalizeQuoteHoursPerMan(hoursPerMan);
+  const extra =
+    h > QUOTE_HOURS_BASE
+      ? ` Las horas de la ${QUOTE_HOURS_BASE + 1}.ª a la ${Math.floor(h)}.ª se cotizan a la tarifa adicional pactada (sin superar 23 h/día por hombre).`
+      : "";
+  return `Los valores fueron calculados para un período de 30 días. Cada hombre labora ${h} horas por jornada.${extra} La facturación puede variar en meses de 28, 29 o 31 días, así como por la incidencia de días feriados, conforme al calendario y a las condiciones del servicio.`;
+}
+
+function buildQuoteShiftTableRows(kind, calc) {
+  const men = kind === "day" ? calc.dayMen : calc.nightMen;
+  if (men <= 0) return [];
+  const rate = kind === "day" ? calc.dayRate : calc.nightRate;
+  const extraRate = kind === "day" ? calc.dayExtraRate : calc.nightExtraRate;
+  const gross = kind === "day" ? calc.dayGross : calc.nightGross;
+  const label = kind === "day" ? "diurno" : "nocturno";
+  const rows = [];
+  const h = calc.hoursPerMan;
+  const baseH = calc.baseHoursPerMan;
+  const extraH = calc.extraHoursPerMan;
+  if (extraH > 0) {
+    const baseAmt = men * baseH * calc.days * rate;
+    rows.push(
+      `<tr>
+        <td>Turno ${label} · ${baseH} h base/hombre · ${moneyRD(rate)}/h</td>
+        <td>${men}</td>
+        <td>${men} × ${baseH} h × ${calc.days} días × ${moneyRD(rate)}</td>
+        <td class="right">${moneyRD(baseAmt)}</td>
+      </tr>`
+    );
+    const extraAmt = men * extraH * calc.days * extraRate;
+    rows.push(
+      `<tr>
+        <td>Turno ${label} · ${extraH} h extra/hombre (después de ${QUOTE_HOURS_BASE} h) · ${moneyRD(extraRate)}/h</td>
+        <td>${men}</td>
+        <td>${men} × ${extraH} h × ${calc.days} días × ${moneyRD(extraRate)}</td>
+        <td class="right">${moneyRD(extraAmt)}</td>
+      </tr>`
+    );
+  } else {
+    rows.push(
+      `<tr>
+        <td>Turno ${label} · ${h} h/hombre · ${moneyRD(rate)}/h</td>
+        <td>${men}</td>
+        <td>${men} × ${h} h × ${calc.days} días × ${moneyRD(rate)}</td>
+        <td class="right">${moneyRD(gross)}</td>
+      </tr>`
+    );
+  }
+  return rows;
 }
 
 function buildQuoteHeader() {
@@ -467,27 +555,7 @@ function buildQuoteTotalsTable(data, calc) {
     );
   }
   const discountRow = discountRows.join("");
-  const serviceLines = [];
-  if (calc.dayMen > 0) {
-    serviceLines.push(
-      `<tr>
-        <td>Turno diurno · ${QUOTE_HOURS_PER_MAN} h/hombre · ${moneyRD(calc.dayRate)}/h</td>
-        <td>${calc.dayMen}</td>
-        <td>${calc.dayMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.dayRate)}</td>
-        <td class="right">${moneyRD(calc.dayGross)}</td>
-      </tr>`
-    );
-  }
-  if (calc.nightMen > 0) {
-    serviceLines.push(
-      `<tr>
-        <td>Turno nocturno · ${QUOTE_HOURS_PER_MAN} h/hombre · ${moneyRD(calc.nightRate)}/h</td>
-        <td>${calc.nightMen}</td>
-        <td>${calc.nightMen} × ${QUOTE_HOURS_PER_MAN} h × ${calc.days} días × ${moneyRD(calc.nightRate)}</td>
-        <td class="right">${moneyRD(calc.nightGross)}</td>
-      </tr>`
-    );
-  }
+  const serviceLines = [...buildQuoteShiftTableRows("day", calc), ...buildQuoteShiftTableRows("night", calc)];
   if (!serviceLines.length) {
     serviceLines.push(`<tr><td colspan="4">Sin personal asignado</td></tr>`);
   }
@@ -504,7 +572,7 @@ function buildQuoteTotalsTable(data, calc) {
       <tbody>
         ${serviceLines.join("")}
         <tr>
-          <td colspan="3">Horas diarias totales (${calc.men} × ${QUOTE_HOURS_PER_MAN} h)</td>
+          <td colspan="3">Horas diarias totales (${calc.men} × ${calc.hoursPerMan} h)</td>
           <td class="right"><strong>${calc.hoursPerDay} h/día</strong></td>
         </tr>
         <tr>
@@ -550,7 +618,7 @@ function buildModelEjecutiva(data, calc) {
     <h3>Alcance del servicio</h3>
     <ul>
       <li>Vigilancia física y control de accesos</li>
-      <li>Cobertura diurna y/o nocturna según el personal contratado (cada hombre: ${QUOTE_HOURS_PER_MAN} horas)</li>
+      <li>Cobertura diurna y/o nocturna según el personal contratado (cada hombre: ${calc.hoursPerMan} horas por jornada)</li>
       <li>Supervisión operativa permanente</li>
       <li>Reportes de novedades e incidencias para el cliente</li>
       <li>Reemplazos por vacaciones y licencias</li>
@@ -559,7 +627,7 @@ function buildModelEjecutiva(data, calc) {
 
     <h3>Inversión del servicio</h3>
     ${buildQuoteTotalsTable(data, calc)}
-    ${quoteMandatoryNoteHtml()}
+    ${quoteMandatoryNoteHtml(calc)}
     ${data.note ? `<p><strong>Nota adicional:</strong> ${escapeHtml(data.note)}</p>` : ""}
 
     ${buildClientsBlock()}
@@ -592,9 +660,9 @@ function buildModelCotizacion(data, calc) {
     <h2 class="q-title">Cotización</h2>
     <p style="font-size:12px;color:#444;margin:0 0 8px">Turnos: <strong>${escapeHtml(
       quoteShiftLabel(calc)
-    )}</strong> · Cada hombre: ${QUOTE_HOURS_PER_MAN} h · Horas/día: <strong>${calc.hoursPerDay}</strong></p>
+    )}</strong> · Cada hombre: ${calc.hoursPerMan} h · Horas/día: <strong>${calc.hoursPerDay}</strong></p>
     ${buildQuoteTotalsTable(data, calc)}
-    ${quoteMandatoryNoteHtml()}
+    ${quoteMandatoryNoteHtml(calc)}
     ${data.note ? `<p><strong>Nota:</strong> ${escapeHtml(data.note)}</p>` : ""}
     ${buildTechBlock()}
     ${buildClientsBlock()}
@@ -634,7 +702,11 @@ function buildModelInstitucional(data, calc) {
     <h3>Cobertura propuesta</h3>
     <ul>
       <li><strong>${calc.men}</strong> hombre${calc.men === 1 ? "" : "s"} de seguridad (${escapeHtml(quoteShiftLabel(calc))})</li>
-      <li>Cada hombre labora <strong>${QUOTE_HOURS_PER_MAN} horas</strong> por jornada</li>
+      <li>Cada hombre labora <strong>${calc.hoursPerMan} horas</strong> por jornada${
+        calc.extraHoursPerMan > 0
+          ? ` (${calc.baseHoursPerMan} h a tarifa base + ${calc.extraHoursPerMan} h adicionales)`
+          : ""
+      }</li>
       <li>Horas diarias totales: <strong>${calc.hoursPerDay} h</strong></li>
       <li>Cálculo base: <strong>${QUOTE_DAYS} días</strong> al mes</li>
       <li>Tarifa día: <strong>${moneyRD(calc.dayRate)}</strong>/h · Tarifa noche: <strong>${moneyRD(
@@ -646,7 +718,7 @@ function buildModelInstitucional(data, calc) {
 
     <h3>Detalle económico</h3>
     ${buildQuoteTotalsTable(data, calc)}
-    ${quoteMandatoryNoteHtml()}
+    ${quoteMandatoryNoteHtml(calc)}
     ${data.note ? `<p><strong>Observaciones:</strong> ${escapeHtml(data.note)}</p>` : ""}
 
     <h3>Beneficios de elegirnos</h3>
@@ -688,15 +760,25 @@ function updateQuoteTotalsUi() {
   const box = document.getElementById("quoteTotalsBox");
   const totalMenEl = document.getElementById("quoteTotalMenLabel");
   if (totalMenEl) {
-    totalMenEl.textContent = `${calc.men} hombre${calc.men === 1 ? "" : "s"} · ${calc.hoursPerDay} h/día · ${calc.hoursMonth.toLocaleString(
+    const jornada =
+      calc.extraHoursPerMan > 0
+        ? `${calc.hoursPerMan} h/hombre (${calc.baseHoursPerMan}+${calc.extraHoursPerMan})`
+        : `${calc.hoursPerMan} h/hombre`;
+    totalMenEl.textContent = `${calc.men} hombre${calc.men === 1 ? "" : "s"} · ${jornada} · ${calc.hoursPerDay} h/día · ${calc.hoursMonth.toLocaleString(
       "es-DO"
     )} h/mes`;
   }
+  toggleQuoteExtraRatesUi();
   if (!box) return;
   box.innerHTML = `
     <div class="detail-grid">
-      <div><span>Diurnos</span><strong>${calc.dayMen} · ${moneyRD(calc.dayRate)}/h</strong></div>
-      <div><span>Nocturnos</span><strong>${calc.nightMen} · ${moneyRD(calc.nightRate)}/h</strong></div>
+      <div><span>Diurnos</span><strong>${calc.dayMen} · ${moneyRD(calc.dayRate)}/h${
+        calc.extraHoursPerMan > 0 && calc.dayMen > 0 ? ` (+${moneyRD(calc.dayExtraRate)}/h extra)` : ""
+      }</strong></div>
+      <div><span>Nocturnos</span><strong>${calc.nightMen} · ${moneyRD(calc.nightRate)}/h${
+        calc.extraHoursPerMan > 0 && calc.nightMen > 0 ? ` (+${moneyRD(calc.nightExtraRate)}/h extra)` : ""
+      }</strong></div>
+      <div><span>Horas / hombre</span><strong>${calc.hoursPerMan}</strong></div>
       <div><span>Horas / día</span><strong>${calc.hoursPerDay}</strong></div>
       <div><span>Horas / mes</span><strong>${calc.hoursMonth.toLocaleString("es-DO")}</strong></div>
       <div><span>Bruto día</span><strong>${moneyRD(calc.dayGross)}</strong></div>
@@ -711,9 +793,11 @@ function updateQuoteTotalsUi() {
       }</strong></div>
       <div><span>Total mensual</span><strong>${moneyRD(calc.total)}</strong></div>
     </div>
-    <p class="muted tight" style="margin-top:8px">Cada hombre = ${QUOTE_HOURS_PER_MAN} h · Cálculo a ${QUOTE_DAYS} días${
-      calc.includeItbis ? "" : " · sin ITBIS"
-    }</p>`;
+    <p class="muted tight" style="margin-top:8px">Jornada: ${calc.hoursPerMan} h/hombre${
+      calc.extraHoursPerMan > 0
+        ? ` (primeras ${calc.baseHoursPerMan} h a tarifa del turno · ${calc.extraHoursPerMan} h extra)`
+        : ""
+    } · Cálculo a ${QUOTE_DAYS} días${calc.includeItbis ? "" : " · sin ITBIS"}</p>`;
 }
 
 function selectQuoteModel(modelId) {
@@ -823,9 +907,12 @@ function fillQuoteForm(data) {
   set("quoteAttentionTo", d.attentionTo || "");
   set("quoteDayMen", d.dayMen ?? 1);
   set("quoteNightMen", d.nightMen ?? 0);
+  set("quoteHoursPerMan", d.hoursPerMan != null ? d.hoursPerMan : QUOTE_HOURS_BASE);
   const legacyRate = d.hourlyRate ?? 155;
   set("quoteDayRate", d.dayHourlyRate != null ? d.dayHourlyRate : legacyRate);
   set("quoteNightRate", d.nightHourlyRate != null ? d.nightHourlyRate : legacyRate);
+  set("quoteDayExtraRate", d.dayExtraHourlyRate != null ? d.dayExtraHourlyRate : "");
+  set("quoteNightExtraRate", d.nightExtraHourlyRate != null ? d.nightExtraHourlyRate : "");
   // Migrar descuento global viejo → día (si no hay split)
   let dayDiscType = d.dayDiscountType;
   let nightDiscType = d.nightDiscountType;
@@ -847,6 +934,7 @@ function fillQuoteForm(data) {
   if (itbisEl) itbisEl.checked = d.includeItbis !== false;
   renderQuoteModelCards();
   toggleQuoteDiscountField();
+  toggleQuoteExtraRatesUi();
   updateQuoteTotalsUi();
 }
 
@@ -872,6 +960,21 @@ function toggleQuoteDiscountField() {
   if (nightWrap) nightWrap.hidden = nightType === "none";
 }
 
+function toggleQuoteExtraRatesUi() {
+  const h = normalizeQuoteHoursPerMan(document.getElementById("quoteHoursPerMan")?.value);
+  const block = document.getElementById("quoteExtraRatesBlock");
+  if (block) block.hidden = h <= QUOTE_HOURS_BASE;
+}
+
+function clampQuoteHoursInput() {
+  const hoursInput = document.getElementById("quoteHoursPerMan");
+  if (!hoursInput) return;
+  const h = normalizeQuoteHoursPerMan(hoursInput.value);
+  if (hoursInput.value !== "" && Number(hoursInput.value) !== h) {
+    hoursInput.value = String(h);
+  }
+}
+
 function validateQuoteForm(data, calc) {
   if (!data.clientName) {
     toast("Escribe el nombre del cliente.");
@@ -887,6 +990,10 @@ function validateQuoteForm(data, calc) {
   }
   if (calc.nightMen > 0 && (!calc.nightRate || calc.nightRate <= 0)) {
     toast("Indica el precio por hora del turno de noche.");
+    return false;
+  }
+  if (calc.hoursPerMan < 1 || calc.hoursPerMan > QUOTE_HOURS_PER_MAN_MAX) {
+    toast(`Las horas por hombre deben ser entre 1 y ${QUOTE_HOURS_PER_MAN_MAX} (sin llegar a 24).`);
     return false;
   }
   if ((!calc.dayMen || calc.dayMen <= 0) && (!calc.nightMen || calc.nightMen <= 0)) {
@@ -1244,8 +1351,11 @@ function wireQuotesModule() {
     "quoteAttentionTo",
     "quoteDayMen",
     "quoteNightMen",
+    "quoteHoursPerMan",
     "quoteDayRate",
     "quoteNightRate",
+    "quoteDayExtraRate",
+    "quoteNightExtraRate",
     "quoteDayDiscountValue",
     "quoteNightDiscountValue",
     "quoteNote",
@@ -1255,6 +1365,11 @@ function wireQuotesModule() {
     document.getElementById(id)?.addEventListener("change", updateQuoteTotalsUi);
   });
   document.getElementById("quoteIncludeItbis")?.addEventListener("change", updateQuoteTotalsUi);
+  document.getElementById("quoteHoursPerMan")?.addEventListener("change", () => {
+    clampQuoteHoursInput();
+    toggleQuoteExtraRatesUi();
+    updateQuoteTotalsUi();
+  });
   ["quoteDayDiscountType", "quoteNightDiscountType"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", () => {
       toggleQuoteDiscountField();

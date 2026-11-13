@@ -1,6 +1,6 @@
 /* RFS Cotizaciones — App independiente para vendedores (build 231) */
-const APP_BUILD = 231;
-const APP_VERSION_LABEL = "v231-cotizaciones";
+const APP_BUILD = 232;
+const APP_VERSION_LABEL = "v232-cotizaciones";
 const VENDOR_KEY = "rfs-quote-vendor-name";
 
 let currentUser = null;
