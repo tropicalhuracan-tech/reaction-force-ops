@@ -8,6 +8,9 @@ const MONOQ_KEY = "rfs-ops-monorriel-quincenas";
 const MONOQ_SAFETY_KEY = "rfs-ops-monoq-payroll-safety";
 const MONOQ_MANUAL_BACKUP_KEY = "rfs-ops-monoq-manual-backups";
 const MONOQ_MANUAL_BACKUP_MAX = 12;
+const MONOQ_UNDO_KEY = "rfs-ops-monoq-undo-stack";
+const MONOQ_UNDO_MAX = 40;
+let monoQUndoStack = [];
 const MONOQ_ACTIVE_KEY = "rfs-ops-monorriel-quincena-active";
 const MONOQ_SHEETS = [
   { id: "dia", label: "Empleados día", volao: 850 },
@@ -397,6 +400,76 @@ function monoQDataMarkScore(data) {
   return reports.reduce((s, r) => s + monoQReportMarkScore(r), 0);
 }
 
+function monoQLoadUndoStack() {
+  if (monoQUndoStack.length) return;
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(MONOQ_UNDO_KEY) || "[]");
+    if (Array.isArray(raw)) monoQUndoStack = raw;
+  } catch (_) {}
+}
+
+function monoQPersistUndoStack() {
+  try {
+    while (monoQUndoStack.length > MONOQ_UNDO_MAX) monoQUndoStack.shift();
+    sessionStorage.setItem(MONOQ_UNDO_KEY, JSON.stringify(monoQUndoStack));
+  } catch (_) {}
+}
+
+function monoQPushUndo(tag) {
+  ensureMonorrielQuincenasLoaded();
+  monoQLoadUndoStack();
+  const snap = {
+    at: Date.now(),
+    tag: String(tag || "edit").slice(0, 24),
+    reports: JSON.parse(JSON.stringify(monoQData.reports || [])),
+    activeReportId: monoQActiveId,
+    activeSheet: monoQSheet,
+  };
+  const prev = monoQUndoStack[monoQUndoStack.length - 1];
+  if (prev && JSON.stringify(prev.reports) === JSON.stringify(snap.reports)) return;
+  monoQUndoStack.push(snap);
+  monoQPersistUndoStack();
+}
+
+function undoMonoQStep() {
+  monoQLoadUndoStack();
+  if (!monoQUndoStack.length) {
+    if (typeof toast === "function") toast("Nada que deshacer (Ctrl+Z).");
+    return { ok: false };
+  }
+  const snap = monoQUndoStack.pop();
+  monoQPersistUndoStack();
+  ensureMonorrielQuincenasLoaded();
+  monoQData = { reports: JSON.parse(JSON.stringify(snap.reports || [])), _ready: true };
+  monoQData.reports = (monoQData.reports || []).map((r) => monoQNormalizeReport(r));
+  if (snap.activeReportId) monoQActiveId = snap.activeReportId;
+  if (snap.activeSheet) monoQSheet = snap.activeSheet;
+  monoQSave(true);
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  renderMonorrielQuincenaModule();
+  if (typeof toast === "function") toast("Deshecho · Ctrl+Z");
+  return { ok: true };
+}
+
+function monoQBindUndoOnFocus(cell, tag) {
+  if (!cell || cell.dataset.monoqUndoBound) return;
+  cell.dataset.monoqUndoBound = "1";
+  cell.addEventListener("focus", () => {
+    if (cell.dataset.monoqUndoSnap) return;
+    monoQPushUndo(tag || "celda");
+    cell.dataset.monoqUndoSnap = "1";
+  });
+  cell.addEventListener(
+    "blur",
+    () => {
+      delete cell.dataset.monoqUndoSnap;
+    },
+    true
+  );
+}
+
 function pushMonoQManualBackup(reason) {
   ensureMonorrielQuincenasLoaded();
   const snapshot = {
@@ -696,6 +769,7 @@ function monoQMarkScoreForEmp(emp) {
 
 function monoQDedupeSheet(sheet) {
   if (!sheet || !Array.isArray(sheet.employees)) return { removed: 0 };
+  monoQPushUndo("dedupe");
   let removed = 0;
   const keepIdx = new Map();
   const list = sheet.employees;
@@ -815,7 +889,7 @@ function renderMonorrielQuincenaModule() {
         El día 31 se ve y no cuenta.         Cada botón naranja envía esa planilla a su nómina y deja solo esos nombres.
         Los de la nómina anterior que no están en esta planilla se quitan.
         El préstamo de quien se queda no se toca. Todos cobran en efectivo.
-        <strong>✕ Quitar</strong> solo esa fila. <strong>Guardar respaldo</strong> antes de borrar muchos nombres.
+        <strong>✕ Quitar</strong> solo esa fila. <strong>Ctrl+Z</strong> deshace. <strong>Guardar respaldo</strong> para copias mayores.
       </p>
     </div>
     <div class="form-card">
@@ -857,6 +931,9 @@ function renderMonorrielQuincenaModule() {
 function bindMonorrielQuincenaUi(report) {
   const host = document.getElementById("monoQuincenaHost");
   if (!host) return;
+  host.querySelectorAll(".monoq-name, .monoq-post, .monoq-pagos, .monoq-horas, .monoq-day").forEach((cell) => {
+    monoQBindUndoOnFocus(cell, "editar");
+  });
   document.getElementById("monoQSelect")?.addEventListener("change", (ev) => {
     monoQActiveId = ev.target.value;
     monoQSave(false);
@@ -949,6 +1026,7 @@ function bindMonorrielQuincenaUi(report) {
     const sheet = current && current.sheets[monoQSheet];
     if (!sheet) return;
     if (!monoQFindEmp(sheet.employees, fullName)) {
+      monoQPushUndo("agregar");
       const postInput = document.getElementById("monoQAddPost");
       sheet.employees.push({
         fullName,
@@ -1057,6 +1135,7 @@ function bindMonorrielQuincenaUi(report) {
       const emp = sheet && sheet.employees[idx];
       if (!emp) return;
       if (!confirm(`¿Quitar solo a ${emp.fullName} de esta fila?`)) return;
+      monoQPushUndo("quitar");
       sheet.deletedKeys = sheet.deletedKeys || [];
       const dk = monoQEmployeeDeleteKey(emp);
       if (dk && !sheet.deletedKeys.includes(dk)) sheet.deletedKeys.push(dk);
@@ -1271,4 +1350,5 @@ if (typeof window !== "undefined") {
   window.monoQDataMarkScore = monoQDataMarkScore;
   window.restoreMonoQFromSafetyNet = restoreMonoQFromSafetyNet;
   window.syncMonorrielQuincenasPacked = syncMonorrielQuincenasPacked;
+  window.undoMonoQStep = undoMonoQStep;
 }

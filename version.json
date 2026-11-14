@@ -1,6 +1,6 @@
 {
-  "build": 234,
-  "label": "v234",
-  "minBuild": 234,
-  "note": "Quitar solo una fila; Guardar/Recuperar respaldo en Vargas y Monorriel"
+  "build": 235,
+  "label": "v235",
+  "minBuild": 235,
+  "note": "Ctrl+Z deshacer en reportes Vargas y Monorriel"
 }

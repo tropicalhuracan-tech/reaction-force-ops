@@ -3,6 +3,9 @@ const VARGAS_KEY = "rfs-ops-vargas";
 const VARGAS_SAFETY_KEY = "rfs-ops-vargas-payroll-safety";
 const VARGAS_MANUAL_BACKUP_KEY = "rfs-ops-vargas-manual-backups";
 const VARGAS_MANUAL_BACKUP_MAX = 12;
+const VARGAS_UNDO_KEY = "rfs-ops-vargas-undo-stack";
+const VARGAS_UNDO_MAX = 40;
+let vargasUndoStack = [];
 
 let vargasData = emptyVargasData();
 let vargasFilterShift = "all"; // all | diurno | nocturno
@@ -254,6 +257,72 @@ function persistVargasSafetyNet(data) {
       localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(merged));
     }
   } catch (_) {}
+}
+
+function vargasLoadUndoStack() {
+  if (vargasUndoStack.length) return;
+  try {
+    const raw = JSON.parse(sessionStorage.getItem(VARGAS_UNDO_KEY) || "[]");
+    if (Array.isArray(raw)) vargasUndoStack = raw;
+  } catch (_) {}
+}
+
+function vargasPersistUndoStack() {
+  try {
+    while (vargasUndoStack.length > VARGAS_UNDO_MAX) vargasUndoStack.shift();
+    sessionStorage.setItem(VARGAS_UNDO_KEY, JSON.stringify(vargasUndoStack));
+  } catch (_) {}
+}
+
+/** Guarda el estado actual antes de un cambio (Ctrl+Z). */
+function vargasPushUndo(tag) {
+  ensureVargasSeedLoaded();
+  vargasLoadUndoStack();
+  const snap = {
+    at: Date.now(),
+    tag: String(tag || "edit").slice(0, 24),
+    reports: JSON.parse(JSON.stringify(vargasData.reports || [])),
+    activeReportId: vargasActiveReportId,
+  };
+  const prev = vargasUndoStack[vargasUndoStack.length - 1];
+  if (prev && JSON.stringify(prev.reports) === JSON.stringify(snap.reports)) return;
+  vargasUndoStack.push(snap);
+  vargasPersistUndoStack();
+}
+
+function undoVargasStep() {
+  vargasLoadUndoStack();
+  if (!vargasUndoStack.length) {
+    if (typeof toast === "function") toast("Nada que deshacer (Ctrl+Z).");
+    return { ok: false };
+  }
+  const snap = vargasUndoStack.pop();
+  vargasPersistUndoStack();
+  ensureVargasSeedLoaded();
+  vargasData = { reports: JSON.parse(JSON.stringify(snap.reports || [])) };
+  vargasData = normalizeVargasData(vargasData);
+  if (snap.activeReportId) setActiveVargasReport(snap.activeReportId);
+  saveVargasData(true, true);
+  renderVargasModule();
+  if (typeof toast === "function") toast("Deshecho · Ctrl+Z");
+  return { ok: true };
+}
+
+function vargasBindUndoOnFocus(cell, tag) {
+  if (!cell || cell.dataset.vargasUndoBound) return;
+  cell.dataset.vargasUndoBound = "1";
+  cell.addEventListener("focus", () => {
+    if (cell.dataset.vargasUndoSnap) return;
+    vargasPushUndo(tag || "celda");
+    cell.dataset.vargasUndoSnap = "1";
+  });
+  cell.addEventListener(
+    "blur",
+    () => {
+      delete cell.dataset.vargasUndoSnap;
+    },
+    true
+  );
 }
 
 function pushVargasManualBackup(reason) {
@@ -775,6 +844,7 @@ function vargasMarkScoreForEmp(emp) {
 function dedupeVargasActiveReport() {
   const report = getActiveVargasReport();
   if (!report) return { removed: 0 };
+  vargasPushUndo("dedupe");
   let removed = 0;
   (report.sections || []).forEach((sec) => {
     const list = sec.employees || [];
@@ -952,6 +1022,7 @@ function setVargasEmployeePayBucket(sectionIdx, empIdx, value) {
   // Una vez elegido B o E, no se borra solo. Solo cambia si eligen el otro.
   if (prev && !next) return false;
   if (prev === next) return true;
+  vargasPushUndo("B/E");
   emp.payBucket = next;
   emp.payBucketSetAt = new Date().toISOString();
   report.updatedAt = new Date().toISOString();
@@ -1146,6 +1217,7 @@ function addVargasEmployee(opts = {}) {
   const dup = (section.employees || []).some((e) => vargasNameKey(e.fullName) === vargasNameKey(fullName));
   if (dup) return { ok: false, reason: "duplicate" };
 
+  vargasPushUndo("agregar");
   section.employees.push({
     fullName,
     marks: {},
@@ -1195,6 +1267,7 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   const sec = report.sections[sectionIdx];
   const emp = sec.employees && sec.employees[empIdx];
   if (!emp) return { ok: false };
+  vargasPushUndo("quitar");
   const name = emp.fullName;
   sec.deletedKeys = vargasSectionDeletedKeys(sec);
   const dk = vargasEmployeeDeleteKey(sec, emp);
@@ -1330,6 +1403,10 @@ function setVargasEmployeeMark(sectionIdx, empIdx, day, value) {
   if (!emp) return;
   const key = String(day);
   const raw = String(value == null ? "" : value).trim();
+  const prev = emp.marks && emp.marks[key];
+  const prevNorm = prev == null || prev === "" ? "" : String(prev);
+  const nextNorm = raw;
+  if (prevNorm === nextNorm) return;
   if (!raw) {
     delete emp.marks[key];
   } else if (/^\d+(\.\d+)?$/.test(raw)) {
@@ -2275,7 +2352,7 @@ function renderVargasModule() {
         Cada 15 días se abre otra quincena: se copian los empleados, los días quedan en blanco y la quincena anterior no se borra.
         Si el nombre o el puesto dice <strong>-LA VEGA</strong>, en <strong>La Vega Autopista</strong> queda el nombre completo del reporte (todos los nombres y apellidos, sin la palabra La Vega) y la lista va en orden alfabético.
         Día 31 no suma.
-        <strong>✕ Quitar</strong> solo esa fila. <strong>Guardar respaldo</strong> / <strong>Recuperar</strong> si necesitas deshacer.
+        <strong>✕ Quitar</strong> solo esa fila. <strong>Ctrl+Z</strong> deshace el último cambio. <strong>Guardar respaldo</strong> / <strong>Recuperar</strong> para copias mayores.
       </p>
     </div>
 
@@ -2368,6 +2445,9 @@ function bindVargasUiHandlers() {
       renderVargasModule();
     });
   }
+  document.querySelectorAll(".vargas-day-cell, td.vargas-name, td.vargas-post-edit, .vargas-pagos-cell, .vargas-hex-cell").forEach((cell) => {
+    vargasBindUndoOnFocus(cell, "editar");
+  });
   document.querySelectorAll(".vargas-bucket").forEach((sel) => {
     sel.addEventListener("change", () => {
       const s = Number(sel.dataset.s);
@@ -2656,6 +2736,7 @@ if (typeof window !== "undefined") {
   window.vargasDataMarkScore = vargasDataMarkScore;
   window.restoreVargasFromSafetyNet = restoreVargasFromSafetyNet;
   window.persistVargasSafetyNet = persistVargasSafetyNet;
+  window.undoVargasStep = undoVargasStep;
 }
 
 window.RFSVargas = {
@@ -2676,6 +2757,8 @@ window.RFSVargas = {
   renderVargasModule,
   addVargasEmployee,
   removeVargasEmployee,
+  undoVargasStep,
+  vargasPushUndo,
   guardarVargasRespaldo,
   restoreVargasFromStoredBackup,
   setVargasEmployeeName,
