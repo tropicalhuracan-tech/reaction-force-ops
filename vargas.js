@@ -153,6 +153,9 @@ function normalizeVargasReport(raw = {}) {
     to: String(raw.to || "").slice(0, 10),
     label: String(raw.label || "").trim(),
     dayNums,
+    deletedNameKeys: Array.isArray(raw.deletedNameKeys)
+      ? [...new Set(raw.deletedNameKeys.map((k) => String(k || "").trim()).filter(Boolean))]
+      : [],
     sections: (Array.isArray(raw.sections) ? raw.sections : []).map((sec) => ({
       shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
       postName: String(sec.postName || "").trim() || "(sin puesto)",
@@ -176,7 +179,11 @@ function normalizeVargasReport(raw = {}) {
 
 function normalizeVargasData(raw = {}) {
   const reports = (Array.isArray(raw.reports) ? raw.reports : [])
-    .map(normalizeVargasReport)
+    .map((r) => {
+      const n = normalizeVargasReport(r);
+      vargasScrubDeletedFromReport(n);
+      return n;
+    })
     .filter((r) => r.period && r.sections);
   reports.sort((a, b) => {
     const c = String(b.period).localeCompare(String(a.period));
@@ -419,6 +426,7 @@ function mergeVargasReportSticky(base, other) {
     (osec.employees || []).forEach((oemp, oi) => {
       if (taken.has(oi)) return;
       if (vargasIsDeletedEmployee(sec, oemp, delUnion)) return;
+      if (vargasEmployeeIsDeleted(out, sec, oemp)) return;
       if (vargasFindBestMatch(oemp, sec.employees || [])) return;
       const hasMarks = Object.keys(oemp.marks || {}).some((d) => {
         const raw = oemp.marks[d];
@@ -435,6 +443,7 @@ function mergeVargasReportSticky(base, other) {
   otherSections.forEach((sec) => {
     const delSec = vargasSectionDeletedKeys(sec);
     const emps = (sec.employees || []).filter((e) => {
+      if (vargasEmployeeIsDeleted(out, sec, e)) return false;
       if (vargasIsDeletedEmployee(sec, e, delSec)) return false;
       const hasMarks = Object.keys(e.marks || {}).some((d) => Number(e.marks[d]) > 0);
       return hasMarks || e.nameManual || Number(e.horasExtras) > 0;
@@ -447,9 +456,14 @@ function mergeVargasReportSticky(base, other) {
       employees: emps.map((e) => ({ ...e, marks: { ...(e.marks || {}) } })),
     });
   });
+  out.deletedNameKeys = [
+    ...new Set([...vargasReportDeletedNameKeys(base), ...vargasReportDeletedNameKeys(other)]),
+  ];
   out.updatedAt =
     String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
-  return normalizeVargasReport(out);
+  const norm = normalizeVargasReport(out);
+  vargasScrubDeletedFromReport(norm);
+  return norm;
 }
 
 /** Une reportes: los días se combinan de ambos lados; no gana la copia vacía por fecha. */
@@ -659,6 +673,29 @@ function vargasSectionDeletedKeys(sec) {
   return Array.isArray(sec && sec.deletedKeys) ? sec.deletedKeys : [];
 }
 
+function vargasReportDeletedNameKeys(report) {
+  return Array.isArray(report && report.deletedNameKeys) ? report.deletedNameKeys : [];
+}
+
+function vargasEmployeeIsDeleted(report, section, emp) {
+  const nk = vargasNameKey(emp && emp.fullName);
+  if (nk && vargasReportDeletedNameKeys(report).includes(nk)) return true;
+  return vargasIsDeletedEmployee(section, emp);
+}
+
+/** Quita de la lista quien fue eliminado (incluye tras sincronizar). */
+function vargasScrubDeletedFromReport(report) {
+  if (!report) return 0;
+  let removed = 0;
+  (report.sections || []).forEach((sec) => {
+    const before = (sec.employees || []).length;
+    sec.employees = (sec.employees || []).filter((emp) => !vargasEmployeeIsDeleted(report, sec, emp));
+    removed += before - sec.employees.length;
+  });
+  report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
+  return removed;
+}
+
 function vargasEmployeeDeleteKey(section, emp) {
   return vargasEmployeeExactKey(section, emp);
 }
@@ -719,32 +756,21 @@ function vargasFindSectionForEmployee(report, sectionIdx, empIdx) {
   return { report, sectionIdx, section: sec, emp };
 }
 
-function setVargasEmployeePostName(sectionIdx, empIdx, rawPost) {
-  const hit = vargasFindSectionForEmployee(getActiveVargasReport(), sectionIdx, empIdx);
-  if (!hit) return { ok: false };
+/** Renombra el puesto de toda la sección (todos los empleados de ese bloque). */
+function setVargasSectionPostName(sectionIdx, rawPost) {
+  const report = getActiveVargasReport();
+  const sec = report && report.sections && report.sections[sectionIdx];
+  if (!sec) return { ok: false };
   const postName =
     String(rawPost || "")
       .replace(/\s+/g, " ")
       .trim()
       .toUpperCase() || "(SIN PUESTO)";
-  if (String(hit.section.postName || "").trim().toUpperCase() === postName) {
+  if (String(sec.postName || "").trim().toUpperCase() === postName) {
     return { ok: true, unchanged: true, postName };
   }
-  const shift = hit.section.shift === "nocturno" ? "nocturno" : "diurno";
-  let dest = (hit.report.sections || []).find(
-    (s) => s.shift === shift && String(s.postName || "").trim().toUpperCase() === postName
-  );
-  if (!dest) {
-    dest = { shift, postName, employees: [], deletedKeys: [] };
-    hit.report.sections.push(dest);
-  }
-  const emp = hit.section.employees.splice(empIdx, 1)[0];
-  if (!emp) return { ok: false };
-  dest.employees.push(emp);
-  if (!hit.section.employees.length) {
-    hit.report.sections.splice(sectionIdx, 1);
-  }
-  hit.report.updatedAt = new Date().toISOString();
+  sec.postName = postName;
+  report.updatedAt = new Date().toISOString();
   saveVargasData(true, true);
   return { ok: true, postName };
 }
@@ -1113,16 +1139,31 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   const emp = sec.employees && sec.employees[empIdx];
   if (!emp) return { ok: false };
   const name = emp.fullName;
-  sec.deletedKeys = vargasSectionDeletedKeys(sec);
-  const dk = vargasEmployeeDeleteKey(sec, emp);
-  if (dk && !sec.deletedKeys.includes(dk)) sec.deletedKeys.push(dk);
-  sec.employees.splice(empIdx, 1);
-  if (!sec.employees.length) {
-    report.sections.splice(sectionIdx, 1);
-  }
+  const nk = vargasNameKey(name);
+  report.deletedNameKeys = vargasReportDeletedNameKeys(report);
+  if (nk && !report.deletedNameKeys.includes(nk)) report.deletedNameKeys.push(nk);
+  let removed = 0;
+  (report.sections || []).forEach((section) => {
+    section.deletedKeys = vargasSectionDeletedKeys(section);
+    const before = (section.employees || []).length;
+    section.employees = (section.employees || []).filter((e) => {
+      if (nk && vargasNameKey(e.fullName) === nk) {
+        const dk = vargasEmployeeDeleteKey(section, e);
+        if (dk && !section.deletedKeys.includes(dk)) section.deletedKeys.push(dk);
+        return false;
+      }
+      return true;
+    });
+    removed += before - section.employees.length;
+  });
+  report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
   report.updatedAt = new Date().toISOString();
   saveVargasData(true, true);
-  return { ok: true, fullName: name };
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  persistVargasSafetyNet(vargasData);
+  return { ok: true, fullName: name, removed: Math.max(1, removed) };
 }
 
 function listVargasPostNames(report, shiftFilter) {
@@ -2128,7 +2169,7 @@ function renderVargasModule() {
       return `<tr data-shift="${row.shift}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
         <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
-        <td class="vargas-post vargas-post-edit" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para cambiar el puesto">${escapeVargasHtml(row.postName)}</td>
+        <td class="vargas-post vargas-post-edit" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" title="Toca para cambiar el puesto de este bloque">${escapeVargasHtml(row.postName)}</td>
         <td class="vargas-days-total">${daysLabel}</td>
         <td class="vargas-pagos-cell${pagosFilled ? " is-paid" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false" title="Volaos ya pagados (1 o 2). Solo control: no suma en nómina">${escapeVargasHtml(pagosVal)}</td>
         <td class="vargas-hex-cell${hexFilled ? " has-hex" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false"${hexTitle}>${escapeVargasHtml(hexVal)}</td>
@@ -2216,12 +2257,12 @@ function renderVargasModule() {
             <tr>
               <th>T</th>
               <th class="sticky-name">Empleado</th>
-              <th>Puesto</th>
+              <th title="Editable">Puesto</th>
               <th>Días</th>
               <th class="vargas-pagos-head" title="Volaos ya pagados — no entran a nómina">Volaos pagos</th>
               <th class="vargas-hex-head" title="Horas × RD$${VARGAS_EXTRA_HOUR_RATE} sumadas a Horas extras de nómina">Horas ext.</th>
               ${dayHeaders}
-              <th></th>
+              <th class="vargas-del-head" title="Quitar de la lista">Quitar</th>
             </tr>
           </thead>
           <tbody>
@@ -2357,19 +2398,20 @@ function bindVargasUiHandlers() {
     });
     cell.addEventListener("blur", () => {
       const s = Number(cell.dataset.s);
-      const e = Number(cell.dataset.e);
       const raw = String(cell.textContent || "").trim();
-      const result = setVargasEmployeePostName(s, e, raw);
+      const report = getActiveVargasReport();
+      const prevPost = report && report.sections[s] ? report.sections[s].postName : "";
+      const result = setVargasSectionPostName(s, raw);
       if (!result.ok) {
-        const report = getActiveVargasReport();
-        const emp = report && report.sections[s] && report.sections[s].employees[e];
-        cell.textContent = emp ? report.sections[s].postName : raw;
+        cell.textContent = prevPost || raw;
         return;
       }
       if (!result.unchanged) {
-        if (typeof toast === "function") toast(`Puesto: ${result.postName}`);
-        renderVargasModule();
+        if (typeof toast === "function") toast(`Puesto actualizado: ${result.postName}`);
       }
+      document.querySelectorAll(`td.vargas-post-edit[data-s="${s}"]`).forEach((c) => {
+        c.textContent = result.postName || "";
+      });
     });
   });
   const btnDedupe = document.getElementById("btnVargasDedupe");
@@ -2515,11 +2557,17 @@ function bindVargasUiHandlers() {
   document.querySelectorAll(".vargas-del-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const name = btn.dataset.name || "este empleado";
-      if (!confirm(`¿Eliminar a ${name} del reporte Vargas?`)) return;
+      if (!confirm(`¿Quitar a ${name} de la lista? (usa ✕, no borres el texto del nombre)`)) return;
       const s = Number(btn.dataset.s);
       const e = Number(btn.dataset.e);
       const result = removeVargasEmployee(s, e);
-      if (result.ok && typeof toast === "function") toast(`Eliminado: ${result.fullName}`);
+      if (result.ok && typeof toast === "function") {
+        toast(
+          (result.removed || 1) > 1
+            ? `Eliminado ${result.fullName} (${result.removed} filas duplicadas)`
+            : `Eliminado: ${result.fullName}`
+        );
+      }
       if (result.ok && typeof logActivity === "function") {
         logActivity("vargas_del", `Vargas − ${result.fullName}`);
       }
