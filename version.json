@@ -1,6 +1,6 @@
 {
-  "build": 240,
-  "label": "v240",
-  "minBuild": 240,
-  "note": "Vargas ✕ quita duplicados del mismo nombre y bloquea sync"
+  "build": 241,
+  "label": "v241",
+  "minBuild": 241,
+  "note": "Vargas: lista negra global William/Robin/Narciso sin revivir"
 }
