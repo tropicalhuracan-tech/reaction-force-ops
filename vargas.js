@@ -226,6 +226,9 @@ function normalizeVargasReport(raw = {}) {
     label: String(raw.label || "").trim(),
     dayNums,
     deletedNameKeys: [],
+    removedEmployeeKeys: Array.isArray(raw.removedEmployeeKeys)
+      ? [...new Set(raw.removedEmployeeKeys.map((k) => String(k || "").trim()).filter(Boolean))]
+      : [],
     sections: (Array.isArray(raw.sections) ? raw.sections : []).map((sec) => ({
       shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
       postName: String(sec.postName || "").trim() || "(sin puesto)",
@@ -321,12 +324,43 @@ function vargasDataMarkScore(data) {
 
 function persistVargasSafetyNet(data) {
   try {
+    const current = normalizeVargasData(data || vargasData);
     const prev = JSON.parse(localStorage.getItem(VARGAS_SAFETY_KEY) || "null");
-    const merged = mergeVargasDataSticky(prev && prev.reports ? prev : { reports: [] }, data || vargasData);
+    // La copia actual va primero: no reinsertar personas ya quitadas desde el respaldo viejo.
+    const merged = mergeVargasDataSticky(
+      current,
+      prev && prev.reports ? prev : { reports: [] }
+    );
+    (merged.reports || []).forEach((r) => vargasScrubDeletedFromReport(r));
     if (vargasDataMarkScore(merged) > 0) {
       localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(merged));
     }
   } catch (_) {}
+}
+
+function vargasReportRemovedKeys(report) {
+  return Array.isArray(report && report.removedEmployeeKeys) ? report.removedEmployeeKeys : [];
+}
+
+/** Conserva borrados locales al mezclar con la nube. */
+function vargasPreserveLocalDeletes(merged, localRaw) {
+  const local = normalizeVargasData(localRaw || {});
+  (merged.reports || []).forEach((r) => {
+    const lr = (local.reports || []).find((x) => x && x.id === r.id);
+    if (!lr) return;
+    r.removedEmployeeKeys = [
+      ...new Set([...vargasReportRemovedKeys(r), ...vargasReportRemovedKeys(lr)]),
+    ];
+    const lsecByKey = new Map((lr.sections || []).map((s) => [vargasSectionKey(s), s]));
+    (r.sections || []).forEach((sec) => {
+      const lsec = lsecByKey.get(vargasSectionKey(sec));
+      if (!lsec) return;
+      sec.deletedKeys = [
+        ...new Set([...vargasSectionDeletedKeys(sec), ...vargasSectionDeletedKeys(lsec)]),
+      ];
+    });
+    vargasScrubDeletedFromReport(r);
+  });
 }
 
 function vargasLoadUndoStack() {
@@ -464,12 +498,14 @@ function restoreVargasFromSafetyNet() {
     if (!raw) return 0;
     const safety = JSON.parse(raw);
     if (!safety || !Array.isArray(safety.reports) || !safety.reports.length) return 0;
-    const before = vargasDataMarkScore(vargasData);
-    vargasData = mergeVargasDataSticky(vargasData, safety);
     ensureVargasSeedLoaded();
-    vargasData = normalizeVargasData(vargasData);
-    const after = vargasDataMarkScore(vargasData);
+    const before = vargasDataMarkScore(vargasData);
+  if (before > 2) return 0;
+    const merged = mergeVargasDataSticky(vargasData, safety);
+    vargasPreserveLocalDeletes(merged, vargasData);
+    const after = vargasDataMarkScore(merged);
     if (after > before) {
+      vargasData = normalizeVargasData(merged);
       localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
       return after - before;
     }
@@ -612,6 +648,10 @@ function mergeVargasReportSticky(base, other) {
   if (!base) return normalizeVargasReport(other);
   if (!other) return normalizeVargasReport(base);
   const out = normalizeVargasReport(JSON.parse(JSON.stringify(base)));
+  out.removedEmployeeKeys = [
+    ...new Set([...vargasReportRemovedKeys(base), ...vargasReportRemovedKeys(other)]),
+  ];
+  vargasScrubDeletedFromReport(out);
   const otherSections = new Map();
   (other.sections || []).forEach((sec) => otherSections.set(vargasSectionKey(sec), sec));
   (out.sections || []).forEach((sec) => {
@@ -628,7 +668,9 @@ function mergeVargasReportSticky(base, other) {
     const delUnion = [...vargasSectionDeletedKeys(sec), ...vargasSectionDeletedKeys(osec)];
     (osec.employees || []).forEach((oemp, oi) => {
       if (taken.has(oi)) return;
-      if (vargasIsDeletedEmployee(sec, oemp, delUnion)) return;
+      const tomb = vargasEmployeeDeleteKey(sec, oemp);
+      if (tomb && (out.removedEmployeeKeys || []).includes(tomb)) return;
+      if (vargasIsDeletedEmployee(sec, oemp, delUnion, out)) return;
       if (vargasFindBestMatch(oemp, sec.employees || [])) return;
       const hasMarks = Object.keys(oemp.marks || {}).some((d) => {
         const raw = oemp.marks[d];
@@ -645,6 +687,8 @@ function mergeVargasReportSticky(base, other) {
   otherSections.forEach((sec) => {
     const delSec = vargasSectionDeletedKeys(sec);
     const emps = (sec.employees || []).filter((e) => {
+      const tomb = vargasEmployeeDeleteKey(sec, e);
+      if (tomb && (out.removedEmployeeKeys || []).includes(tomb)) return false;
       if (vargasIsDeletedEmployee(sec, e, delSec)) return false;
       const hasMarks = Object.keys(e.marks || {}).some((d) => Number(e.marks[d]) > 0);
       return hasMarks || e.nameManual || Number(e.horasExtras) > 0;
@@ -688,11 +732,12 @@ function applyRemoteVargasData(remote) {
   ) {
     return;
   }
-  restoreVargasFromSafetyNet();
-  vargasData = mergeVargasDataSticky(vargasData, remote || {});
-  restoreVargasFromSafetyNet();
+  const localSnapshot = JSON.parse(JSON.stringify(vargasData || { reports: [] }));
   ensureVargasSeedLoaded();
-  vargasData = normalizeVargasData(vargasData);
+  const merged = mergeVargasDataSticky(vargasData, remote || {});
+  vargasPreserveLocalDeletes(merged, localSnapshot);
+  vargasData = normalizeVargasData(merged);
+  (vargasData.reports || []).forEach((r) => vargasScrubDeletedFromReport(r));
   persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
 }
@@ -883,8 +928,7 @@ function vargasReportDeletedNameKeys(report) {
 }
 
 function vargasEmployeeIsDeleted(report, section, emp) {
-  void report;
-  return vargasIsDeletedEmployee(section, emp);
+  return vargasIsDeletedEmployee(section, emp, null, report);
 }
 
 /** Quita de la lista quien fue eliminado (incluye tras sincronizar). */
@@ -893,7 +937,7 @@ function vargasScrubDeletedFromReport(report) {
   let removed = 0;
   (report.sections || []).forEach((sec) => {
     const before = (sec.employees || []).length;
-    sec.employees = (sec.employees || []).filter((emp) => !vargasEmployeeIsDeleted(report, sec, emp));
+    sec.employees = (sec.employees || []).filter((emp) => !vargasIsDeletedEmployee(sec, emp, null, report));
     removed += before - sec.employees.length;
   });
   report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
@@ -904,9 +948,10 @@ function vargasEmployeeDeleteKey(section, emp) {
   return vargasEmployeeExactKey(section, emp);
 }
 
-function vargasIsDeletedEmployee(section, emp, extraKeys) {
+function vargasIsDeletedEmployee(section, emp, extraKeys, report) {
   const dk = vargasEmployeeDeleteKey(section, emp);
   if (!dk) return false;
+  if (report && vargasReportRemovedKeys(report).includes(dk)) return true;
   const set = new Set([...vargasSectionDeletedKeys(section), ...(extraKeys || [])]);
   return set.has(dk);
 }
@@ -1350,6 +1395,8 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   sec.deletedKeys = vargasSectionDeletedKeys(sec);
   const dk = vargasEmployeeDeleteKey(sec, emp);
   if (dk && !sec.deletedKeys.includes(dk)) sec.deletedKeys.push(dk);
+  report.removedEmployeeKeys = vargasReportRemovedKeys(report);
+  if (dk && !report.removedEmployeeKeys.includes(dk)) report.removedEmployeeKeys.push(dk);
   sec.employees.splice(empIdx, 1);
   if (!(sec.employees || []).length) {
     report.sections.splice(sectionIdx, 1);
@@ -1359,6 +1406,9 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   saveVargasData(true, true);
   try {
     if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  try {
+    localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(vargasData));
   } catch (_) {}
   persistVargasSafetyNet(vargasData);
   return { ok: true, fullName: name, removed: 1 };
