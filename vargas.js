@@ -1,13 +1,12 @@
 /* ==== MÓDULO RAMÓN VARGAS — reporte diurno/nocturno → Reaction Banco / Efectivo ==== */
 const VARGAS_KEY = "rfs-ops-vargas";
 const VARGAS_GLOBAL_REMOVED_KEY = "rfs-ops-vargas-global-removed";
-/** Nombres que no deben volver (semilla, sync, nueva quincena). Ortografía real del Excel. */
-const VARGAS_FACTORY_BAN_NAMES = [
+/** Variantes conocidas (al quitar duplicados / borrar una fila). No oculta a la persona en el reporte. */
+const VARGAS_NAME_VARIANT_HINTS = [
   "WILLIANS ANTONIO URENA TORRES",
   "WILIAM ANT UREÑA TORRES",
   "WILLIAM ANT UREÑA TORRES",
   "WILLIANS ANT UREÑA TORRES",
-  "WILLIAM ANTONIO UREÑA TORRES",
   "ROBIN  AMPARO HERNANDEZ",
   "ROBIN AMPARO HERNANDEZ",
   "NARCISO DILONE ROSADO",
@@ -136,7 +135,7 @@ function cloneVargasSeedReport(seed) {
           volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
           horasExtras: normalizeVargasHorasExtras(emp.horasExtras),
         }))
-        .filter((emp) => emp.fullName && !vargasIsGloballyBanned(emp.fullName)),
+        .filter((emp) => emp.fullName),
     })),
     // Fecha vieja: la semilla no puede ganar al reporte de la nube al abrir la app.
     updatedAt: String(src.updatedAt || "2026-10-16T00:00:00.000Z"),
@@ -398,8 +397,7 @@ function vargasCollectNameBanAliases(displayName) {
       });
     });
   });
-  const payrollNames = VARGAS_FACTORY_BAN_NAMES;
-  payrollNames.forEach((n) => {
+  VARGAS_NAME_VARIANT_HINTS.forEach((n) => {
     if (vargasNamesMatchLoose(n, displayName)) add(n);
   });
   return { keys: [...keys], labels: [...labels] };
@@ -467,22 +465,48 @@ function vargasAutoBanFromTombstones() {
   return true;
 }
 
-/** Bloqueo fijo + limpia reportes (antes de sync / copia de seguridad / nueva quincena). */
-function vargasEnsureFactoryBans(data) {
+/** Quita de la lista negra global si v248 los ocultó por error (deben verse 1 vez, no 0). */
+function vargasClearGlobalBanForDisplay(displayName) {
+  const alias = vargasCollectNameBanAliases(displayName);
+  const keySet = new Set(alias.keys);
   let merged = vargasLoadGlobalRemovedFromStore();
-  VARGAS_FACTORY_BAN_NAMES.forEach((n) => {
-    merged = vargasMergeGlobalRemoved(merged, vargasCollectNameBanAliases(n));
+  merged = vargasNormalizeGlobalRemoved({
+    keys: merged.keys.filter((k) => !keySet.has(k) && !vargasNamesMatchLoose(k, displayName)),
+    labels: merged.labels.filter((l) => !vargasNamesMatchLoose(l, displayName)),
   });
   vargasPersistGlobalRemovedToStore(merged);
-  const target = data && typeof data === "object" ? data : vargasData;
-  if (!target || typeof target !== "object") return merged;
-  target.globalRemovedNameKeys = merged.keys;
-  target.globalRemovedLabels = merged.labels;
-  (target.reports || []).forEach((r) => {
-    r.removedNameKeys = [...new Set([...vargasReportRemovedNameKeys(r), ...merged.keys])];
-    vargasScrubDeletedFromReport(r);
-  });
   return merged;
+}
+
+function vargasUndoV248FactoryHiddenBans(data) {
+  const target = data && typeof data === "object" ? data : vargasData;
+  VARGAS_NAME_VARIANT_HINTS.forEach((hint) => {
+    const m = vargasClearGlobalBanForDisplay(hint);
+    if (target && typeof target === "object") {
+      target.globalRemovedNameKeys = m.keys;
+      target.globalRemovedLabels = m.labels;
+    }
+  });
+  if (!target || typeof target !== "object") return;
+  const blocked = new Set(
+    VARGAS_NAME_VARIANT_HINTS.flatMap((h) => vargasCollectNameBanAliases(h).keys)
+  );
+  const hintKeys = new Set(VARGAS_NAME_VARIANT_HINTS.map((h) => vargasNameKey(h)).filter(Boolean));
+  (target.reports || []).forEach((r) => {
+    r.removedNameKeys = vargasReportRemovedNameKeys(r).filter((k) => !blocked.has(k));
+    r.removedEmployeeKeys = vargasReportRemovedKeys(r).filter((dk) => {
+      const parts = String(dk || "").split("|");
+      const nameKey = parts.length >= 3 ? parts.slice(2).join("|") : "";
+      return !nameKey || !hintKeys.has(nameKey);
+    });
+    (r.sections || []).forEach((sec) => {
+      sec.deletedKeys = vargasSectionDeletedKeys(sec).filter((dk) => {
+        const parts = String(dk || "").split("|");
+        const nameKey = parts.length >= 3 ? parts.slice(2).join("|") : "";
+        return !nameKey || !hintKeys.has(nameKey);
+      });
+    });
+  });
 }
 
 function normalizeVargasData(raw = {}) {
@@ -490,6 +514,7 @@ function normalizeVargasData(raw = {}) {
     .map((r) => {
       const n = normalizeVargasReport(r);
       vargasScrubDeletedFromReport(n);
+      vargasDedupeReportLoose(n);
       return n;
     })
     .filter((r) => r.period && r.sections);
@@ -507,7 +532,7 @@ function normalizeVargasData(raw = {}) {
       ? [...new Set(raw.globalRemovedLabels.map((l) => String(l || "").trim()).filter(Boolean))]
       : [],
   };
-  vargasEnsureFactoryBans(out);
+  vargasUndoV248FactoryHiddenBans(out);
   return vargasApplyAllBansToData(out);
 }
 
@@ -573,8 +598,8 @@ function persistVargasSafetyNet(data) {
       current,
       prev && prev.reports ? prev : { reports: [] }
     );
-    vargasEnsureFactoryBans(merged);
     vargasApplyAllBansToData(merged);
+    (merged.reports || []).forEach((r) => vargasDedupeReportLoose(r));
     (merged.reports || []).forEach((r) => vargasScrubDeletedFromReport(r));
     if (vargasDataMarkScore(merged) > 0) {
       localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(merged));
@@ -996,6 +1021,7 @@ function mergeVargasReportSticky(base, other) {
     String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
   const norm = normalizeVargasReport(out);
   vargasScrubDeletedFromReport(norm);
+  vargasDedupeReportLoose(norm);
   return norm;
 }
 
@@ -1141,10 +1167,11 @@ function createVargasQuincena(period, half, sourceReport) {
             horasExtras: 0,
           };
         })
-        .filter((emp) => emp.fullName && !vargasIsGloballyBanned(emp.fullName)),
+        .filter((emp) => emp.fullName),
     })),
     updatedAt: new Date().toISOString(),
   };
+  vargasDedupeReportLoose(report);
   vargasData.reports = vargasData.reports || [];
   vargasData.reports.push(report);
   saveVargasData(true);
@@ -1239,10 +1266,60 @@ function vargasDedupeSectionEmployees(sec) {
   const kept = [];
   (sec.employees || []).forEach((emp) => {
     if (!emp || !String(emp.fullName || "").trim()) return;
-    if (kept.some((k) => vargasNamesMatchLoose(k.fullName, emp.fullName))) return;
+    const hit = kept.find((k) => vargasNamesMatchLoose(k.fullName, emp.fullName));
+    if (hit) {
+      if (vargasMarkScoreForEmp(emp) > vargasMarkScoreForEmp(hit)) {
+        mergeVargasEmployeeFields(emp, hit);
+        Object.assign(hit, emp);
+      } else {
+        mergeVargasEmployeeFields(hit, emp);
+      }
+      return;
+    }
     kept.push(emp);
   });
   sec.employees = kept;
+}
+
+/**
+ * Una sola fila por persona por turno (diurno/nocturno) en todo el reporte.
+ * Si aparece dos veces (sync/Excel), combina marcas y deja la fila con más datos.
+ */
+function vargasDedupeReportLoose(report) {
+  if (!report) return 0;
+  let removed = 0;
+  const winners = [];
+  (report.sections || []).forEach((sec) => {
+    const shift = sec.shift === "nocturno" ? "nocturno" : "diurno";
+    const kept = [];
+    (sec.employees || []).forEach((emp) => {
+      if (!emp || !String(emp.fullName || "").trim()) return;
+      const found = winners.find(
+        (w) => w.shift === shift && vargasNamesMatchLoose(w.emp.fullName, emp.fullName)
+      );
+      if (!found) {
+        winners.push({ shift, sec, emp, list: kept });
+        kept.push(emp);
+        return;
+      }
+      removed += 1;
+      const scoreNew = vargasMarkScoreForEmp(emp);
+      const scoreOld = vargasMarkScoreForEmp(found.emp);
+      if (scoreNew > scoreOld) {
+        mergeVargasEmployeeFields(emp, found.emp);
+        found.sec.employees = (found.sec.employees || []).filter((e) => e !== found.emp);
+        found.emp = emp;
+        found.sec = sec;
+        found.list = kept;
+        kept.push(emp);
+      } else {
+        mergeVargasEmployeeFields(found.emp, emp);
+      }
+    });
+    sec.employees = kept;
+  });
+  report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
+  return removed;
 }
 
 /** Quita de la lista quien fue eliminado (incluye tras sincronizar). */
@@ -1289,9 +1366,15 @@ function dedupeVargasActiveReport() {
     const list = sec.employees || [];
     const keepIdx = new Map();
     list.forEach((emp, idx) => {
+      let prev = null;
+      for (const [, pi] of keepIdx.entries()) {
+        if (vargasNamesMatchLoose(emp.fullName, list[pi].fullName)) {
+          prev = pi;
+          break;
+        }
+      }
       const nk = vargasNameKey(emp.fullName);
       if (!nk) return;
-      const prev = keepIdx.get(nk);
       if (prev == null) {
         keepIdx.set(nk, idx);
         return;
@@ -1644,7 +1727,6 @@ function addVargasEmployee(opts = {}) {
   const shift = opts.shift === "nocturno" ? "nocturno" : "diurno";
   const payBucket = normalizeVargasPayBucket(opts.payBucket);
   if (!fullName) return { ok: false, reason: "no-name" };
-  if (vargasIsGloballyBanned(fullName)) return { ok: false, reason: "banned" };
 
   let section = (report.sections || []).find(
     (s) => s.shift === shift && String(s.postName || "").trim().toUpperCase() === postName
@@ -2704,7 +2786,6 @@ function renderVargasModule() {
   if (typeof canAccessVargas === "function" && !canAccessVargas()) return;
   const scrollPos = captureVargasScroll();
   ensureVargasSeedLoaded();
-  vargasAutoBanFromTombstones();
   vargasData = vargasApplyAllBansToData(normalizeVargasData(vargasData));
   ensureVargasNovember2026();
   const report = getActiveVargasReport();
@@ -3291,7 +3372,7 @@ window.RFSVargas = {
   removeVargasEmployee,
   vargasPreserveLocalDeletes,
   vargasApplyAllBansToData,
-  vargasEnsureFactoryBans,
+  vargasDedupeReportLoose,
   vargasRegisterGlobalBan,
   undoVargasStep,
   vargasPushUndo,

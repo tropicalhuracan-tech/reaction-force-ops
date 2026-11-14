@@ -2138,14 +2138,14 @@
         ) {
           window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, localVargasSnap);
         }
-        if (window.RFSVargas && typeof window.RFSVargas.vargasEnsureFactoryBans === "function") {
-          window.RFSVargas.vargasEnsureFactoryBans(vargasToSave);
-        }
         if (
           window.RFSVargas &&
           typeof window.RFSVargas.vargasApplyAllBansToData === "function"
         ) {
           vargasToSave = window.RFSVargas.vargasApplyAllBansToData(vargasToSave);
+        }
+        if (window.RFSVargas && typeof window.RFSVargas.vargasDedupeReportLoose === "function") {
+          (vargasToSave.reports || []).forEach((r) => window.RFSVargas.vargasDedupeReportLoose(r));
         }
         if (typeof vargasData !== "undefined") {
           if (
@@ -2159,11 +2159,11 @@
             ) {
               window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, vargasData);
             }
-            if (typeof window.RFSVargas.vargasEnsureFactoryBans === "function") {
-              window.RFSVargas.vargasEnsureFactoryBans(vargasToSave);
-            }
             if (typeof window.RFSVargas.vargasApplyAllBansToData === "function") {
               vargasToSave = window.RFSVargas.vargasApplyAllBansToData(vargasToSave);
+            }
+            if (window.RFSVargas && typeof window.RFSVargas.vargasDedupeReportLoose === "function") {
+              (vargasToSave.reports || []).forEach((r) => window.RFSVargas.vargasDedupeReportLoose(r));
             }
           }
           vargasData = vargasToSave;
