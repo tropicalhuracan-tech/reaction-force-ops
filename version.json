@@ -1,6 +1,6 @@
 {
-  "build": 238,
-  "label": "v238",
-  "minBuild": 238,
-  "note": "Estabilidad: no pisar nómina/reportes al sincronizar"
+  "build": 239,
+  "label": "v239",
+  "minBuild": 239,
+  "note": "Vargas: los quitados con ✕ no reviven al sincronizar"
 }
