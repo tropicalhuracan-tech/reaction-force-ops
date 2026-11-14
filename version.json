@@ -1,6 +1,6 @@
 {
-  "build": 242,
-  "label": "v242",
-  "minBuild": 242,
-  "note": "Nómina Oficina: no borrar tecleo al imprimir/sync"
+  "build": 243,
+  "label": "v243",
+  "minBuild": 243,
+  "note": "Oficina: restaurar nombres + no pisar lista en sync"
 }

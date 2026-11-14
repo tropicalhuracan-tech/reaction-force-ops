@@ -219,6 +219,113 @@ function emptyOfficeEmployee() {
   };
 }
 
+function mergeOfficeEmployeePair(a, b) {
+  if (!a || !a.id) return normalizeOfficeEmployee(b);
+  if (!b || !b.id) return normalizeOfficeEmployee(a);
+  const newer =
+    String(b.updatedAt || "") > String(a.updatedAt || "") ? { ...b } : { ...a };
+  const older = newer === a ? b : a;
+  const aName = String(a.fullName || "").trim();
+  const bName = String(b.fullName || "").trim();
+  if (!String(newer.fullName || "").trim()) {
+    newer.fullName = aName || bName;
+  } else if (aName && bName && aName !== bName) {
+    newer.fullName = aName.length >= bName.length ? aName : bName;
+  }
+  if (!(Number(newer.salary) > 0)) {
+    newer.salary = Math.max(Number(a.salary) || 0, Number(b.salary) || 0);
+  }
+  if (!String(newer.cedula || "").trim()) {
+    newer.cedula = String(a.cedula || b.cedula || "").trim();
+  }
+  if (!String(newer.position || "").trim()) {
+    newer.position = String(a.position || b.position || "").trim();
+  }
+  newer.createdAt = older.createdAt || newer.createdAt || new Date().toISOString();
+  return normalizeOfficeEmployee(newer);
+}
+
+function mergeOfficeEmployeesPreferFilled(a, b) {
+  const map = new Map();
+  [...a, ...b].forEach((row) => {
+    if (!row || !row.id) return;
+    const prev = map.get(row.id);
+    map.set(row.id, prev ? mergeOfficeEmployeePair(prev, row) : normalizeOfficeEmployee(row));
+  });
+  return [...map.values()].sort((x, y) =>
+    String(x.fullName || "").localeCompare(String(y.fullName || ""), "es")
+  );
+}
+
+/** Si se perdió el nombre en la tabla, lo toma de la lista Oficina (sin recalcular montos). */
+function backfillOfficePayrollFromRoster(p) {
+  if (!payrollIsOffice(p)) return false;
+  const staff = getOfficeStaffForPayroll();
+  if (!staff.length) return false;
+  const byId = new Map();
+  const byName = new Map();
+  staff.forEach((s) => {
+    if (s.id) byId.set(s.id, s);
+    if (s.employeeId) byId.set(s.employeeId, s);
+    const k = String(s.name || "")
+      .toLowerCase()
+      .trim();
+    if (k) byName.set(k, s);
+  });
+  let changed = false;
+  const lines = p.lines || [];
+  let named = 0;
+  p.lines = lines.map((l, idx) => {
+    const next = { ...l };
+    if (String(next.fullName || "").trim()) {
+      named += 1;
+      return next;
+    }
+    let s =
+      (next.employeeId && byId.get(next.employeeId)) ||
+      byName.get(String(staff[idx] && staff[idx].name).toLowerCase().trim()) ||
+      staff[idx];
+    if (!s) return next;
+    const display =
+      payrollShortEmployeeName(s.name || s.fullName) ||
+      payrollCleanEmployeeName(s.name || s.fullName) ||
+      String(s.name || "").trim();
+    if (!display) return next;
+    next.fullName = display;
+  if (!next.employeeId) next.employeeId = s.id || s.employeeId || "";
+    if (!String(next.cedula || "").trim() && s.cedula) next.cedula = s.cedula;
+    if (!String(next.position || "").trim() && s.position) next.position = s.position;
+    if (!(Number(next.salaryMonthly) > 0) && Number(s.salaryMonthly) > 0) {
+      next.salaryMonthly = s.salaryMonthly;
+    }
+    changed = true;
+    named += 1;
+    return next;
+  });
+  if (!named && staff.length && lines.length) {
+    const formulaOpts = payrollComputeOpts(p);
+    p.lines = staff.map((s, i) => {
+      const prev = lines[i] || {};
+      const display =
+        payrollShortEmployeeName(s.name) || payrollCleanEmployeeName(s.name) || s.name;
+      return computePayrollLineTotals(
+        {
+          ...prev,
+          employeeId: s.id || s.employeeId || prev.employeeId,
+          fullName: display,
+          cedula: prev.cedula || s.cedula || "",
+          position: prev.position || s.position || "Oficina",
+          salaryMonthly: Number(prev.salaryMonthly) > 0 ? prev.salaryMonthly : s.salaryMonthly,
+          daysWorked: "",
+        },
+        formulaOpts
+      );
+    });
+    changed = true;
+  }
+  return changed;
+}
+
 function normalizeOfficeEmployee(e = {}) {
   return {
     id: e.id || `oemp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1140,7 +1247,10 @@ function applyRemoteContabilidadData(remote) {
   contabilidadData = {
     expenses: mergeById(local.expenses, remoteNorm.expenses),
     itbisCollected: mergeById(local.itbisCollected, remoteNorm.itbisCollected),
-    officeEmployees: mergeById(local.officeEmployees, remoteNorm.officeEmployees),
+    officeEmployees: mergeOfficeEmployeesPreferFilled(
+      local.officeEmployees,
+      remoteNorm.officeEmployees
+    ),
     lotedomEmployees: mergeById(local.lotedomEmployees || [], remoteNorm.lotedomEmployees || []),
     payrolls: mergePayrollsPreferFilled(local.payrolls, remoteNorm.payrolls),
     payrollBackupDeletedIds: deletedIds,
@@ -3105,7 +3215,11 @@ function readPayrollLinesFromDom(payrollId) {
     return normalizePayrollLine(
       {
         ...prev,
-        fullName: g("fullName") || prev.fullName,
+        fullName: (() => {
+          const typed = String(g("fullName") || "").trim();
+          const kept = String(prev.fullName || "").trim();
+          return typed || kept;
+        })(),
         cedula: g("cedula") || prev.cedula,
         daysWorked: isOffice ? "" : g("daysWorked") || prev.daysWorked,
         salaryMonthly: g("salaryMonthly"),
@@ -5356,9 +5470,18 @@ function renderNominaTab() {
     return;
   }
   selectedPayrollId = p.id;
-  try {
-    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
-  } catch (_) {}
+  const domPayrollId = String(detail.dataset.payrollId || "");
+  const hasDomRows = !!detail.querySelector("tr[data-line-idx]");
+  if (
+    hasDomRows &&
+    domPayrollId &&
+    domPayrollId === String(selectedPayrollId) &&
+    typeof flushOpenPayrollDraft === "function"
+  ) {
+    try {
+      flushOpenPayrollDraft(false);
+    } catch (_) {}
+  }
   p = contabilidadData.payrolls.find((x) => x.id === selectedPayrollId) || p;
   const skipDetailRebuild =
     typeof isPayrollBeingEdited === "function" &&
@@ -5373,6 +5496,12 @@ function renderNominaTab() {
     return;
   }
   detail.dataset.payrollId = String(p.id);
+  if (payrollIsOffice(p)) {
+    if (backfillOfficePayrollFromRoster(p)) {
+      p.updatedAt = new Date().toISOString();
+      saveContabilidadData(false);
+    }
+  }
   const recomputeLines = payrollShouldRecomputeLinesOnRender(p);
   if (recomputeLines) pullSharedPayrollTypedAmounts(p);
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
