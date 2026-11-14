@@ -2138,6 +2138,9 @@
         ) {
           window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, localVargasSnap);
         }
+        if (window.RFSVargas && typeof window.RFSVargas.vargasEnsureFactoryBans === "function") {
+          window.RFSVargas.vargasEnsureFactoryBans(vargasToSave);
+        }
         if (
           window.RFSVargas &&
           typeof window.RFSVargas.vargasApplyAllBansToData === "function"
@@ -2155,6 +2158,9 @@
               typeof window.RFSVargas.vargasPreserveLocalDeletes === "function"
             ) {
               window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, vargasData);
+            }
+            if (typeof window.RFSVargas.vargasEnsureFactoryBans === "function") {
+              window.RFSVargas.vargasEnsureFactoryBans(vargasToSave);
             }
             if (typeof window.RFSVargas.vargasApplyAllBansToData === "function") {
               vargasToSave = window.RFSVargas.vargasApplyAllBansToData(vargasToSave);
