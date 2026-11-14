@@ -3746,6 +3746,7 @@ function addManualPayrollRows() {
     );
   }
   p.updatedAt = new Date().toISOString();
+  renderNominaTab._forceDetailRebuild = true;
   saveContabilidadData(true);
   renderNominaTab();
   toast(`${n} fila(s) manual(es) agregada(s) · sin fórmulas (trato especial).`);
@@ -3993,6 +3994,18 @@ function purgeOfficePayrollBlankLines(p, lines, prevLines) {
       out.push(l);
       return;
     }
+    // Fila manual nueva (sin nombre aún): conservar hasta que el usuario la llene o pulse −.
+    if (isManualPayrollLine(l)) {
+      const prev = prevByIdx[i] || {};
+      const hadPerson =
+        String(prev.fullName || "").trim() ||
+        String(l.employeeId || prev.employeeId || "").trim();
+      if (hadPerson) payrollRegisterOfficeLineRemoval(p, { ...prev, ...l, fullName: prev.fullName || l.fullName });
+      else {
+        out.push(l);
+        return;
+      }
+    }
     const prev = prevByIdx[i] || {};
     const hadPerson =
       String(prev.fullName || "").trim() ||
@@ -4095,6 +4108,7 @@ function addBlankPayrollRows() {
     p.lines.push(normalizePayrollLine(emptyPayrollLine(blankOpts), blankFormulaOpts));
   }
   p.updatedAt = new Date().toISOString();
+  renderNominaTab._forceDetailRebuild = true;
   saveContabilidadData(true);
   renderNominaTab();
   toast(`${n} fila(s) agregada(s) al final de la nómina.`);
