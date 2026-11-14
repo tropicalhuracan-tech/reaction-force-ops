@@ -11,6 +11,79 @@ const MONOQ_MANUAL_BACKUP_MAX = 12;
 const MONOQ_UNDO_KEY = "rfs-ops-monoq-undo-stack";
 const MONOQ_UNDO_MAX = 40;
 let monoQUndoStack = [];
+let monoQMemoColorPick = "yellow";
+let monoQMemoPaintOn = false;
+
+function monoQMemoTools() {
+  return typeof window !== "undefined" ? window.RFSReportCells : null;
+}
+
+function setMonoQCellMemo(empIdx, fieldKey, colorId) {
+  const current = monoQActive();
+  const sheet = current && current.sheets[monoQSheet];
+  const emp = sheet && sheet.employees && sheet.employees[empIdx];
+  if (!emp) return false;
+  const tools = monoQMemoTools();
+  if (!tools) return false;
+  monoQPushUndo("color");
+  emp.memoColors = tools.normalizeMemoColors(emp.memoColors);
+  const key = String(fieldKey || "").trim();
+  if (!key) return false;
+  const id = String(colorId || "").trim();
+  if (!id) delete emp.memoColors[key];
+  else if (tools.memoById(id)) emp.memoColors[key] = id;
+  if (!Object.keys(emp.memoColors).length) delete emp.memoColors;
+  current.updatedAt = new Date().toISOString();
+  monoQSave(true);
+  return true;
+}
+
+function monoQApplyPasteToCell(cell, text) {
+  const raw = String(text == null ? "" : text).replace(/\s+/g, " ").trim();
+  const field = cell.getAttribute("data-memo-field") || "";
+  const idx = Number(cell.getAttribute("data-i"));
+  const current = monoQActive();
+  const sheet = current && current.sheets[monoQSheet];
+  const emp = sheet && sheet.employees[idx];
+  if (!emp) return;
+  if (field.startsWith("d:")) {
+    monoQSetMark(emp, field.slice(2), raw);
+    current.updatedAt = new Date().toISOString();
+    monoQSave(true);
+    cell.textContent = raw;
+    return;
+  }
+  if (field === "name") {
+    if (!raw) return;
+    emp.fullName = raw;
+    emp.nameManual = true;
+    emp.nameEditedAt = new Date().toISOString();
+    current.updatedAt = emp.nameEditedAt;
+    monoQSave(true);
+    cell.textContent = raw;
+    return;
+  }
+  if (field === "post") {
+    emp.position = raw;
+    current.updatedAt = new Date().toISOString();
+    monoQSave(true);
+    cell.textContent = raw;
+    return;
+  }
+  if (field === "pagos") {
+    emp.volaosPagos = monoQPagos(raw);
+    cell.textContent = emp.volaosPagos === "" ? "" : String(emp.volaosPagos);
+    current.updatedAt = new Date().toISOString();
+    monoQSave(true);
+    return;
+  }
+  if (field === "horas") {
+    emp.horasExtras = monoQHoras(raw);
+    cell.textContent = emp.horasExtras ? String(emp.horasExtras) : "";
+    current.updatedAt = new Date().toISOString();
+    monoQSave(true);
+  }
+}
 const MONOQ_ACTIVE_KEY = "rfs-ops-monorriel-quincena-active";
 const MONOQ_SHEETS = [
   { id: "dia", label: "Empleados día", volao: 850 },
@@ -203,6 +276,8 @@ function mergeMonoEmployeeFields(winner, loser) {
   if (!(Number(winner.horasExtras) > 0) && Number(loser.horasExtras) > 0) {
     winner.horasExtras = monoQHoras(loser.horasExtras);
   }
+  const tools = monoQMemoTools();
+  if (tools) tools.mergeEmployeeMemoColors(winner, loser);
 }
 
 function mergeMonoSheetSticky(baseSheet, otherSheet) {
@@ -314,6 +389,7 @@ function monoQNormalizeReport(raw) {
         horasExtras: monoQHoras(emp && emp.horasExtras),
         nameManual: !!emp.nameManual,
         nameEditedAt: emp.nameEditedAt || "",
+        memoColors: monoQMemoTools() ? monoQMemoTools().normalizeMemoColors(emp.memoColors) : {},
       });
     });
     sheets[s.id].employees.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
@@ -827,6 +903,9 @@ function renderMonorrielQuincenaModule() {
     .join("");
   const body = employees
     .map((emp, idx) => {
+      const memoTools = monoQMemoTools();
+      const memo = (emp.memoColors && typeof emp.memoColors === "object" ? emp.memoColors : {}) || {};
+      const ms = (key) => (memoTools ? memoTools.memoStyleAttr(memo, key) : "");
       const count = monoQCount(emp.marks, report.dayNums);
       const cells = (report.dayNums || [])
         .map((d) => {
@@ -840,7 +919,9 @@ function renderMonorrielQuincenaModule() {
               : n > 0 && !Number.isInteger(n)
                 ? ` title="${val}: fracción × 12 h = horas extras (1.5 = 6 h)"`
                 : ` title="1 = día · 2 = día + volao · 1.5 = 1 día + 6 h extras"`;
-          return `<td class="vargas-day-cell monoq-day${cls}${Number(d) === 31 ? " is-excl" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-day="${d}"${title}>${monoQEsc(val)}</td>`;
+          return `<td class="vargas-day-cell monoq-day${cls}${Number(d) === 31 ? " is-excl" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-day="${d}" data-memo-field="d:${d}"${title}${ms(
+            `d:${d}`
+          )}>${monoQEsc(val)}</td>`;
         })
         .join("");
       const daysLabel = count.volaoMarks
@@ -850,11 +931,19 @@ function renderMonorrielQuincenaModule() {
       const horas = monoQHoras(emp.horasExtras);
       const horasTxt = horas ? String(horas) : "";
       return `<tr>
-        <td class="sticky-name vargas-name monoq-name" contenteditable="true" spellcheck="false" data-i="${idx}" title="${monoQEsc(emp.fullName)}">${monoQEsc(emp.fullName)}</td>
-        <td class="vargas-post monoq-post" contenteditable="true" spellcheck="false" data-i="${idx}">${monoQEsc(emp.position || "")}</td>
+        <td class="sticky-name vargas-name monoq-name" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="name" title="${monoQEsc(emp.fullName)}"${ms(
+          "name"
+        )}>${monoQEsc(emp.fullName)}</td>
+        <td class="vargas-post monoq-post" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="post"${ms("post")}>${monoQEsc(
+        emp.position || ""
+      )}</td>
         <td class="vargas-days-total">${daysLabel}</td>
-        <td class="vargas-pagos-cell monoq-pagos${pagos ? " is-paid" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" title="Volaos ya pagados. Solo control: no suma en la nómina">${monoQEsc(pagos === "" ? "" : String(pagos))}</td>
-        <td class="vargas-hex-cell monoq-horas${horasTxt ? " has-hex" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" title="Horas extras. RD$60 por hora, se suman a la nómina sin quitar lo ya calculado">${monoQEsc(horasTxt)}</td>
+        <td class="vargas-pagos-cell monoq-pagos${pagos ? " is-paid" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="pagos" title="Volaos ya pagados. Solo control: no suma en la nómina"${ms(
+          "pagos"
+        )}>${monoQEsc(pagos === "" ? "" : String(pagos))}</td>
+        <td class="vargas-hex-cell monoq-horas${horasTxt ? " has-hex" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="horas" title="Horas extras. RD$60 por hora, se suman a la nómina sin quitar lo ya calculado"${ms(
+          "horas"
+        )}>${monoQEsc(horasTxt)}</td>
         ${cells}
         <td class="vargas-del-cell"><button type="button" class="vargas-del-btn monoq-del" data-i="${idx}" title="Quitar de esta planilla">✕</button></td>
       </tr>`;
@@ -879,6 +968,7 @@ function renderMonorrielQuincenaModule() {
           </select>
         </label>
       </div>
+      ${monoQMemoTools() ? monoQMemoTools().renderMemoPaletteHtml(monoQMemoColorPick) : ""}
       <div class="vargas-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${tabs}</div>
       <div class="vargas-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${sendButtons}</div>
       <div class="vargas-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
@@ -937,6 +1027,31 @@ function renderMonorrielQuincenaModule() {
 function bindMonorrielQuincenaUi(report) {
   const host = document.getElementById("monoQuincenaHost");
   if (!host) return;
+  const tools = monoQMemoTools();
+  if (tools) {
+    tools.bindMemoPalette(host, {
+      getSelected: () => monoQMemoColorPick,
+      setSelected: (id) => {
+        monoQMemoColorPick = id;
+      },
+      getMode: () => monoQMemoPaintOn,
+      setMode: (on) => {
+        monoQMemoPaintOn = !!on;
+      },
+      applyColor: (cell, colorId) => {
+        const field = cell.getAttribute("data-memo-field") || "";
+        const idx = Number(cell.getAttribute("data-i"));
+        if (idx >= 0) setMonoQCellMemo(idx, field, colorId);
+        const hit = tools.memoById(colorId);
+        cell.style.backgroundColor = hit && hit.css ? hit.css : "";
+      },
+    });
+    const view = document.getElementById("monorrielView");
+    tools.bindReportClipboard(view || host, {
+      cellSelector: "td[contenteditable][data-memo-field]",
+      pasteToCell: monoQApplyPasteToCell,
+    });
+  }
   host.querySelectorAll(".monoq-name, .monoq-post, .monoq-pagos, .monoq-horas, .monoq-day").forEach((cell) => {
     monoQBindUndoOnFocus(cell, "editar");
   });
