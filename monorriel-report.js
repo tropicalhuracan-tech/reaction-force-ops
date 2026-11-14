@@ -166,11 +166,12 @@ function monoQFindBestMatch(emp, list, taken) {
 function mergeMonoEmployeeFields(winner, loser) {
   if (!winner || !loser) return;
   Object.keys(loser.marks || {}).forEach((d) => {
-    const n = Number(loser.marks[d]);
+    const n = monoQParseMarkNumber(loser.marks[d]);
     if (!(n > 0)) return;
-    const prev = Number(winner.marks && winner.marks[d]) || 0;
+    const prev = monoQParseMarkNumber(winner.marks && winner.marks[d]) || 0;
     if (!winner.marks) winner.marks = {};
-    winner.marks[d] = n === 2 || prev === 2 ? 2 : 1;
+    if (n === 2 || prev === 2) winner.marks[d] = 2;
+    else winner.marks[d] = Math.max(n, prev);
   });
   if (loser.nameManual) {
     if (!winner.nameManual || String(loser.nameEditedAt || "") > String(winner.nameEditedAt || "")) {
@@ -253,10 +254,12 @@ function monoQNormalizeReport(raw) {
       const existing = (sheets[s.id].employees || []).find((e) => monoQKey(e.fullName) === key);
       if (existing) {
         Object.keys(marks).forEach((d) => {
-          const n = Number(marks[d]);
+          const n = monoQParseMarkNumber(marks[d]);
           if (!(n > 0)) return;
-          const prev = Number(existing.marks[d]) || 0;
-          existing.marks[d] = n === 2 || prev === 2 ? 2 : 1;
+          const prev = monoQParseMarkNumber(existing.marks[d]) || 0;
+          if (!existing.marks) existing.marks = {};
+          if (n === 2 || prev === 2) existing.marks[d] = 2;
+          else existing.marks[d] = Math.max(n, prev);
         });
         if (!existing.employeeId && emp.employeeId) existing.employeeId = String(emp.employeeId);
         if (!existing.position && emp.position) existing.position = String(emp.position).trim();
@@ -522,28 +525,119 @@ function monoQMoney(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+const MONOQ_HOURS_PER_JORNADA = 12;
+
+function monoQParseMarkNumber(mark) {
+  if (mark == null || mark === "") return null;
+  const s = String(mark).trim().replace(",", ".");
+  if (!s || !/^\d+(\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function monoQMarkPayrollParts(mark) {
+  const n = monoQParseMarkNumber(mark);
+  if (n == null || !(n > 0)) return { days: 0, extraHours: 0, volao: false };
+  if (n === 2) return { days: 1, extraHours: 0, volao: true };
+  const full = Math.floor(n);
+  const frac = Math.round((n - full) * 1000) / 1000;
+  const days = full > 0 ? full : 0;
+  const extraHours = frac > 0.001 ? Math.round(frac * MONOQ_HOURS_PER_JORNADA * 100) / 100 : 0;
+  return { days, extraHours, volao: false };
+}
+
+function monoQExtraHoursFromMarks(marks, dayNums) {
+  let h = 0;
+  (dayNums || []).forEach((d) => {
+    if (Number(d) === 31) return;
+    h += monoQMarkPayrollParts(marks && marks[String(d)]).extraHours;
+  });
+  return Math.round(h * 100) / 100;
+}
+
+function monoQFormatMarkCell(mark) {
+  if (mark == null || mark === "") return "";
+  const n = monoQParseMarkNumber(mark);
+  if (n != null) return Number.isInteger(n) ? String(n) : String(n);
+  return String(mark);
+}
+
 function monoQCount(marks, dayNums) {
   let days = 0;
   let volaoMarks = 0;
+  let extraHoursFromMarks = 0;
   (dayNums || []).forEach((d) => {
     if (Number(d) === 31) return;
-    const n = Number(marks && marks[String(d)]);
-    if (!(n > 0)) return;
-    days += 1;
-    if (n === 2) volaoMarks += 1;
+    const parts = monoQMarkPayrollParts(marks && marks[String(d)]);
+    if (parts.volao) {
+      days += 1;
+      volaoMarks += 1;
+      return;
+    }
+    if (parts.days <= 0 && parts.extraHours <= 0) return;
+    days += parts.days;
+    extraHoursFromMarks += parts.extraHours;
   });
-  return { days, volaoMarks };
+  return {
+    days,
+    volaoMarks,
+    extraHoursFromMarks: Math.round(extraHoursFromMarks * 100) / 100,
+  };
 }
 
 function monoQSetMark(emp, day, raw) {
   const key = String(day);
-  const text = String(raw == null ? "" : raw).trim();
+  const text = String(raw == null ? "" : raw).trim().replace(",", ".");
   if (!text) {
     delete emp.marks[key];
     return;
   }
-  if (text === "2") emp.marks[key] = 2;
-  else if (text === "1") emp.marks[key] = 1;
+  const n = monoQParseMarkNumber(text);
+  if (n == null) {
+    delete emp.marks[key];
+    return;
+  }
+  if (n === 2) emp.marks[key] = 2;
+  else emp.marks[key] = Math.round(n * 100) / 100;
+}
+
+function monoQMarkScoreForEmp(emp) {
+  let n = 0;
+  Object.keys((emp && emp.marks) || {}).forEach((d) => {
+    if (Number((emp.marks || {})[d]) > 0) n += 1;
+  });
+  return n;
+}
+
+function monoQDedupeSheet(sheet) {
+  if (!sheet || !Array.isArray(sheet.employees)) return { removed: 0 };
+  let removed = 0;
+  const keepIdx = new Map();
+  const list = sheet.employees;
+  list.forEach((emp, idx) => {
+    const nk = monoQKey(emp.fullName);
+    if (!nk) return;
+    const prev = keepIdx.get(nk);
+    if (prev == null) {
+      keepIdx.set(nk, idx);
+      return;
+    }
+    const winnerIdx = monoQMarkScoreForEmp(list[prev]) >= monoQMarkScoreForEmp(emp) ? prev : idx;
+    const loserIdx = winnerIdx === prev ? idx : prev;
+    mergeMonoEmployeeFields(list[winnerIdx], list[loserIdx]);
+    const loser = list[loserIdx];
+    sheet.deletedKeys = monoQSheetDeleted(sheet);
+    const dk = monoQKey(loser.fullName);
+    if (dk && !sheet.deletedKeys.includes(dk)) sheet.deletedKeys.push(dk);
+    if (loser.employeeId) {
+      const idk = `id:${loser.employeeId}`;
+      if (!sheet.deletedKeys.includes(idk)) sheet.deletedKeys.push(idk);
+    }
+    list.splice(loserIdx, 1);
+    keepIdx.set(nk, winnerIdx > loserIdx ? winnerIdx - 1 : winnerIdx);
+    removed += 1;
+  });
+  return { removed };
 }
 
 function renderMonorrielQuincenaModule() {
@@ -572,9 +666,16 @@ function renderMonorrielQuincenaModule() {
       const cells = (report.dayNums || [])
         .map((d) => {
           const mark = emp.marks && emp.marks[String(d)];
-          const val = mark === 2 || mark === 1 ? String(mark) : "";
-          const cls = mark === 2 ? " is-volao" : mark === 1 ? " is-work" : "";
-          return `<td class="vargas-day-cell monoq-day${cls}${Number(d) === 31 ? " is-excl" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-day="${d}">${monoQEsc(val)}</td>`;
+          const val = monoQFormatMarkCell(mark);
+          const n = monoQParseMarkNumber(mark);
+          const cls = n === 2 ? " is-volao" : n > 0 ? " is-work" : "";
+          const title =
+            n === 2
+              ? ` title="2 = día + volao"`
+              : n > 0 && !Number.isInteger(n)
+                ? ` title="${val}: fracción × 12 h = horas extras (1.5 = 6 h)"`
+                : ` title="1 = día · 2 = día + volao · 1.5 = 1 día + 6 h extras"`;
+          return `<td class="vargas-day-cell monoq-day${cls}${Number(d) === 31 ? " is-excl" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-day="${d}"${title}>${monoQEsc(val)}</td>`;
         })
         .join("");
       const daysLabel = count.volaoMarks
@@ -615,11 +716,13 @@ function renderMonorrielQuincenaModule() {
       </div>
       <div class="vargas-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${tabs}</div>
       <div class="vargas-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${sendButtons}</div>
-      <div class="vargas-actions" style="margin-top:8px">
+      <div class="vargas-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="secondary" id="btnMonoQDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnMonoQNext">Abrir siguiente quincena</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
-        Igual que Ramón. <strong>1</strong> = un día. <strong>2</strong> = el mismo día + volao
+        Igual que Ramón. <strong>1</strong> = un día. <strong>1.5</strong> = 1 día + 6 h extras (automático).
+        <strong>2</strong> = el mismo día + volao
         (día RD$ 850, noche RD$ 900, moto RD$ 1,000). <strong>Volaos pagos</strong> es solo control y no suma.
         <strong>Horas ext.</strong> = horas × RD$ 60, sumadas a la nómina sin quitar lo ya calculado.
         El día 31 se ve y no cuenta.         Cada botón naranja envía esa planilla a su nómina y deja solo esos nombres.
@@ -676,6 +779,18 @@ function bindMonorrielQuincenaUi(report) {
       monoQSheet = btn.getAttribute("data-sheet") || "dia";
       renderMonorrielQuincenaModule();
     });
+  });
+  document.getElementById("btnMonoQDedupe")?.addEventListener("click", () => {
+    const current = monoQActive();
+    const sheet = current && current.sheets[monoQSheet];
+    if (!sheet) return;
+    const r = monoQDedupeSheet(sheet);
+    if (r.removed) {
+      current.updatedAt = new Date().toISOString();
+      monoQSave(true);
+      if (typeof toast === "function") toast(`Se quitaron ${r.removed} duplicado(s) en esta planilla.`);
+    } else if (typeof toast === "function") toast("No había duplicados.");
+    renderMonorrielQuincenaModule();
   });
   document.getElementById("btnMonoQNext")?.addEventListener("click", () => {
     const cur = monoQActive();
@@ -838,6 +953,9 @@ function bindMonorrielQuincenaUi(report) {
       sheet.employees.splice(idx, 1);
       current.updatedAt = new Date().toISOString();
       monoQSave(true);
+      try {
+        if (typeof flushCloudSave === "function") flushCloudSave();
+      } catch (_) {}
       renderMonorrielQuincenaModule();
     });
   });
@@ -934,10 +1052,11 @@ function llenarMonorrielNominaDesdeReporte(payroll) {
   employees.forEach((emp) => {
     const fullName = String(emp.fullName || "").trim();
     if (!fullName) return;
-    const hours = monoQHoras(emp.horasExtras);
+    const count = monoQCount(emp.marks, report.dayNums);
+    const hoursFromMarks = count.extraHoursFromMarks || 0;
+    const hours = monoQHoras(emp.horasExtras) + hoursFromMarks;
     const hasMark = Object.keys(emp.marks || {}).some((day) => Number(emp.marks[day]) > 0);
     if (!hasMark && !hours) return;
-    const count = monoQCount(emp.marks, report.dayNums);
     const volaos = count.volaoMarks * sheetMeta.volao;
     const extraPay = monoQMoney(hours * 60);
     let line = previous.get(monoQKey(fullName));

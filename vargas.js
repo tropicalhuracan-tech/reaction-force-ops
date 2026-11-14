@@ -156,6 +156,7 @@ function normalizeVargasReport(raw = {}) {
     sections: (Array.isArray(raw.sections) ? raw.sections : []).map((sec) => ({
       shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
       postName: String(sec.postName || "").trim() || "(sin puesto)",
+      deletedKeys: vargasSectionDeletedKeys(sec),
       employees: (Array.isArray(sec.employees) ? sec.employees : []).map((emp) => ({
         fullName: String(emp.fullName || "").trim(),
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
@@ -315,11 +316,13 @@ function vargasFindBestMatch(emp, list, taken) {
 function mergeVargasMarksInto(winner, loser) {
   Object.keys((loser && loser.marks) || {}).forEach((d) => {
     const raw = loser.marks[d];
-    const n = Number(raw);
+    const n = vargasParseMarkNumber(raw);
     if (!(n > 0) && !(typeof raw === "string" && String(raw).trim())) return;
     if (!winner.marks) winner.marks = {};
-    const prev = Number(winner.marks[d]) || 0;
+    const prevN = vargasParseMarkNumber(winner.marks[d]);
+  const prev = prevN != null ? prevN : 0;
     if (n === 2 || prev === 2) winner.marks[d] = 2;
+    else if (n > 0 && prev > 0) winner.marks[d] = Math.max(n, prev);
     else if (n > 0) winner.marks[d] = n;
     else winner.marks[d] = raw;
   });
@@ -412,8 +415,10 @@ function mergeVargasReportSticky(base, other) {
       taken.add(hit.idx);
       mergeVargasEmployeeFields(emp, hit.emp);
     });
+    const delUnion = [...vargasSectionDeletedKeys(sec), ...vargasSectionDeletedKeys(osec)];
     (osec.employees || []).forEach((oemp, oi) => {
       if (taken.has(oi)) return;
+      if (vargasIsDeletedEmployee(sec, oemp, delUnion)) return;
       if (vargasFindBestMatch(oemp, sec.employees || [])) return;
       const hasMarks = Object.keys(oemp.marks || {}).some((d) => {
         const raw = oemp.marks[d];
@@ -425,9 +430,12 @@ function mergeVargasReportSticky(base, other) {
         marks: { ...(oemp.marks || {}) },
       });
     });
+    sec.deletedKeys = [...new Set([...vargasSectionDeletedKeys(sec), ...vargasSectionDeletedKeys(osec)])];
   });
   otherSections.forEach((sec) => {
+    const delSec = vargasSectionDeletedKeys(sec);
     const emps = (sec.employees || []).filter((e) => {
+      if (vargasIsDeletedEmployee(sec, e, delSec)) return false;
       const hasMarks = Object.keys(e.marks || {}).some((d) => Number(e.marks[d]) > 0);
       return hasMarks || e.nameManual || Number(e.horasExtras) > 0;
     });
@@ -435,6 +443,7 @@ function mergeVargasReportSticky(base, other) {
     out.sections.push({
       shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
       postName: sec.postName,
+      deletedKeys: delSec,
       employees: emps.map((e) => ({ ...e, marks: { ...(e.marks || {}) } })),
     });
   });
@@ -610,6 +619,135 @@ const VARGAS_VOLAO_MARK = 2;
 const VARGAS_VOLAO_AMOUNT = 850;
 /** Horas extras del reporte: RD$60 por hora (admite decimales). Se suman al monto ya calculado en nómina. */
 const VARGAS_EXTRA_HOUR_RATE = 60;
+/** Jornada estándar: la fracción después del entero × 12 h = horas extras (ej. 1.5 → 6 h). */
+const VARGAS_HOURS_PER_JORNADA = 12;
+
+function vargasParseMarkNumber(mark) {
+  if (mark == null || mark === "") return null;
+  if (typeof mark === "number" && Number.isFinite(mark)) return mark;
+  const s = String(mark).trim().replace(",", ".");
+  if (!s) return null;
+  if (!/^\d+(\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** 1 = 1 día; 2 = día + volao; 1.5 = 1 día + 6 h extras (sin usar columna Horas ext.). */
+function vargasMarkPayrollParts(mark) {
+  if (!vargasMarkIsWorked(mark)) return { days: 0, extraHours: 0, volao: false };
+  if (vargasMarkIsVolao(mark)) return { days: 1, extraHours: 0, volao: true };
+  const n = vargasParseMarkNumber(mark);
+  if (n == null) return { days: 1, extraHours: 0, volao: false };
+  const full = Math.floor(n);
+  const frac = Math.round((n - full) * 1000) / 1000;
+  const days = full > 0 ? full : frac > 0 ? 0 : 0;
+  const extraHours = frac > 0.001 ? Math.round(frac * VARGAS_HOURS_PER_JORNADA * 100) / 100 : 0;
+  return { days, extraHours, volao: false };
+}
+
+function vargasExtraHoursFromMarks(marks, dayNums) {
+  const days = Array.isArray(dayNums) ? dayNums : [];
+  let h = 0;
+  days.forEach((d) => {
+    if (Number(d) === 31) return;
+    h += vargasMarkPayrollParts(marks && marks[String(d)]).extraHours;
+  });
+  return Math.round(h * 100) / 100;
+}
+
+function vargasSectionDeletedKeys(sec) {
+  return Array.isArray(sec && sec.deletedKeys) ? sec.deletedKeys : [];
+}
+
+function vargasEmployeeDeleteKey(section, emp) {
+  return vargasEmployeeExactKey(section, emp);
+}
+
+function vargasIsDeletedEmployee(section, emp, extraKeys) {
+  const dk = vargasEmployeeDeleteKey(section, emp);
+  if (!dk) return false;
+  const set = new Set([...vargasSectionDeletedKeys(section), ...(extraKeys || [])]);
+  return set.has(dk);
+}
+
+function vargasMarkScoreForEmp(emp) {
+  let n = 0;
+  Object.keys((emp && emp.marks) || {}).forEach((d) => {
+    if (vargasMarkIsWorked(emp.marks[d])) n += 1;
+  });
+  return n + (normalizeVargasHorasExtras(emp && emp.horasExtras) > 0 ? 1 : 0);
+}
+
+function dedupeVargasActiveReport() {
+  const report = getActiveVargasReport();
+  if (!report) return { removed: 0 };
+  let removed = 0;
+  (report.sections || []).forEach((sec) => {
+    const list = sec.employees || [];
+    const keepIdx = new Map();
+    list.forEach((emp, idx) => {
+      const nk = vargasNameKey(emp.fullName);
+      if (!nk) return;
+      const prev = keepIdx.get(nk);
+      if (prev == null) {
+        keepIdx.set(nk, idx);
+        return;
+      }
+      const winnerIdx = vargasMarkScoreForEmp(list[prev]) >= vargasMarkScoreForEmp(emp) ? prev : idx;
+      const loserIdx = winnerIdx === prev ? idx : prev;
+      mergeVargasEmployeeFields(list[winnerIdx], list[loserIdx]);
+      const loser = list[loserIdx];
+      const dk = vargasEmployeeDeleteKey(sec, loser);
+      sec.deletedKeys = vargasSectionDeletedKeys(sec);
+      if (dk && !sec.deletedKeys.includes(dk)) sec.deletedKeys.push(dk);
+      list.splice(loserIdx, 1);
+      keepIdx.set(nk, winnerIdx > loserIdx ? winnerIdx - 1 : winnerIdx);
+      removed += 1;
+    });
+  });
+  if (removed) {
+    report.updatedAt = new Date().toISOString();
+    saveVargasData(true, true);
+  }
+  return { removed };
+}
+
+function vargasFindSectionForEmployee(report, sectionIdx, empIdx) {
+  const sec = report && report.sections && report.sections[sectionIdx];
+  const emp = sec && sec.employees && sec.employees[empIdx];
+  if (!sec || !emp) return null;
+  return { report, sectionIdx, section: sec, emp };
+}
+
+function setVargasEmployeePostName(sectionIdx, empIdx, rawPost) {
+  const hit = vargasFindSectionForEmployee(getActiveVargasReport(), sectionIdx, empIdx);
+  if (!hit) return { ok: false };
+  const postName =
+    String(rawPost || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toUpperCase() || "(SIN PUESTO)";
+  if (String(hit.section.postName || "").trim().toUpperCase() === postName) {
+    return { ok: true, unchanged: true, postName };
+  }
+  const shift = hit.section.shift === "nocturno" ? "nocturno" : "diurno";
+  let dest = (hit.report.sections || []).find(
+    (s) => s.shift === shift && String(s.postName || "").trim().toUpperCase() === postName
+  );
+  if (!dest) {
+    dest = { shift, postName, employees: [], deletedKeys: [] };
+    hit.report.sections.push(dest);
+  }
+  const emp = hit.section.employees.splice(empIdx, 1)[0];
+  if (!emp) return { ok: false };
+  dest.employees.push(emp);
+  if (!hit.section.employees.length) {
+    hit.report.sections.splice(sectionIdx, 1);
+  }
+  hit.report.updatedAt = new Date().toISOString();
+  saveVargasData(true, true);
+  return { ok: true, postName };
+}
 
 function vargasMarkIsWorked(mark) {
   if (mark == null || mark === "") return false;
@@ -632,14 +770,15 @@ function vargasMarkIsVolao(mark) {
   return Number.isFinite(n) && n === VARGAS_VOLAO_MARK;
 }
 
-/** Días para nómina: cuenta marcas trabajadas (1 o 2 = 1 día); día 31 nunca entra. */
+/** Días para nómina (enteros + 2 = 1 día); día 31 nunca entra. Las fracciones van en horas extras. */
 function countVargasPayrollDays(marks, dayNums) {
   const days = Array.isArray(dayNums) ? dayNums : [];
   let n = 0;
   days.forEach((d) => {
     if (Number(d) === 31) return;
-    const m = marks && marks[String(d)];
-    if (vargasMarkIsWorked(m)) n += 1;
+    const parts = vargasMarkPayrollParts(marks && marks[String(d)]);
+    n += parts.days;
+    if (parts.volao && parts.days === 0) n += 1;
   });
   return n;
 }
@@ -662,10 +801,9 @@ function vargasVolaosFromMarks(marks, dayNums) {
 
 function formatVargasMarkCell(mark) {
   if (mark == null || mark === "") return "";
-  if (typeof mark === "number") {
-    if (mark === 0) return "0";
-    if (mark === 1) return "1";
-    return String(mark);
+  const n = vargasParseMarkNumber(mark);
+  if (n != null) {
+    return Number.isInteger(n) ? String(n) : String(n);
   }
   return String(mark).trim();
 }
@@ -918,7 +1056,7 @@ function addVargasEmployee(opts = {}) {
     (s) => s.shift === shift && String(s.postName || "").trim().toUpperCase() === postName
   );
   if (!section) {
-    section = { shift, postName, employees: [] };
+    section = { shift, postName, employees: [], deletedKeys: [] };
     report.sections = report.sections || [];
     report.sections.push(section);
   }
@@ -975,12 +1113,15 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   const emp = sec.employees && sec.employees[empIdx];
   if (!emp) return { ok: false };
   const name = emp.fullName;
+  sec.deletedKeys = vargasSectionDeletedKeys(sec);
+  const dk = vargasEmployeeDeleteKey(sec, emp);
+  if (dk && !sec.deletedKeys.includes(dk)) sec.deletedKeys.push(dk);
   sec.employees.splice(empIdx, 1);
   if (!sec.employees.length) {
     report.sections.splice(sectionIdx, 1);
   }
   report.updatedAt = new Date().toISOString();
-  saveVargasData(true);
+  saveVargasData(true, true);
   return { ok: true, fullName: name };
 }
 
@@ -1132,7 +1273,8 @@ function flattenVargasEmployees(report, opts = {}) {
         if (!hay.includes(q)) return;
       }
       const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
-      const horasExtras = normalizeVargasHorasExtras(emp.horasExtras);
+      const fromMarks = vargasExtraHoursFromMarks(emp.marks, report.dayNums);
+      const horasExtras = normalizeVargasHorasExtras(emp.horasExtras) + fromMarks;
       rows.push({
         sectionIdx: sIdx,
         empIdx: eIdx,
@@ -1261,7 +1403,8 @@ function collectVargasPayrollRows(report, bucketFilter = "all") {
       seen.add(key);
       // Volaos a nómina = marcas "2" en días. "volaosPagos" es solo control (ya pagados).
       const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
-      const horasExtras = normalizeVargasHorasExtras(emp.horasExtras);
+      const fromMarks = vargasExtraHoursFromMarks(emp.marks, report.dayNums);
+      const horasExtras = normalizeVargasHorasExtras(emp.horasExtras) + fromMarks;
       rows.push({
         fullName: displayName,
         postName: sec.postName,
@@ -1965,7 +2108,9 @@ function renderVargasModule() {
           const excl = Number(d) === 31;
           const title = volao
             ? ` title="2 = turno + RD$${VARGAS_VOLAO_AMOUNT} volao (días no cambian)"`
-            : "";
+            : worked && vargasParseMarkNumber(mark) != null && !Number.isInteger(vargasParseMarkNumber(mark))
+              ? ` title="${val}: fracción × 12 h = horas extras (ej. 1.5 = 1 día + 6 h)"`
+              : ` title="1 = día · 2 = día + volao · 1.5 = 1 día + 6 h extras"`;
           return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" contenteditable="true" spellcheck="false"${title}>${escapeVargasHtml(val)}</td>`;
         })
         .join("");
@@ -1983,7 +2128,7 @@ function renderVargasModule() {
       return `<tr data-shift="${row.shift}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
         <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
-        <td class="vargas-post">${escapeVargasHtml(row.postName)}</td>
+        <td class="vargas-post vargas-post-edit" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para cambiar el puesto">${escapeVargasHtml(row.postName)}</td>
         <td class="vargas-days-total">${daysLabel}</td>
         <td class="vargas-pagos-cell${pagosFilled ? " is-paid" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false" title="Volaos ya pagados (1 o 2). Solo control: no suma en nómina">${escapeVargasHtml(pagosVal)}</td>
         <td class="vargas-hex-cell${hexFilled ? " has-hex" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false"${hexTitle}>${escapeVargasHtml(hexVal)}</td>
@@ -2027,12 +2172,14 @@ function renderVargasModule() {
         </label>
       </div>
       <div class="vargas-actions">
+        <button type="button" class="secondary" id="btnVargasDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnVargasNuevaQuincena">Abrir siguiente quincena</button>
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
         <button type="button" class="primary" id="btnVargasNominaGeneral">Enviar a nómina general</button>
       </div>
       <p class="muted tight" style="margin-top:10px">
-        <strong>1</strong> = turno (1 día). <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
+        <strong>1</strong> = turno (1 día). <strong>1.5</strong> = 1 día + 6 h extras (no hace falta en Horas ext.).
+        <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
         <strong>Volaos pagos</strong> = ya pagados (control, no suma).
         <strong>Horas ext.</strong> = horas (2, 2.3…) × RD$${VARGAS_EXTRA_HOUR_RATE}, sumadas a Horas extras de nómina sin quitar el monto ya calculado.
         Este reporte solo envía a la <strong>nómina general</strong>. Banco (B) o Efectivo (E) se marca ahí, antes del nombre, y se reparte con un botón.
@@ -2201,6 +2348,40 @@ function bindVargasUiHandlers() {
       }
     });
   });
+  document.querySelectorAll("td.vargas-post-edit").forEach((cell) => {
+    cell.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        cell.blur();
+      }
+    });
+    cell.addEventListener("blur", () => {
+      const s = Number(cell.dataset.s);
+      const e = Number(cell.dataset.e);
+      const raw = String(cell.textContent || "").trim();
+      const result = setVargasEmployeePostName(s, e, raw);
+      if (!result.ok) {
+        const report = getActiveVargasReport();
+        const emp = report && report.sections[s] && report.sections[s].employees[e];
+        cell.textContent = emp ? report.sections[s].postName : raw;
+        return;
+      }
+      if (!result.unchanged) {
+        if (typeof toast === "function") toast(`Puesto: ${result.postName}`);
+        renderVargasModule();
+      }
+    });
+  });
+  const btnDedupe = document.getElementById("btnVargasDedupe");
+  if (btnDedupe) {
+    btnDedupe.addEventListener("click", () => {
+      const r = dedupeVargasActiveReport();
+      if (typeof toast === "function") {
+        toast(r.removed ? `Se quitaron ${r.removed} duplicado(s).` : "No había duplicados en esta quincena.");
+      }
+      renderVargasModule();
+    });
+  }
   document.querySelectorAll("td.vargas-name").forEach((cell) => {
     cell.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
