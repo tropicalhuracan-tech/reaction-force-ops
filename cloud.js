@@ -2049,7 +2049,6 @@
     let remoteQ = null;
     let remoteQMarkScore = 0;
     try {
-      if (typeof restoreMonoQFromSafetyNet === "function") restoreMonoQFromSafetyNet();
       const localQ =
         typeof monorrielQuincenasForCloud === "function" ? monorrielQuincenasForCloud() : null;
       const remoteMonoQDoc = await getDoc(partPath("monorriel")).catch(() => null);
@@ -2077,11 +2076,8 @@
       ) {
         const mergedScore = monoQDataMarkScore(monorrielQuincenasPacked);
         if (mergedScore < remoteQMarkScore) {
-          console.warn("RFS: re-fusion Monorriel quincenas (evitar pérdida de marcas)");
+          console.warn("RFS: re-fusion Monorriel quincenas (respetando borrados)");
           monorrielQuincenasPacked = monoQMerge(remoteQ, localQ || { reports: [] });
-        }
-        if (monoQDataMarkScore(monorrielQuincenasPacked) < remoteQMarkScore) {
-          monorrielQuincenasPacked = remoteQ;
         }
       }
       if (monorrielQuincenasPacked && typeof syncMonorrielQuincenasPacked === "function") {
@@ -2089,12 +2085,7 @@
       }
     } catch (err) {
       console.warn("RFS: no se pudieron fusionar quincenas Monorriel al guardar", err);
-      if (remoteQMarkScore > 0 && remoteQ) {
-        monorrielQuincenasPacked = remoteQ;
-        if (typeof syncMonorrielQuincenasPacked === "function") {
-          syncMonorrielQuincenasPacked(monorrielQuincenasPacked);
-        }
-      } else if (typeof monorrielQuincenasForCloud === "function") {
+      if (typeof monorrielQuincenasForCloud === "function") {
         monorrielQuincenasPacked = monorrielQuincenasForCloud();
       }
       if (remoteQMarkScore > 0) throw err;
@@ -2105,7 +2096,6 @@
     const hrPack = await stripHr(hr);
     const depPack = await stripDepuracion(depuracion);
     const supPack = await stripSuplidores(suplidores);
-    if (typeof restoreVargasFromSafetyNet === "function") restoreVargasFromSafetyNet();
     let vargasToSave = vargas && typeof vargas === "object" ? vargas : emptyVargas();
     let remoteVargas = null;
     let remoteVargasMarkScore = 0;
@@ -2126,11 +2116,8 @@
         ) {
           const mergedScore = vargasDataMarkScore(vargasToSave);
           if (mergedScore < remoteVargasMarkScore) {
-            console.warn("RFS: re-fusion Ramón Vargas (evitar pérdida de marcas)");
+            console.warn("RFS: re-fusion Ramón Vargas (respetando borrados)");
             vargasToSave = mergeVargasDataSticky(remoteVargas, vargas);
-          }
-          if (vargasDataMarkScore(vargasToSave) < remoteVargasMarkScore) {
-            vargasToSave = remoteVargas;
           }
         }
         if (typeof vargasData !== "undefined") {
@@ -2143,21 +2130,10 @@
           } catch (_) {}
         }
       } else if (remoteVargasMarkScore > 0 && remoteVargas) {
-        vargasToSave = remoteVargas;
-      }
-      if (
-        remoteVargasMarkScore > 0 &&
-        typeof vargasDataMarkScore === "function" &&
-        vargasDataMarkScore(vargasToSave) < remoteVargasMarkScore
-      ) {
-        console.warn("RFS: se evitó publicar Ramón Vargas con menos marcas que la nube");
-        vargasToSave = remoteVargas;
+        vargasToSave = mergeVargasDataSticky(vargasToSave || { reports: [] }, remoteVargas);
       }
     } catch (err) {
-      console.warn("RFS: no se pudo fusionar Banco/Efectivo de Vargas al guardar", err);
-      if (remoteVargasMarkScore > 0 && remoteVargas) {
-        vargasToSave = remoteVargas;
-      }
+      console.warn("RFS: no se pudo fusionar Ramón Vargas al guardar", err);
       if (remoteVargasMarkScore > 0) throw err;
     }
     let contabToSave = contabilidad;
