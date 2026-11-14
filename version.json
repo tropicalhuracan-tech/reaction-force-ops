@@ -1,6 +1,6 @@
 {
-  "build": 231,
-  "label": "v231",
-  "minBuild": 231,
-  "note": "Candado nómina: Ramón Vargas y Monorriel quincenas no se borran al sync"
+  "build": 232,
+  "label": "v232",
+  "minBuild": 232,
+  "note": "Vargas/Monorriel: borrar duplicados, editar puesto, marcas 1.5 = 6h extras"
 }

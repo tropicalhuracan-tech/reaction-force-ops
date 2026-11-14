@@ -268,17 +268,32 @@ function nextYm(ym) {
 
 const VOLAO_RATE = { dia: 850, noche: 900, moto_dia: 1000, moto_noche: 1000 };
 
+function parseMarkNumber(mark) {
+  const s = String(mark == null ? "" : mark).trim().replace(",", ".");
+  if (!s || !/^\d+(\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function countSheetMarks(marks) {
   let days = 0;
   let volaoMarks = 0;
+  let extraHoursFromMarks = 0;
   Object.keys(marks || {}).forEach((d) => {
     if (Number(d) === 31) return;
-    const n = Number(marks[d]);
+    const n = parseMarkNumber(marks[d]);
     if (!(n > 0)) return;
-    days += 1;
-    if (n === 2) volaoMarks += 1;
+    if (n === 2) {
+      days += 1;
+      volaoMarks += 1;
+      return;
+    }
+    const full = Math.floor(n);
+    const frac = n - full;
+    days += full;
+    if (frac > 0.001) extraHoursFromMarks += frac * 12;
   });
-  return { days, volaoMarks };
+  return { days, volaoMarks, extraHoursFromMarks: Math.round(extraHoursFromMarks * 100) / 100 };
 }
 
 async function feedHalfFromQuincena(period, half, quincena, payrollByKey, ids) {
@@ -289,7 +304,8 @@ async function feedHalfFromQuincena(period, half, quincena, payrollByKey, ids) {
     const rows = employees
       .map((emp) => {
         const count = countSheetMarks(emp.marks);
-        const hours = Math.max(0, Number(String(emp.horasExtras || "").replace(",", ".")) || 0);
+        const hoursManual = Math.max(0, Number(String(emp.horasExtras || "").replace(",", ".")) || 0);
+        const hours = Math.round((hoursManual + (count.extraHoursFromMarks || 0)) * 100) / 100;
         return {
           name: String(emp.fullName || "").trim(),
           employeeId: emp.employeeId || "",
