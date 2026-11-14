@@ -1,6 +1,6 @@
 {
-  "build": 244,
-  "label": "v244",
-  "minBuild": 244,
-  "note": "Nómina Oficina: quitar fila (✕) sin que revuelva"
+  "build": 245,
+  "label": "v245",
+  "minBuild": 245,
+  "note": "Oficina: quitar fila con − o nombre vacío"
 }
