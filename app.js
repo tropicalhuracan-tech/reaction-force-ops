@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 234;
-const APP_VERSION_LABEL = "v234";
+const APP_BUILD = 235;
+const APP_VERSION_LABEL = "v235";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -14231,6 +14231,22 @@ function bindUi() {
     }
     closeMediaLightbox();
   });
+  document.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod || e.shiftKey || String(e.key || "").toLowerCase() !== "z") return;
+    const activeView = document.querySelector(".view.active");
+    const viewId = activeView ? activeView.id : "";
+    if (viewId === "vargasView" && typeof window.undoVargasStep === "function") {
+      e.preventDefault();
+      window.undoVargasStep();
+      return;
+    }
+    if (viewId === "monorrielView" && typeof window.undoMonoQStep === "function") {
+      e.preventDefault();
+      window.undoMonoQStep();
+    }
+  });
   bindPcCameraUi();
   bindLoansUi();
   bindCajaUi();
@@ -14426,7 +14442,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v234")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v235")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
