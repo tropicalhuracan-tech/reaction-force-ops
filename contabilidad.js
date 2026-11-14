@@ -3956,14 +3956,36 @@ function ensureOpenPayrollDraft() {
   return null;
 }
 
+function purgeOfficePayrollBlankLines(p, lines, prevLines) {
+  if (!payrollIsOffice(p) || !Array.isArray(lines)) return { lines: lines || [], removed: 0 };
+  const prevByIdx = Array.isArray(prevLines) ? prevLines : [];
+  const out = [];
+  let removed = 0;
+  lines.forEach((l, i) => {
+    const name = String((l && l.fullName) || "").trim();
+    if (name) {
+      out.push(l);
+      return;
+    }
+    const prev = prevByIdx[i] || {};
+    const hadPerson =
+      String(prev.fullName || "").trim() ||
+      String(l.employeeId || prev.employeeId || "").trim();
+    if (hadPerson) payrollRegisterOfficeLineRemoval(p, { ...prev, ...l, fullName: prev.fullName || l.fullName });
+    removed += 1;
+  });
+  return { lines: out, removed };
+}
+
 function syncOpenPayrollFromDom(recalc = false) {
   const p = ensureOpenPayrollDraft();
   if (!p) return null;
+  const prevSnap = JSON.parse(JSON.stringify(p.lines || []));
   const lines = readPayrollLinesFromDom(p.id);
   if (!lines) return p;
   const profile = getPayrollFormulaProfile(p);
   const opts = payrollComputeOpts(p);
-  p.lines = lines.map((l) => {
+  let mapped = lines.map((l) => {
     if (isManualPayrollLine(l)) {
       // Manual: respetar todos los montos tecleados (incluido SFS/rifa en 0)
       return computePayrollLineTotals({ ...l, sfsManual: true, horasExtrasManual: true }, opts);
@@ -3979,6 +4001,15 @@ function syncOpenPayrollFromDom(recalc = false) {
       opts
     );
   });
+  if (payrollIsOffice(p)) {
+    const purged = purgeOfficePayrollBlankLines(p, mapped, prevSnap);
+    mapped = purged.lines;
+    if (purged.removed > 0) {
+      renderNominaTab._forceDetailRebuild = true;
+      markPayrollEdited();
+    }
+  }
+  p.lines = mapped;
   p.updatedAt = new Date().toISOString();
   return p;
 }
@@ -5891,7 +5922,7 @@ function renderNominaTab() {
   const helpLine = isOfficeOpen
     ? `Pago ${escapeHtml(p.payDate || "—")} (depósito 5/20; corte 15/30) · ${
         p.status === "paid" ? "Pagada" : "Borrador"
-      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Casilla junto al nombre = revisado (solo edición). Nombre = 1 nombre + 1 apellido · Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
+      } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). **Quitar de esta nómina:** botón **−** al final de la fila (no uses «Generar/actualizar» para eso). Borrar el nombre y salir de la celda también quita la fila. La lista en pestaña Oficina no cambia. Quincena = sueldo/2 · SFS RD$ ${OFFICE_PAYROLL_SFS}. Impresión ${paperLabel} horizontal.`
     : `Pago ${escapeHtml(p.payDate || "—")} (depósito días 5 y 20; corte de costos 15 y 30) · ${
         p.status === "paid" ? "Pagada" : "Borrador"
       } · ${namedCount}/${lines.length} con nombre · ${reviewedCount} revisado(s). Días "13+2": quincena solo con 13; el +N = RD$ ${formulaProfile.volaoPerExtraDay} c/u solo en Volaos. ${extrasHelp} Unif/Rifa 115/85.${
