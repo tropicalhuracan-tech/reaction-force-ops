@@ -1,6 +1,6 @@
 {
-  "build": 232,
-  "label": "v232",
-  "minBuild": 232,
-  "note": "Vargas/Monorriel: borrar duplicados, editar puesto, marcas 1.5 = 6h extras"
+  "build": 233,
+  "label": "v233",
+  "minBuild": 233,
+  "note": "Vargas/Monorriel: Quitar ✕ elimina de la lista; puesto editable por bloque"
 }

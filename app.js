@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 232;
-const APP_VERSION_LABEL = "v232";
+const APP_BUILD = 233;
+const APP_VERSION_LABEL = "v233";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -14426,7 +14426,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v232")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v233")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

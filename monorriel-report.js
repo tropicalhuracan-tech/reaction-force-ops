@@ -246,10 +246,13 @@ function monoQNormalizeReport(raw) {
     }
     const src = raw && raw.sheets && raw.sheets[s.id] && raw.sheets[s.id].employees;
     const seen = new Set((sheets[s.id].employees || []).map((e) => monoQKey(e.fullName)));
+    const deleted = new Set(monoQSheetDeleted(sheets[s.id]));
     (src || []).forEach((emp) => {
       const fullName = String((emp && emp.fullName) || "").trim();
       const key = monoQKey(fullName);
       if (!key) return;
+      const eid = String((emp && emp.employeeId) || "").trim();
+      if (deleted.has(key) || (eid && deleted.has(`id:${eid}`))) return;
       const marks = emp && emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {};
       const existing = (sheets[s.id].employees || []).find((e) => monoQKey(e.fullName) === key);
       if (existing) {
@@ -757,7 +760,7 @@ function renderMonorrielQuincenaModule() {
             <th class="vargas-pagos-head" title="Solo control. No entra en la nómina">Volaos pagos</th>
             <th class="vargas-hex-head" title="Horas × RD$60, sumadas a Horas extras">Horas ext.</th>
             ${dayHeaders}
-            <th></th>
+            <th class="vargas-del-head" title="Quitar de la lista">Quitar</th>
           </tr></thead>
           <tbody>${body || `<tr><td colspan="${(report.dayNums || []).length + 6}">Sin personas en esta planilla</td></tr>`}</tbody>
         </table>
@@ -942,7 +945,7 @@ function bindMonorrielQuincenaUi(report) {
       const idx = Number(btn.getAttribute("data-i"));
       const emp = sheet && sheet.employees[idx];
       if (!emp) return;
-      if (!confirm(`¿Quitar a ${emp.fullName} de esta planilla?`)) return;
+      if (!confirm(`¿Quitar a ${emp.fullName} de esta planilla? (también duplicados del mismo nombre)`)) return;
       sheet.deletedKeys = sheet.deletedKeys || [];
       const dk = monoQKey(emp.fullName);
       if (dk && !sheet.deletedKeys.includes(dk)) sheet.deletedKeys.push(dk);
@@ -950,12 +953,29 @@ function bindMonorrielQuincenaUi(report) {
         const idk = `id:${emp.employeeId}`;
         if (!sheet.deletedKeys.includes(idk)) sheet.deletedKeys.push(idk);
       }
-      sheet.employees.splice(idx, 1);
+      const removedNames = new Set([dk].filter(Boolean));
+      let removed = 0;
+      sheet.employees = (sheet.employees || []).filter((e) => {
+        const k = monoQKey(e.fullName);
+        if (k && removedNames.has(k)) {
+          removed += 1;
+          return false;
+        }
+        return true;
+      });
+      if (!removed) sheet.employees.splice(idx, 1);
       current.updatedAt = new Date().toISOString();
       monoQSave(true);
       try {
         if (typeof flushCloudSave === "function") flushCloudSave();
       } catch (_) {}
+      if (typeof toast === "function") {
+        toast(
+          removed > 1
+            ? `Eliminado ${emp.fullName} (${removed} filas)`
+            : `Eliminado: ${emp.fullName}`
+        );
+      }
       renderMonorrielQuincenaModule();
     });
   });

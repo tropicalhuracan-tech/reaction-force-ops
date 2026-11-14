@@ -3100,7 +3100,19 @@ body.lightbox-open {
 }
 .vargas-sheet .vargas-del-cell {
   text-align: center;
-  width: 36px;
+  width: 44px;
+}
+.vargas-sheet .vargas-del-head {
+  min-width: 44px;
+  font-size: 11px;
+}
+.vargas-sheet .vargas-post-edit[contenteditable="true"] {
+  cursor: text;
+  background: rgba(255, 255, 255, 0.04);
+}
+.vargas-sheet .vargas-post-edit[contenteditable="true"]:focus {
+  outline: 1px solid var(--red);
+  background: rgba(212, 20, 20, 0.12);
 }
 @media (max-width: 720px) {
   .vargas-sheet .vargas-add-grid {
