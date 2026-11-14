@@ -3114,6 +3114,54 @@ body.lightbox-open {
   outline: 1px solid var(--red);
   background: rgba(212, 20, 20, 0.12);
 }
+.report-memo-bar {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.report-memo-table {
+  width: 100%;
+  max-width: 360px;
+  font-size: 11px;
+  margin: 0 0 8px;
+  border-collapse: collapse;
+  color: var(--muted, #9ca3af);
+}
+.report-memo-table th,
+.report-memo-table td {
+  padding: 2px 6px;
+  text-align: center;
+}
+.report-memo-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.report-memo-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.report-memo-swatch.is-selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px var(--red, #d41414);
+}
+.report-memo-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.report-memo-toggle {
+  width: auto !important;
+  margin: 0 8px 0 0 !important;
+}
 @media (max-width: 720px) {
   .vargas-sheet .vargas-add-grid {
     grid-template-columns: 1fr;

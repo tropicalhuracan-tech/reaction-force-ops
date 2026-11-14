@@ -6,6 +6,73 @@ const VARGAS_MANUAL_BACKUP_MAX = 12;
 const VARGAS_UNDO_KEY = "rfs-ops-vargas-undo-stack";
 const VARGAS_UNDO_MAX = 40;
 let vargasUndoStack = [];
+let vargasMemoColorPick = "yellow";
+let vargasMemoPaintOn = false;
+
+function vargasMemoTools() {
+  return typeof window !== "undefined" ? window.RFSReportCells : null;
+}
+
+function normalizeVargasEmpMemo(emp) {
+  const tools = vargasMemoTools();
+  if (!tools) return {};
+  emp.memoColors = tools.normalizeMemoColors(emp && emp.memoColors);
+  return emp.memoColors;
+}
+
+function setVargasCellMemo(sectionIdx, empIdx, fieldKey, colorId) {
+  const report = getActiveVargasReport();
+  const sec = report && report.sections && report.sections[sectionIdx];
+  const emp = sec && sec.employees && sec.employees[empIdx];
+  if (!emp) return false;
+  const tools = vargasMemoTools();
+  if (!tools) return false;
+  vargasPushUndo("color");
+  emp.memoColors = tools.normalizeMemoColors(emp.memoColors);
+  const key = String(fieldKey || "").trim();
+  if (!key) return false;
+  const id = String(colorId || "").trim();
+  if (!id) delete emp.memoColors[key];
+  else if (tools.memoById(id)) emp.memoColors[key] = id;
+  if (!Object.keys(emp.memoColors).length) delete emp.memoColors;
+  report.updatedAt = new Date().toISOString();
+  saveVargasData(true);
+  return true;
+}
+
+function vargasApplyPasteToCell(cell, text, opts) {
+  const raw = String(text == null ? "" : text).replace(/\s+/g, " ").trim();
+  const field = cell.getAttribute("data-memo-field") || "";
+  if (field === "post") {
+    const s = Number(cell.dataset.s);
+    setVargasSectionPostName(s, raw);
+    if (opts && opts.fromPaste) cell.textContent = raw;
+    return;
+  }
+  const s = Number(cell.dataset.s);
+  const e = Number(cell.dataset.e);
+  if (!(s >= 0) || !(e >= 0)) return;
+  if (field.startsWith("d:")) {
+    const day = field.slice(2);
+    setVargasEmployeeMark(s, e, day, raw);
+    if (opts && (opts.fromPaste || opts.fromCut)) cell.textContent = raw;
+    return;
+  }
+  if (field === "name") {
+    const r = setVargasEmployeeName(s, e, raw);
+    if (r.ok) cell.textContent = r.fullName;
+    return;
+  }
+  if (field === "pagos") {
+    setVargasEmployeeVolaosPagos(s, e, raw);
+    cell.textContent = raw;
+    return;
+  }
+  if (field === "horas") {
+    setVargasEmployeeHorasExtras(s, e, raw);
+    cell.textContent = raw;
+  }
+}
 
 let vargasData = emptyVargasData();
 let vargasFilterShift = "all"; // all | diurno | nocturno
@@ -174,6 +241,9 @@ function normalizeVargasReport(raw = {}) {
         horasExtras: normalizeVargasHorasExtras(emp.horasExtras),
         nameManual: emp.nameManual === true,
         nameEditedAt: String(emp.nameEditedAt || ""),
+        memoColors: vargasMemoTools()
+          ? vargasMemoTools().normalizeMemoColors(emp.memoColors)
+          : {},
       })),
     })),
     updatedAt: raw.updatedAt || new Date().toISOString(),
@@ -484,6 +554,8 @@ function mergeVargasEmployeeFields(winner, loser) {
   if (!(Number(winner.horasExtras) > 0) && Number(loser.horasExtras) > 0) {
     winner.horasExtras = normalizeVargasHorasExtras(loser.horasExtras);
   }
+  const tools = vargasMemoTools();
+  if (tools) tools.mergeEmployeeMemoColors(winner, loser);
 }
 
 function vargasSectionKey(sec) {
@@ -1458,6 +1530,7 @@ function flattenVargasEmployees(report, opts = {}) {
         postName: sec.postName,
         fullName: emp.fullName,
         marks: emp.marks || {},
+        memoColors: (emp.memoColors && typeof emp.memoColors === "object" ? { ...emp.memoColors } : {}),
         payBucket: emp.payBucket || "",
         volaosPagos: normalizeVargasVolaosPagos(emp.volaosPagos),
         horasExtras,
@@ -2275,6 +2348,9 @@ function renderVargasModule() {
 
   const body = rows
     .map((row) => {
+      const memo = row.memoColors || {};
+      const memoTools = vargasMemoTools();
+      const ms = (key) => (memoTools ? memoTools.memoStyleAttr(memo, key) : "");
       const markCells = (report.dayNums || [])
         .map((d) => {
           const mark = row.marks[String(d)];
@@ -2287,7 +2363,9 @@ function renderVargasModule() {
             : worked && vargasParseMarkNumber(mark) != null && !Number.isInteger(vargasParseMarkNumber(mark))
               ? ` title="${val}: fracción × 12 h = horas extras (ej. 1.5 = 1 día + 6 h)"`
               : ` title="1 = día · 2 = día + volao · 1.5 = 1 día + 6 h extras"`;
-          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" contenteditable="true" spellcheck="false"${title}>${escapeVargasHtml(val)}</td>`;
+          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" data-memo-field="d:${d}" contenteditable="true" spellcheck="false"${title}${ms(
+            `d:${d}`
+          )}>${escapeVargasHtml(val)}</td>`;
         })
         .join("");
       const daysLabel =
@@ -2303,11 +2381,19 @@ function renderVargasModule() {
         : ` title="Horas extras (ej. 2 o 2.3). RD$${VARGAS_EXTRA_HOUR_RATE}/h sumadas a la nómina"`;
       return `<tr data-shift="${row.shift}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
-        <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" title="Toca para corregir el nombre">${escapeVargasHtml(row.fullName)}</td>
-        <td class="vargas-post vargas-post-edit" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" title="Toca para cambiar el puesto de este bloque">${escapeVargasHtml(row.postName)}</td>
+        <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="name" title="Toca para corregir el nombre"${ms(
+          "name"
+        )}>${escapeVargasHtml(row.fullName)}</td>
+        <td class="vargas-post vargas-post-edit" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="post" title="Toca para cambiar el puesto de este bloque"${ms(
+          "post"
+        )}>${escapeVargasHtml(row.postName)}</td>
         <td class="vargas-days-total">${daysLabel}</td>
-        <td class="vargas-pagos-cell${pagosFilled ? " is-paid" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false" title="Volaos ya pagados (1 o 2). Solo control: no suma en nómina">${escapeVargasHtml(pagosVal)}</td>
-        <td class="vargas-hex-cell${hexFilled ? " has-hex" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false"${hexTitle}>${escapeVargasHtml(hexVal)}</td>
+        <td class="vargas-pagos-cell${pagosFilled ? " is-paid" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="pagos" contenteditable="true" spellcheck="false" title="Volaos ya pagados (1 o 2). Solo control: no suma en nómina"${ms(
+          "pagos"
+        )}>${escapeVargasHtml(pagosVal)}</td>
+        <td class="vargas-hex-cell${hexFilled ? " has-hex" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="horas" contenteditable="true" spellcheck="false"${hexTitle}${ms(
+          "horas"
+        )}>${escapeVargasHtml(hexVal)}</td>
         ${markCells}
         <td class="vargas-del-cell">
           <button type="button" class="vargas-del-btn" data-row="${escapeVargasAttr(row.rowKey)}" data-name="${escapeVargasAttr(row.fullName)}" title="Eliminar" aria-label="Eliminar">✕</button>
@@ -2347,6 +2433,7 @@ function renderVargasModule() {
           </select>
         </label>
       </div>
+      ${vargasMemoTools() ? vargasMemoTools().renderMemoPaletteHtml(vargasMemoColorPick) : ""}
       <div class="vargas-actions">
         <button type="button" class="primary" id="btnVargasGuardar">Guardar respaldo</button>
         <button type="button" class="secondary" id="btnVargasRecuperar">Recuperar respaldo</button>
@@ -2428,6 +2515,37 @@ function escapeVargasAttr(s) {
 }
 
 function bindVargasUiHandlers() {
+  const host = document.getElementById("vargasReportHost");
+  const tools = vargasMemoTools();
+  if (host && tools) {
+    tools.bindMemoPalette(host, {
+      getSelected: () => vargasMemoColorPick,
+      setSelected: (id) => {
+        vargasMemoColorPick = id;
+      },
+      getMode: () => vargasMemoPaintOn,
+      setMode: (on) => {
+        vargasMemoPaintOn = !!on;
+      },
+      applyColor: (cell, colorId) => {
+        const field = cell.getAttribute("data-memo-field") || "";
+        const s = Number(cell.dataset.s);
+        const e = Number(cell.dataset.e);
+        if (field === "post") {
+          setVargasCellMemo(s, e, field, colorId);
+        } else if (s >= 0 && e >= 0) {
+          setVargasCellMemo(s, e, field, colorId);
+        }
+        const hit = tools.memoById(colorId);
+        cell.style.backgroundColor = hit && hit.css ? hit.css : "";
+      },
+    });
+    const view = document.getElementById("vargasView");
+    tools.bindReportClipboard(view || host, {
+      cellSelector: "td[contenteditable][data-memo-field]",
+      pasteToCell: vargasApplyPasteToCell,
+    });
+  }
   const search = document.getElementById("vargasSearchInput");
   if (search) {
     search.addEventListener("input", () => {
