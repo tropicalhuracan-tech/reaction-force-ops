@@ -234,8 +234,15 @@ function mergeMonoSheetSticky(baseSheet, otherSheet) {
       marks: { ...(otherEmp.marks || {}) },
     });
   });
-  out.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
-  return { employees: out, deletedKeys: [...deleted] };
+  const kept = out.filter((emp) => {
+    const rowKey = monoQEmployeeDeleteKey(emp);
+    const id = String(emp.employeeId || "").trim();
+    if (rowKey && deleted.has(rowKey)) return false;
+    if (id && deleted.has(`id:${id}`)) return false;
+    return true;
+  });
+  kept.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
+  return { employees: kept, deletedKeys: [...deleted] };
 }
 
 function mergeMonoReportSticky(base, other) {
@@ -607,7 +614,6 @@ function monoQMerge(localRaw, remoteRaw) {
 }
 
 function monoQSave(push) {
-  restoreMonoQFromSafetyNet();
   try {
     localStorage.setItem(MONOQ_KEY, JSON.stringify(monoQData));
     localStorage.setItem(MONOQ_ACTIVE_KEY, monoQActiveId);
@@ -1128,13 +1134,16 @@ function bindMonorrielQuincenaUi(report) {
     });
   });
   host.querySelectorAll(".monoq-del").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       const current = monoQActive();
       const sheet = current && current.sheets[monoQSheet];
       const idx = Number(btn.getAttribute("data-i"));
       const emp = sheet && sheet.employees[idx];
       if (!emp) return;
-      if (!confirm(`¿Quitar solo a ${emp.fullName} de esta fila?`)) return;
+      const name = emp.fullName;
+      const tr = btn.closest("tr");
       monoQPushUndo("quitar");
       sheet.deletedKeys = sheet.deletedKeys || [];
       const dk = monoQEmployeeDeleteKey(emp);
@@ -1145,8 +1154,8 @@ function bindMonorrielQuincenaUi(report) {
       try {
         if (typeof flushCloudSave === "function") flushCloudSave();
       } catch (_) {}
-      if (typeof toast === "function") toast(`Eliminado: ${emp.fullName}`);
-      renderMonorrielQuincenaModule();
+      if (tr && tr.parentElement) tr.remove();
+      if (typeof toast === "function") toast(`Eliminado: ${name}`);
     });
   });
 }

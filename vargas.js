@@ -208,7 +208,6 @@ function ensureVargasSeedLoaded() {
 }
 
 function saveVargasData(push = true, urgent = false) {
-  restoreVargasFromSafetyNet();
   vargasData = normalizeVargasData(vargasData);
   persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
@@ -1263,10 +1262,10 @@ function setVargasEmployeeHorasExtras(sectionIdx, empIdx, value) {
 
 function removeVargasEmployee(sectionIdx, empIdx) {
   const report = getActiveVargasReport();
-  if (!report || !report.sections[sectionIdx]) return { ok: false };
+  if (!report || !report.sections[sectionIdx]) return { ok: false, reason: "no-section" };
   const sec = report.sections[sectionIdx];
   const emp = sec.employees && sec.employees[empIdx];
-  if (!emp) return { ok: false };
+  if (!emp) return { ok: false, reason: "no-emp" };
   vargasPushUndo("quitar");
   const name = emp.fullName;
   sec.deletedKeys = vargasSectionDeletedKeys(sec);
@@ -1277,12 +1276,24 @@ function removeVargasEmployee(sectionIdx, empIdx) {
     report.sections.splice(sectionIdx, 1);
   }
   report.updatedAt = new Date().toISOString();
+  vargasScrubDeletedFromReport(report);
   saveVargasData(true, true);
   try {
     if (typeof flushCloudSave === "function") flushCloudSave();
   } catch (_) {}
   persistVargasSafetyNet(vargasData);
   return { ok: true, fullName: name, removed: 1 };
+}
+
+function removeVargasEmployeeByRowKey(rowKey) {
+  const report = getActiveVargasReport();
+  if (!report || !rowKey) return { ok: false, reason: "no-key" };
+  for (let s = 0; s < (report.sections || []).length; s++) {
+    const sec = report.sections[s];
+    const idx = (sec.employees || []).findIndex((e) => vargasEmployeeExactKey(sec, e) === rowKey);
+    if (idx >= 0) return removeVargasEmployee(s, idx);
+  }
+  return { ok: false, reason: "not-found" };
 }
 
 function listVargasPostNames(report, shiftFilter) {
@@ -1442,6 +1453,7 @@ function flattenVargasEmployees(report, opts = {}) {
       rows.push({
         sectionIdx: sIdx,
         empIdx: eIdx,
+        rowKey: vargasEmployeeExactKey(sec, emp),
         shift: sec.shift,
         postName: sec.postName,
         fullName: emp.fullName,
@@ -2298,7 +2310,7 @@ function renderVargasModule() {
         <td class="vargas-hex-cell${hexFilled ? " has-hex" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" contenteditable="true" spellcheck="false"${hexTitle}>${escapeVargasHtml(hexVal)}</td>
         ${markCells}
         <td class="vargas-del-cell">
-          <button type="button" class="vargas-del-btn" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-name="${escapeVargasAttr(row.fullName)}" title="Eliminar empleado" aria-label="Eliminar">✕</button>
+          <button type="button" class="vargas-del-btn" data-row="${escapeVargasAttr(row.rowKey)}" data-name="${escapeVargasAttr(row.fullName)}" title="Eliminar" aria-label="Eliminar">✕</button>
         </td>
       </tr>`;
     })
@@ -2716,17 +2728,21 @@ function bindVargasUiHandlers() {
     });
   }
   document.querySelectorAll(".vargas-del-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const name = btn.dataset.name || "este empleado";
-      if (!confirm(`¿Quitar solo a ${name} de esta fila? (no se borran otras personas con el mismo nombre)`)) return;
-      const s = Number(btn.dataset.s);
-      const e = Number(btn.dataset.e);
-      const result = removeVargasEmployee(s, e);
-      if (result.ok && typeof toast === "function") toast(`Eliminado: ${result.fullName}`);
-      if (result.ok && typeof logActivity === "function") {
-        logActivity("vargas_del", `Vargas − ${result.fullName}`);
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const rowKey = btn.getAttribute("data-row") || "";
+      const name = btn.dataset.name || "empleado";
+      const tr = btn.closest("tr");
+      const result = removeVargasEmployeeByRowKey(rowKey);
+      if (!result.ok) {
+        if (typeof toast === "function") toast("No se pudo quitar. Recarga e intenta otra vez.");
+        return;
       }
-      renderVargasModule();
+      if (tr && tr.parentElement) tr.remove();
+      refreshVargasSummaryBar();
+      if (typeof toast === "function") toast(`Eliminado: ${name}`);
+      if (typeof logActivity === "function") logActivity("vargas_del", `Vargas − ${name}`);
     });
   });
 }
