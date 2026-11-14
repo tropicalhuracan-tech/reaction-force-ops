@@ -650,6 +650,14 @@ function restoreMonoQFromSafetyNet() {
 function syncMonorrielQuincenasPacked(packed) {
   if (!packed || !Array.isArray(packed.reports)) return;
   ensureMonorrielQuincenasLoaded();
+  if (typeof monoQDataMarkScore === "function") {
+    const localScore = monoQDataMarkScore(monoQData);
+    const packedScore = monoQDataMarkScore(packed);
+    if (packedScore < localScore - 1 && localScore > 2) {
+      console.warn("RFS: no se reemplaza quincena local (menos datos que lo actual)");
+      return;
+    }
+  }
   monoQData = { reports: packed.reports.map((r) => monoQNormalizeReport(r)), _ready: true };
   monoQSave(false);
 }
@@ -690,6 +698,7 @@ function monoQMerge(localRaw, remoteRaw) {
 }
 
 function monoQSave(push) {
+  if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
   try {
     localStorage.setItem(MONOQ_KEY, JSON.stringify(monoQData));
     localStorage.setItem(MONOQ_ACTIVE_KEY, monoQActiveId);
@@ -729,6 +738,12 @@ function monorrielQuincenasForCloud() {
 }
 
 function applyRemoteMonorrielQuincenas(remote) {
+  if (
+    typeof shouldSkipSensitiveRemoteMergeBeforeSave === "function" &&
+    shouldSkipSensitiveRemoteMergeBeforeSave()
+  ) {
+    return;
+  }
   if (!remote || !Array.isArray(remote.reports)) return;
   ensureMonorrielQuincenasLoaded();
   restoreMonoQFromSafetyNet();

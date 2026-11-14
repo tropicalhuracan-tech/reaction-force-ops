@@ -20,6 +20,8 @@ function emptyContabilidadData() {
     payrollBackups: [],
     /** Ids borrados a mano (evita que el sync los vuelva a traer desde la nube). */
     payrollBackupDeletedIds: [],
+    /** Nóminas eliminadas en la app; solo esas se borran del doc separado en la nube. */
+    payrollCloudDeletedIds: [],
     settings: { defaultBook: "EDWARD" },
   };
 }
@@ -942,6 +944,7 @@ function normalizeContabilidadData(raw = {}) {
       : [],
     payrolls: Array.isArray(raw.payrolls) ? raw.payrolls.map(normalizePayroll) : [],
     payrollBackupDeletedIds: normalizePayrollBackupDeletedIds(raw.payrollBackupDeletedIds),
+    payrollCloudDeletedIds: normalizePayrollBackupDeletedIds(raw.payrollCloudDeletedIds),
     payrollBackups: prunePayrollBackups(
       Array.isArray(raw.payrollBackups) ? raw.payrollBackups : [],
       raw.payrollBackupDeletedIds
@@ -959,6 +962,7 @@ function saveContabilidadData(push = true) {
 }
 
 function applyRemoteContabilidadData(remote) {
+  if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return;
   // Conservar tecleo local de nómina antes de fusionar con la nube
   try {
     if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
@@ -2997,6 +3001,12 @@ function deletePayroll(id) {
     }
   }
   snapshotPayrollBackup(p, "before_delete");
+  contabilidadData.payrollCloudDeletedIds = normalizePayrollBackupDeletedIds(
+    contabilidadData.payrollCloudDeletedIds
+  );
+  if (!contabilidadData.payrollCloudDeletedIds.includes(id)) {
+    contabilidadData.payrollCloudDeletedIds.push(id);
+  }
   contabilidadData.payrolls = contabilidadData.payrolls.filter((x) => x.id !== id);
   if (selectedPayrollId === id) selectedPayrollId = "";
   saveContabilidadData(true);
