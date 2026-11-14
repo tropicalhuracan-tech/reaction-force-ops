@@ -1,6 +1,6 @@
 {
-  "build": 239,
-  "label": "v239",
-  "minBuild": 239,
-  "note": "Vargas: los quitados con ✕ no reviven al sincronizar"
+  "build": 240,
+  "label": "v240",
+  "minBuild": 240,
+  "note": "Vargas ✕ quita duplicados del mismo nombre y bloquea sync"
 }
