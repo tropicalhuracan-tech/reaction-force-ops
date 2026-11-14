@@ -1,6 +1,6 @@
 {
-  "build": 237,
-  "label": "v237",
-  "minBuild": 237,
-  "note": "Colores en casillas + copiar/pegar en Vargas y Monorriel"
+  "build": 238,
+  "label": "v238",
+  "minBuild": 238,
+  "note": "Estabilidad: no pisar nómina/reportes al sincronizar"
 }

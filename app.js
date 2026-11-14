@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 237;
-const APP_VERSION_LABEL = "v237";
+const APP_BUILD = 238;
+const APP_VERSION_LABEL = "v238";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2293,10 +2293,10 @@ let lastLocalEditAt = 0;
 let lastLivePullAt = 0;
 let livePullInFlight = false;
 let liveSyncTimer = null;
-const CLOUD_SAVE_DEBOUNCE_MS = 250;
+const CLOUD_SAVE_DEBOUNCE_MS = 1200;
 const LIVE_SYNC_INTERVAL_MS = 12000;
 const LIVE_PULL_MIN_GAP_MS = 8000;
-const LOCAL_EDIT_GRACE_MS = 4000;
+const LOCAL_EDIT_GRACE_MS = 12000;
 
 function setCloudStatus(text) {
   const el = document.getElementById("cloudStatus");
@@ -2340,6 +2340,32 @@ function saveAllEmployees() {
   if (typeof logActivity === "function") {
     logActivity("employees_save_all", `Guardar todos: ${r.after} (−${r.removed} dup)`);
   }
+}
+
+/** Evita pisar Vargas / Monorriel / nómina al fusionar la nube justo antes de guardar. */
+function shouldSkipSensitiveRemoteMergeBeforeSave() {
+  const now = Date.now();
+  if (now - lastLocalEditAt < LOCAL_EDIT_GRACE_MS) return true;
+  if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return true;
+  const active = document.activeElement;
+  if (active && active.closest) {
+    if (active.closest("td[contenteditable], td.vargas-day-cell, td.monoq-day")) return true;
+    const view = active.closest(".view");
+    if (view && (view.id === "nominaView" || view.id === "vargasView" || view.id === "monorrielView")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Llamar al guardar reportes sensibles (extiende la gracia ante sync). */
+function markSensitiveReportEdit() {
+  lastLocalEditAt = Date.now();
+  if (typeof markPayrollEdited === "function") markPayrollEdited();
+}
+if (typeof window !== "undefined") {
+  window.markSensitiveReportEdit = markSensitiveReportEdit;
+  window.shouldSkipSensitiveRemoteMergeBeforeSave = shouldSkipSensitiveRemoteMergeBeforeSave;
 }
 
 function queueCloudSave() {
@@ -2699,11 +2725,20 @@ async function mergeRemoteBundleBeforeSave() {
       localStorage.setItem(MONORRIEL_REPORTS_KEY, JSON.stringify(monorrielReports));
       persistMonorrielReportsSafetyNet(monorrielReports);
     }
-    if (remote.monorrielQuincenas && typeof applyRemoteMonorrielQuincenas === "function") {
-      applyRemoteMonorrielQuincenas(remote.monorrielQuincenas);
+    const skipSensitive = shouldSkipSensitiveRemoteMergeBeforeSave();
+    if (!skipSensitive) {
+      if (remote.monorrielQuincenas && typeof applyRemoteMonorrielQuincenas === "function") {
+        applyRemoteMonorrielQuincenas(remote.monorrielQuincenas);
+      }
+      if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
+      if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
+      if (remote.contabilidad && typeof remote.contabilidad === "object" && typeof applyRemoteContabilidadData === "function") {
+        applyRemoteContabilidadData(remote.contabilidad);
+      }
+      if (remote.vargas && typeof remote.vargas === "object" && typeof applyRemoteVargasData === "function") {
+        applyRemoteVargasData(remote.vargas);
+      }
     }
-    if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
-    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     if (typeof flushOpenHrDraft === "function") flushOpenHrDraft(false);
     if (typeof flushOpenDepDraft === "function") flushOpenDepDraft(false);
     if (remote.hr && typeof remote.hr === "object" && typeof applyRemoteHrData === "function") {
@@ -2712,14 +2747,8 @@ async function mergeRemoteBundleBeforeSave() {
     if (remote.depuracion && typeof remote.depuracion === "object" && typeof applyRemoteDepuracionData === "function") {
       applyRemoteDepuracionData(remote.depuracion);
     }
-    if (remote.contabilidad && typeof remote.contabilidad === "object" && typeof applyRemoteContabilidadData === "function") {
-      applyRemoteContabilidadData(remote.contabilidad);
-    }
     if (remote.suplidores && typeof remote.suplidores === "object" && typeof applyRemoteSuplidoresData === "function") {
       applyRemoteSuplidoresData(remote.suplidores);
-    }
-    if (remote.vargas && typeof remote.vargas === "object" && typeof applyRemoteVargasData === "function") {
-      applyRemoteVargasData(remote.vargas);
     }
     return true;
   } catch (_) {
@@ -14442,7 +14471,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v237")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v238")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

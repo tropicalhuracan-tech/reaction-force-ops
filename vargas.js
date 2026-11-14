@@ -278,6 +278,7 @@ function ensureVargasSeedLoaded() {
 }
 
 function saveVargasData(push = true, urgent = false) {
+  if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
   vargasData = normalizeVargasData(vargasData);
   persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
@@ -681,6 +682,12 @@ function mergeVargasDataSticky(localRaw, remoteRaw) {
 }
 
 function applyRemoteVargasData(remote) {
+  if (
+    typeof shouldSkipSensitiveRemoteMergeBeforeSave === "function" &&
+    shouldSkipSensitiveRemoteMergeBeforeSave()
+  ) {
+    return;
+  }
   restoreVargasFromSafetyNet();
   vargasData = mergeVargasDataSticky(vargasData, remote || {});
   restoreVargasFromSafetyNet();

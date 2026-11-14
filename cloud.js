@@ -315,6 +315,7 @@
       payrolls: [],
       payrollBackups: [],
       payrollBackupDeletedIds: [],
+      payrollCloudDeletedIds: [],
       settings: { defaultBook: "EDWARD" },
     };
   }
@@ -1114,6 +1115,7 @@
   async function persistSeparatedPayrolls(contab) {
     const src = contab && typeof contab === "object" ? contab : emptyContabilidad();
     const deletedIds = (src.payrollBackupDeletedIds || []).map(String).filter(Boolean).slice(0, 400);
+    const cloudDeleted = new Set((src.payrollCloudDeletedIds || []).map(String).filter(Boolean));
     const payrolls = Array.isArray(src.payrolls) ? src.payrolls.filter((p) => p && p.id) : [];
     const backups = prunePayrollBackupsOnePerPayroll(src.payrollBackups || [], deletedIds);
     const localIds = payrolls.map((p) => String(p.id));
@@ -1166,7 +1168,9 @@
       const idx = await loadPayrollIndex();
       previousIds = idx.payrollIds || [];
     } catch (_) {}
-    const toDelete = previousIds.filter((id) => id && !localIdSet.has(String(id)));
+    const toDelete = previousIds.filter(
+      (id) => id && cloudDeleted.has(String(id)) && !localIdSet.has(String(id))
+    );
     await Promise.all(
       toDelete.map(async (id) => {
         try {
@@ -2074,9 +2078,10 @@
         typeof monoQDataMarkScore === "function" &&
         typeof monoQMerge === "function"
       ) {
+        const localQScore = localQ ? monoQDataMarkScore(localQ) : 0;
         const mergedScore = monoQDataMarkScore(monorrielQuincenasPacked);
-        if (mergedScore < remoteQMarkScore) {
-          console.warn("RFS: re-fusion Monorriel quincenas (respetando borrados)");
+        if (mergedScore < remoteQMarkScore && localQScore < 1) {
+          console.warn("RFS: re-fusion Monorriel quincenas (copia local vacía)");
           monorrielQuincenasPacked = monoQMerge(remoteQ, localQ || { reports: [] });
         }
       }
@@ -2109,18 +2114,29 @@
         remoteVargasMarkScore = vargasDataMarkScore(remoteVargas);
       }
       if (remoteVargas && typeof mergeVargasDataSticky === "function") {
+        const localScore =
+          typeof vargasDataMarkScore === "function" ? vargasDataMarkScore(vargasToSave) : 0;
         vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
         if (
           remoteVargasMarkScore > 0 &&
-          typeof vargasDataMarkScore === "function"
+          typeof vargasDataMarkScore === "function" &&
+          localScore < 1
         ) {
           const mergedScore = vargasDataMarkScore(vargasToSave);
           if (mergedScore < remoteVargasMarkScore) {
-            console.warn("RFS: re-fusion Ramón Vargas (respetando borrados)");
+            console.warn("RFS: re-fusion Ramón Vargas (copia local vacía)");
             vargasToSave = mergeVargasDataSticky(remoteVargas, vargas);
           }
+        } else if (localScore > vargasDataMarkScore(vargasToSave)) {
+          vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
         }
         if (typeof vargasData !== "undefined") {
+          if (
+            typeof vargasDataMarkScore === "function" &&
+            vargasDataMarkScore(vargasData) > vargasDataMarkScore(vargasToSave) + 1
+          ) {
+            vargasToSave = mergeVargasDataSticky(vargasData, vargasToSave);
+          }
           vargasData = vargasToSave;
           try {
             if (typeof VARGAS_KEY !== "undefined") {
