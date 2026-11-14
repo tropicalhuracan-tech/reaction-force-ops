@@ -257,72 +257,93 @@ function mergeOfficeEmployeesPreferFilled(a, b) {
   );
 }
 
-/** Si se perdió el nombre en la tabla, lo toma de la lista Oficina (sin recalcular montos). */
+function payrollOfficeNameKey(name) {
+  if (typeof monoPayrollNameKey === "function") return monoPayrollNameKey(name);
+  return String(name || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function payrollOfficeExcluded(p) {
+  return {
+    ids: new Set((p.excludedOfficeEmployeeIds || []).map((x) => String(x || "").trim()).filter(Boolean)),
+    names: new Set((p.excludedOfficeNameKeys || []).map((x) => String(x || "").trim()).filter(Boolean)),
+  };
+}
+
+function payrollRegisterOfficeLineRemoval(p, line) {
+  if (!payrollIsOffice(p) || !line) return;
+  const id = String(line.employeeId || "").trim();
+  if (id) {
+    p.excludedOfficeEmployeeIds = [
+      ...new Set([...(p.excludedOfficeEmployeeIds || []), id]),
+    ];
+  }
+  const nk = payrollOfficeNameKey(line.fullName);
+  if (nk) {
+    p.excludedOfficeNameKeys = [...new Set([...(p.excludedOfficeNameKeys || []), nk])];
+  }
+}
+
+function payrollIsOfficeLineExcluded(p, line) {
+  if (!payrollIsOffice(p) || !line) return false;
+  const ex = payrollOfficeExcluded(p);
+  const id = String(line.employeeId || "").trim();
+  if (id && ex.ids.has(id)) return true;
+  const nk = payrollOfficeNameKey(line.fullName);
+  return !!(nk && ex.names.has(nk));
+}
+
+function payrollMergeOfficeExclusions(target, source) {
+  if (!target || !source) return;
+  target.excludedOfficeEmployeeIds = [
+    ...new Set([
+      ...(target.excludedOfficeEmployeeIds || []),
+      ...(source.excludedOfficeEmployeeIds || []),
+    ]),
+  ];
+  target.excludedOfficeNameKeys = [
+    ...new Set([...(target.excludedOfficeNameKeys || []), ...(source.excludedOfficeNameKeys || [])]),
+  ];
+}
+
+/** Solo rellena nombre si hay employeeId y el campo quedó vacío (no reinserta quitados). */
 function backfillOfficePayrollFromRoster(p) {
   if (!payrollIsOffice(p)) return false;
   const staff = getOfficeStaffForPayroll();
-  if (!staff.length) return false;
   const byId = new Map();
-  const byName = new Map();
   staff.forEach((s) => {
     if (s.id) byId.set(s.id, s);
     if (s.employeeId) byId.set(s.employeeId, s);
-    const k = String(s.name || "")
-      .toLowerCase()
-      .trim();
-    if (k) byName.set(k, s);
   });
   let changed = false;
-  const lines = p.lines || [];
-  let named = 0;
-  p.lines = lines.map((l, idx) => {
-    const next = { ...l };
-    if (String(next.fullName || "").trim()) {
-      named += 1;
-      return next;
+  const before = (p.lines || []).length;
+  p.lines = (p.lines || []).filter((l) => {
+    if (payrollIsOfficeLineExcluded(p, l)) {
+      changed = true;
+      return false;
     }
-    let s =
-      (next.employeeId && byId.get(next.employeeId)) ||
-      byName.get(String(staff[idx] && staff[idx].name).toLowerCase().trim()) ||
-      staff[idx];
-    if (!s) return next;
-    const display =
-      payrollShortEmployeeName(s.name || s.fullName) ||
-      payrollCleanEmployeeName(s.name || s.fullName) ||
-      String(s.name || "").trim();
-    if (!display) return next;
-    next.fullName = display;
-  if (!next.employeeId) next.employeeId = s.id || s.employeeId || "";
-    if (!String(next.cedula || "").trim() && s.cedula) next.cedula = s.cedula;
-    if (!String(next.position || "").trim() && s.position) next.position = s.position;
-    if (!(Number(next.salaryMonthly) > 0) && Number(s.salaryMonthly) > 0) {
-      next.salaryMonthly = s.salaryMonthly;
-    }
-    changed = true;
-    named += 1;
-    return next;
+    return true;
   });
-  if (!named && staff.length && lines.length) {
-    const formulaOpts = payrollComputeOpts(p);
-    p.lines = staff.map((s, i) => {
-      const prev = lines[i] || {};
-      const display =
-        payrollShortEmployeeName(s.name) || payrollCleanEmployeeName(s.name) || s.name;
-      return computePayrollLineTotals(
-        {
-          ...prev,
-          employeeId: s.id || s.employeeId || prev.employeeId,
-          fullName: display,
-          cedula: prev.cedula || s.cedula || "",
-          position: prev.position || s.position || "Oficina",
-          salaryMonthly: Number(prev.salaryMonthly) > 0 ? prev.salaryMonthly : s.salaryMonthly,
-          daysWorked: "",
-        },
-        formulaOpts
-      );
-    });
+  if (before !== (p.lines || []).length) changed = true;
+  p.lines = (p.lines || []).map((l) => {
+    if (String(l.fullName || "").trim()) return l;
+    const id = String(l.employeeId || "").trim();
+    if (!id || payrollIsOfficeLineExcluded(p, l)) return l;
+    const s = byId.get(id);
+    if (!s || payrollIsOfficeLineExcluded(p, { employeeId: s.id, fullName: s.name })) return l;
+    const display =
+      payrollShortEmployeeName(s.name) || payrollCleanEmployeeName(s.name) || String(s.name || "").trim();
+    if (!display) return l;
     changed = true;
-  }
+    return {
+      ...l,
+      fullName: display,
+      cedula: l.cedula || s.cedula || "",
+      position: l.position || s.position || "Oficina",
+    };
+  });
   return changed;
 }
 
@@ -722,6 +743,12 @@ function normalizePayroll(p = {}) {
     seedRevision: String(p.seedRevision || "").trim(),
     rosterFromVargas: p.rosterFromVargas === true,
     rosterFromMonorriel: p.rosterFromMonorriel === true,
+    excludedOfficeEmployeeIds: Array.isArray(p.excludedOfficeEmployeeIds)
+      ? [...new Set(p.excludedOfficeEmployeeIds.map((x) => String(x || "").trim()).filter(Boolean))]
+      : [],
+    excludedOfficeNameKeys: Array.isArray(p.excludedOfficeNameKeys)
+      ? [...new Set(p.excludedOfficeNameKeys.map((x) => String(x || "").trim()).filter(Boolean))]
+      : [],
     lines: Array.isArray(p.lines) ? p.lines.map((l) => normalizePayrollLine(l, formulaOpts)) : [],
     note: String(p.note || "").trim(),
     createdBy: p.createdBy || "",
@@ -1177,7 +1204,12 @@ function applyRemoteContabilidadData(remote) {
       if (rowLocked !== prevLocked) {
         const locked = rowLocked ? row : prev;
         const other = rowLocked ? prev : row;
-        map.set(row.id, mergePayrollLinesPreserveAmounts(locked, other));
+        const mergedLock = mergePayrollLinesPreserveAmounts(locked, other);
+        if (mergedLock.group === "oficina") {
+          payrollMergeOfficeExclusions(mergedLock, locked);
+          payrollMergeOfficeExclusions(mergedLock, other);
+        }
+        map.set(row.id, mergedLock);
         return;
       }
       const prevN = payrollNamedLineCount(prev);
@@ -1206,7 +1238,12 @@ function applyRemoteContabilidadData(remote) {
         winner = other;
         other = tmp;
       }
-      map.set(row.id, mergePayrollLinesPreserveAmounts(winner, other));
+      const merged = mergePayrollLinesPreserveAmounts(winner, other);
+      if (merged.group === "oficina") {
+        payrollMergeOfficeExclusions(merged, winner);
+        payrollMergeOfficeExclusions(merged, other);
+      }
+      map.set(row.id, merged);
     }
     [...a, ...b].forEach(consider);
     return [...map.values()].sort((x, y) => String(y.updatedAt).localeCompare(String(x.updatedAt)));
@@ -2938,8 +2975,23 @@ function generatePayrollForSelection(opts = {}) {
     }
   } else if (group === "monorriel" && existing && existing.rosterFromMonorriel) {
     lines = (existing.lines || []).map((l) => computePayrollLineTotals(l, formulaOpts));
+  } else if (group === "oficina" && existing && (existing.lines || []).length) {
+    lines = (existing.lines || [])
+      .filter((l) => !payrollIsOfficeLineExcluded(existing, l))
+      .map((l) => computePayrollLineTotals(l, formulaOpts));
+    const present = new Set(
+      lines.map((l) => String(l.employeeId || "").trim()).filter(Boolean)
+    );
+    const ex = payrollOfficeExcluded(existing);
+    staff.forEach((s) => {
+      if (ex.ids.has(s.id)) return;
+      if (present.has(s.id)) return;
+    });
   } else {
-    lines = staff.map((s) => {
+    const ex = existing ? payrollOfficeExcluded(existing) : { ids: new Set(), names: new Set() };
+    lines = staff
+      .filter((s) => !(group === "oficina" && ex.ids.has(s.id)))
+      .map((s) => {
       const prev =
         prevById.get(s.employeeId) ||
         prevById.get(s.id) ||
@@ -2969,6 +3021,8 @@ function generatePayrollForSelection(opts = {}) {
     showFeriado: isOffice ? false : existing ? !!existing.showFeriado : false,
     rosterFromVargas: !!(existing && existing.rosterFromVargas),
     rosterFromMonorriel: !!(existing && existing.rosterFromMonorriel),
+    excludedOfficeEmployeeIds: existing ? existing.excludedOfficeEmployeeIds : [],
+    excludedOfficeNameKeys: existing ? existing.excludedOfficeNameKeys : [],
     lines,
     note: isOffice
       ? `Nómina Oficina · ${halfLabel(half)} · ${monthLabel(period)} · SFS ${OFFICE_PAYROLL_SFS} · con rifa · sin días/unif/volao/comida/feriado/extras`
@@ -3874,10 +3928,14 @@ function removePayrollLineAt(idx) {
   if (!p) return;
   const i = Number(idx);
   if (!Number.isFinite(i) || i < 0 || i >= (p.lines || []).length) return;
-  const name = (p.lines[i].fullName || "").trim() || `fila ${i + 1}`;
+  const removedLine = p.lines[i];
+  const name = (removedLine.fullName || "").trim() || `fila ${i + 1}`;
   if (!confirm(`¿Eliminar la fila de "${name}"?`)) return;
+  if (payrollIsOffice(p)) payrollRegisterOfficeLineRemoval(p, removedLine);
   p.lines.splice(i, 1);
   p.updatedAt = new Date().toISOString();
+  markPayrollEdited();
+  renderNominaTab._forceDetailRebuild = true;
   saveContabilidadData(true);
   renderNominaTab();
   toast("Fila eliminada.");
@@ -5484,10 +5542,12 @@ function renderNominaTab() {
   }
   p = contabilidadData.payrolls.find((x) => x.id === selectedPayrollId) || p;
   const skipDetailRebuild =
+    !renderNominaTab._forceDetailRebuild &&
     typeof isPayrollBeingEdited === "function" &&
     isPayrollBeingEdited() &&
     detail.querySelector("tr[data-line-idx]") &&
     String(detail.dataset.payrollId || "") === String(p.id);
+  if (renderNominaTab._forceDetailRebuild) renderNominaTab._forceDetailRebuild = false;
   if (skipDetailRebuild) {
     try {
       updatePayrollReadonlyDom(p);
