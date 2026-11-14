@@ -1,6 +1,8 @@
 /* ==== MÓDULO RAMÓN VARGAS — reporte diurno/nocturno → Reaction Banco / Efectivo ==== */
 const VARGAS_KEY = "rfs-ops-vargas";
 const VARGAS_SAFETY_KEY = "rfs-ops-vargas-payroll-safety";
+const VARGAS_MANUAL_BACKUP_KEY = "rfs-ops-vargas-manual-backups";
+const VARGAS_MANUAL_BACKUP_MAX = 12;
 
 let vargasData = emptyVargasData();
 let vargasFilterShift = "all"; // all | diurno | nocturno
@@ -153,9 +155,7 @@ function normalizeVargasReport(raw = {}) {
     to: String(raw.to || "").slice(0, 10),
     label: String(raw.label || "").trim(),
     dayNums,
-    deletedNameKeys: Array.isArray(raw.deletedNameKeys)
-      ? [...new Set(raw.deletedNameKeys.map((k) => String(k || "").trim()).filter(Boolean))]
-      : [],
+    deletedNameKeys: [],
     sections: (Array.isArray(raw.sections) ? raw.sections : []).map((sec) => ({
       shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
       postName: String(sec.postName || "").trim() || "(sin puesto)",
@@ -254,6 +254,68 @@ function persistVargasSafetyNet(data) {
       localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(merged));
     }
   } catch (_) {}
+}
+
+function pushVargasManualBackup(reason) {
+  ensureVargasSeedLoaded();
+  const snapshot = {
+    at: new Date().toISOString(),
+    reason: String(reason || "manual").slice(0, 40),
+    reports: JSON.parse(JSON.stringify(vargasData.reports || [])),
+    activeReportId: vargasActiveReportId,
+  };
+  try {
+    const raw = JSON.parse(localStorage.getItem(VARGAS_MANUAL_BACKUP_KEY) || "[]");
+    const list = Array.isArray(raw) ? raw : [];
+    list.unshift(snapshot);
+    while (list.length > VARGAS_MANUAL_BACKUP_MAX) list.pop();
+    localStorage.setItem(VARGAS_MANUAL_BACKUP_KEY, JSON.stringify(list));
+    return { ok: true, at: snapshot.at, count: list.length };
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
+/** Recupera desde respaldo manual o copia de seguridad local (sin borrar otras quincenas). */
+function restoreVargasFromStoredBackup() {
+  let backup = null;
+  try {
+    const list = JSON.parse(localStorage.getItem(VARGAS_MANUAL_BACKUP_KEY) || "[]");
+    if (Array.isArray(list) && list.length) backup = list[0];
+  } catch (_) {}
+  if (!backup) {
+    try {
+      const safety = JSON.parse(localStorage.getItem(VARGAS_SAFETY_KEY) || "null");
+      if (safety && Array.isArray(safety.reports) && safety.reports.length) {
+        backup = { at: "safety", reports: safety.reports };
+      }
+    } catch (_) {}
+  }
+  if (!backup || !backup.reports || !backup.reports.length) return { ok: false, reason: "no-backup" };
+  ensureVargasSeedLoaded();
+  const before = vargasDataMarkScore(vargasData);
+  vargasData = mergeVargasDataSticky(vargasData, { reports: backup.reports });
+  vargasData = normalizeVargasData(vargasData);
+  const after = vargasDataMarkScore(vargasData);
+  if (backup.activeReportId && vargasData.reports.some((r) => r && r.id === backup.activeReportId)) {
+    setActiveVargasReport(backup.activeReportId);
+  }
+  saveVargasData(true, true);
+  persistVargasSafetyNet(vargasData);
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  return { ok: true, at: backup.at, gained: Math.max(0, after - before) };
+}
+
+function guardarVargasRespaldo() {
+  pushVargasManualBackup("guardar");
+  persistVargasSafetyNet(vargasData);
+  saveVargasData(true, true);
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  return { ok: true };
 }
 
 /** Recupera marcas si un sync dejó el reporte más vacío que la copia de seguridad local. */
@@ -426,7 +488,6 @@ function mergeVargasReportSticky(base, other) {
     (osec.employees || []).forEach((oemp, oi) => {
       if (taken.has(oi)) return;
       if (vargasIsDeletedEmployee(sec, oemp, delUnion)) return;
-      if (vargasEmployeeIsDeleted(out, sec, oemp)) return;
       if (vargasFindBestMatch(oemp, sec.employees || [])) return;
       const hasMarks = Object.keys(oemp.marks || {}).some((d) => {
         const raw = oemp.marks[d];
@@ -443,7 +504,6 @@ function mergeVargasReportSticky(base, other) {
   otherSections.forEach((sec) => {
     const delSec = vargasSectionDeletedKeys(sec);
     const emps = (sec.employees || []).filter((e) => {
-      if (vargasEmployeeIsDeleted(out, sec, e)) return false;
       if (vargasIsDeletedEmployee(sec, e, delSec)) return false;
       const hasMarks = Object.keys(e.marks || {}).some((d) => Number(e.marks[d]) > 0);
       return hasMarks || e.nameManual || Number(e.horasExtras) > 0;
@@ -456,9 +516,7 @@ function mergeVargasReportSticky(base, other) {
       employees: emps.map((e) => ({ ...e, marks: { ...(e.marks || {}) } })),
     });
   });
-  out.deletedNameKeys = [
-    ...new Set([...vargasReportDeletedNameKeys(base), ...vargasReportDeletedNameKeys(other)]),
-  ];
+  out.deletedNameKeys = [];
   out.updatedAt =
     String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
   const norm = normalizeVargasReport(out);
@@ -678,8 +736,7 @@ function vargasReportDeletedNameKeys(report) {
 }
 
 function vargasEmployeeIsDeleted(report, section, emp) {
-  const nk = vargasNameKey(emp && emp.fullName);
-  if (nk && vargasReportDeletedNameKeys(report).includes(nk)) return true;
+  void report;
   return vargasIsDeletedEmployee(section, emp);
 }
 
@@ -1139,31 +1196,20 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   const emp = sec.employees && sec.employees[empIdx];
   if (!emp) return { ok: false };
   const name = emp.fullName;
-  const nk = vargasNameKey(name);
-  report.deletedNameKeys = vargasReportDeletedNameKeys(report);
-  if (nk && !report.deletedNameKeys.includes(nk)) report.deletedNameKeys.push(nk);
-  let removed = 0;
-  (report.sections || []).forEach((section) => {
-    section.deletedKeys = vargasSectionDeletedKeys(section);
-    const before = (section.employees || []).length;
-    section.employees = (section.employees || []).filter((e) => {
-      if (nk && vargasNameKey(e.fullName) === nk) {
-        const dk = vargasEmployeeDeleteKey(section, e);
-        if (dk && !section.deletedKeys.includes(dk)) section.deletedKeys.push(dk);
-        return false;
-      }
-      return true;
-    });
-    removed += before - section.employees.length;
-  });
-  report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
+  sec.deletedKeys = vargasSectionDeletedKeys(sec);
+  const dk = vargasEmployeeDeleteKey(sec, emp);
+  if (dk && !sec.deletedKeys.includes(dk)) sec.deletedKeys.push(dk);
+  sec.employees.splice(empIdx, 1);
+  if (!(sec.employees || []).length) {
+    report.sections.splice(sectionIdx, 1);
+  }
   report.updatedAt = new Date().toISOString();
   saveVargasData(true, true);
   try {
     if (typeof flushCloudSave === "function") flushCloudSave();
   } catch (_) {}
   persistVargasSafetyNet(vargasData);
-  return { ok: true, fullName: name, removed: Math.max(1, removed) };
+  return { ok: true, fullName: name, removed: 1 };
 }
 
 function listVargasPostNames(report, shiftFilter) {
@@ -2213,6 +2259,8 @@ function renderVargasModule() {
         </label>
       </div>
       <div class="vargas-actions">
+        <button type="button" class="primary" id="btnVargasGuardar">Guardar respaldo</button>
+        <button type="button" class="secondary" id="btnVargasRecuperar">Recuperar respaldo</button>
         <button type="button" class="secondary" id="btnVargasDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnVargasNuevaQuincena">Abrir siguiente quincena</button>
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
@@ -2227,6 +2275,7 @@ function renderVargasModule() {
         Cada 15 días se abre otra quincena: se copian los empleados, los días quedan en blanco y la quincena anterior no se borra.
         Si el nombre o el puesto dice <strong>-LA VEGA</strong>, en <strong>La Vega Autopista</strong> queda el nombre completo del reporte (todos los nombres y apellidos, sin la palabra La Vega) y la lista va en orden alfabético.
         Día 31 no suma.
+        <strong>✕ Quitar</strong> solo esa fila. <strong>Guardar respaldo</strong> / <strong>Recuperar</strong> si necesitas deshacer.
       </p>
     </div>
 
@@ -2414,6 +2463,38 @@ function bindVargasUiHandlers() {
       });
     });
   });
+  const btnGuardar = document.getElementById("btnVargasGuardar");
+  if (btnGuardar) {
+    btnGuardar.addEventListener("click", () => {
+      guardarVargasRespaldo();
+      if (typeof toast === "function") toast("Respaldo guardado (local + nube).");
+    });
+  }
+  const btnRecuperar = document.getElementById("btnVargasRecuperar");
+  if (btnRecuperar) {
+    btnRecuperar.addEventListener("click", () => {
+      if (
+        !confirm(
+          "¿Recuperar el último respaldo guardado?\n\nCombina con lo que tienes ahora (no borra marcas si el respaldo las trae)."
+        )
+      ) {
+        return;
+      }
+      const r = restoreVargasFromStoredBackup();
+      if (!r.ok) {
+        if (typeof toast === "function") toast("No hay respaldo guardado todavía. Pulsa Guardar respaldo primero.");
+        return;
+      }
+      if (typeof toast === "function") {
+        const when =
+          r.at === "safety"
+            ? "copia de seguridad"
+            : new Date(r.at).toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" });
+        toast(r.gained ? `Recuperado (${when}). +${r.gained} marcas/datos.` : `Recuperado (${when}).`);
+      }
+      renderVargasModule();
+    });
+  }
   const btnDedupe = document.getElementById("btnVargasDedupe");
   if (btnDedupe) {
     btnDedupe.addEventListener("click", () => {
@@ -2557,17 +2638,11 @@ function bindVargasUiHandlers() {
   document.querySelectorAll(".vargas-del-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const name = btn.dataset.name || "este empleado";
-      if (!confirm(`¿Quitar a ${name} de la lista? (usa ✕, no borres el texto del nombre)`)) return;
+      if (!confirm(`¿Quitar solo a ${name} de esta fila? (no se borran otras personas con el mismo nombre)`)) return;
       const s = Number(btn.dataset.s);
       const e = Number(btn.dataset.e);
       const result = removeVargasEmployee(s, e);
-      if (result.ok && typeof toast === "function") {
-        toast(
-          (result.removed || 1) > 1
-            ? `Eliminado ${result.fullName} (${result.removed} filas duplicadas)`
-            : `Eliminado: ${result.fullName}`
-        );
-      }
+      if (result.ok && typeof toast === "function") toast(`Eliminado: ${result.fullName}`);
       if (result.ok && typeof logActivity === "function") {
         logActivity("vargas_del", `Vargas − ${result.fullName}`);
       }
@@ -2601,6 +2676,8 @@ window.RFSVargas = {
   renderVargasModule,
   addVargasEmployee,
   removeVargasEmployee,
+  guardarVargasRespaldo,
+  restoreVargasFromStoredBackup,
   setVargasEmployeeName,
   openVargasGeneralPayrollView,
   printVargasReport,

@@ -6,6 +6,8 @@
  */
 const MONOQ_KEY = "rfs-ops-monorriel-quincenas";
 const MONOQ_SAFETY_KEY = "rfs-ops-monoq-payroll-safety";
+const MONOQ_MANUAL_BACKUP_KEY = "rfs-ops-monoq-manual-backups";
+const MONOQ_MANUAL_BACKUP_MAX = 12;
 const MONOQ_ACTIVE_KEY = "rfs-ops-monorriel-quincena-active";
 const MONOQ_SHEETS = [
   { id: "dia", label: "Empleados día", volao: 850 },
@@ -25,6 +27,16 @@ function monoQEsc(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** Clave de borrado por fila (no por nombre solo). */
+function monoQEmployeeDeleteKey(emp) {
+  const id = String((emp && emp.employeeId) || "").trim();
+  if (id) return `id:${id}`;
+  const nk = monoQKey(emp && emp.fullName);
+  const pos = monoQKey(emp && emp.position);
+  const fp = monoQMarksFingerprint(emp);
+  return `row:${nk}|${pos}|${fp || "0"}`;
 }
 
 function monoQKey(name) {
@@ -205,10 +217,12 @@ function mergeMonoSheetSticky(baseSheet, otherSheet) {
   });
   ((otherSheet && otherSheet.employees) || []).forEach((otherEmp, oi) => {
     if (taken.has(oi)) return;
-    const key = monoQKey(otherEmp.fullName);
+    const rowKey = monoQEmployeeDeleteKey(otherEmp);
     const id = String(otherEmp.employeeId || "").trim();
-    if (key && deleted.has(key)) return;
+    if (rowKey && deleted.has(rowKey)) return;
     if (id && deleted.has(`id:${id}`)) return;
+    const legacy = monoQKey(otherEmp.fullName);
+    if (legacy && deleted.has(legacy) && !monoQFindBestMatch(otherEmp, out)) return;
     if (monoQFindBestMatch(otherEmp, out)) return;
     const hasMarks = Object.keys(otherEmp.marks || {}).some((d) => Number(otherEmp.marks[d]) > 0);
     if (!hasMarks && !otherEmp.nameManual && !(Number(otherEmp.horasExtras) > 0)) return;
@@ -252,7 +266,9 @@ function monoQNormalizeReport(raw) {
       const key = monoQKey(fullName);
       if (!key) return;
       const eid = String((emp && emp.employeeId) || "").trim();
-      if (deleted.has(key) || (eid && deleted.has(`id:${eid}`))) return;
+      const rowKey = monoQEmployeeDeleteKey(emp);
+      if (rowKey && deleted.has(rowKey)) return;
+      if (eid && deleted.has(`id:${eid}`)) return;
       const marks = emp && emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {};
       const existing = (sheets[s.id].employees || []).find((e) => monoQKey(e.fullName) === key);
       if (existing) {
@@ -291,6 +307,9 @@ function monoQNormalizeReport(raw) {
       });
     });
     sheets[s.id].employees.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
+    sheets[s.id].deletedKeys = monoQSheetDeleted(sheets[s.id]).filter(
+      (k) => k.startsWith("id:") || k.startsWith("row:")
+    );
   });
   return {
     ...spec,
@@ -376,6 +395,69 @@ function monoQReportMarkScore(report) {
 function monoQDataMarkScore(data) {
   const reports = data && Array.isArray(data.reports) ? data.reports : [];
   return reports.reduce((s, r) => s + monoQReportMarkScore(r), 0);
+}
+
+function pushMonoQManualBackup(reason) {
+  ensureMonorrielQuincenasLoaded();
+  const snapshot = {
+    at: new Date().toISOString(),
+    reason: String(reason || "manual").slice(0, 40),
+    reports: JSON.parse(JSON.stringify(monoQData.reports || [])),
+    activeReportId: monoQActiveId,
+    activeSheet: monoQSheet,
+  };
+  try {
+    const raw = JSON.parse(localStorage.getItem(MONOQ_MANUAL_BACKUP_KEY) || "[]");
+    const list = Array.isArray(raw) ? raw : [];
+    list.unshift(snapshot);
+    while (list.length > MONOQ_MANUAL_BACKUP_MAX) list.pop();
+    localStorage.setItem(MONOQ_MANUAL_BACKUP_KEY, JSON.stringify(list));
+    return { ok: true, at: snapshot.at, count: list.length };
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
+function restoreMonoQFromStoredBackup() {
+  let backup = null;
+  try {
+    const list = JSON.parse(localStorage.getItem(MONOQ_MANUAL_BACKUP_KEY) || "[]");
+    if (Array.isArray(list) && list.length) backup = list[0];
+  } catch (_) {}
+  if (!backup) {
+    try {
+      const safety = JSON.parse(localStorage.getItem(MONOQ_SAFETY_KEY) || "null");
+      if (safety && Array.isArray(safety.reports) && safety.reports.length) {
+        backup = { at: "safety", reports: safety.reports };
+      }
+    } catch (_) {}
+  }
+  if (!backup || !backup.reports || !backup.reports.length) return { ok: false, reason: "no-backup" };
+  ensureMonorrielQuincenasLoaded();
+  const before = monoQDataMarkScore(monoQData);
+  monoQData = monoQMerge(monoQData, { reports: backup.reports });
+  monoQData._ready = true;
+  monoQData.reports = (monoQData.reports || []).map((r) => monoQNormalizeReport(r));
+  const after = monoQDataMarkScore(monoQData);
+  if (backup.activeReportId && monoQData.reports.some((r) => r && r.id === backup.activeReportId)) {
+    monoQActiveId = backup.activeReportId;
+  }
+  if (backup.activeSheet) monoQSheet = backup.activeSheet;
+  monoQSave(true);
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  return { ok: true, at: backup.at, gained: Math.max(0, after - before) };
+}
+
+function guardarMonoQRespaldo() {
+  pushMonoQManualBackup("guardar");
+  persistMonoQSafetyNet(monoQData);
+  monoQSave(true);
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  return { ok: true };
 }
 
 function persistMonoQSafetyNet(data) {
@@ -720,6 +802,8 @@ function renderMonorrielQuincenaModule() {
       <div class="vargas-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${tabs}</div>
       <div class="vargas-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${sendButtons}</div>
       <div class="vargas-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="primary" id="btnMonoQGuardar">Guardar respaldo</button>
+        <button type="button" class="secondary" id="btnMonoQRecuperar">Recuperar respaldo</button>
         <button type="button" class="secondary" id="btnMonoQDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnMonoQNext">Abrir siguiente quincena</button>
       </div>
@@ -731,6 +815,7 @@ function renderMonorrielQuincenaModule() {
         El día 31 se ve y no cuenta.         Cada botón naranja envía esa planilla a su nómina y deja solo esos nombres.
         Los de la nómina anterior que no están en esta planilla se quitan.
         El préstamo de quien se queda no se toca. Todos cobran en efectivo.
+        <strong>✕ Quitar</strong> solo esa fila. <strong>Guardar respaldo</strong> antes de borrar muchos nombres.
       </p>
     </div>
     <div class="form-card">
@@ -782,6 +867,32 @@ function bindMonorrielQuincenaUi(report) {
       monoQSheet = btn.getAttribute("data-sheet") || "dia";
       renderMonorrielQuincenaModule();
     });
+  });
+  document.getElementById("btnMonoQGuardar")?.addEventListener("click", () => {
+    guardarMonoQRespaldo();
+    if (typeof toast === "function") toast("Respaldo guardado (local + nube).");
+  });
+  document.getElementById("btnMonoQRecuperar")?.addEventListener("click", () => {
+    if (
+      !confirm(
+        "¿Recuperar el último respaldo guardado?\n\nCombina con lo que tienes ahora (no borra marcas si el respaldo las trae)."
+      )
+    ) {
+      return;
+    }
+    const r = restoreMonoQFromStoredBackup();
+    if (!r.ok) {
+      if (typeof toast === "function") toast("No hay respaldo guardado todavía. Pulsa Guardar respaldo primero.");
+      return;
+    }
+    if (typeof toast === "function") {
+      const when =
+        r.at === "safety"
+          ? "copia de seguridad"
+          : new Date(r.at).toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" });
+      toast(r.gained ? `Recuperado (${when}). +${r.gained} marcas/datos.` : `Recuperado (${when}).`);
+    }
+    renderMonorrielQuincenaModule();
   });
   document.getElementById("btnMonoQDedupe")?.addEventListener("click", () => {
     const current = monoQActive();
@@ -945,37 +1056,17 @@ function bindMonorrielQuincenaUi(report) {
       const idx = Number(btn.getAttribute("data-i"));
       const emp = sheet && sheet.employees[idx];
       if (!emp) return;
-      if (!confirm(`¿Quitar a ${emp.fullName} de esta planilla? (también duplicados del mismo nombre)`)) return;
+      if (!confirm(`¿Quitar solo a ${emp.fullName} de esta fila?`)) return;
       sheet.deletedKeys = sheet.deletedKeys || [];
-      const dk = monoQKey(emp.fullName);
+      const dk = monoQEmployeeDeleteKey(emp);
       if (dk && !sheet.deletedKeys.includes(dk)) sheet.deletedKeys.push(dk);
-      if (emp.employeeId) {
-        const idk = `id:${emp.employeeId}`;
-        if (!sheet.deletedKeys.includes(idk)) sheet.deletedKeys.push(idk);
-      }
-      const removedNames = new Set([dk].filter(Boolean));
-      let removed = 0;
-      sheet.employees = (sheet.employees || []).filter((e) => {
-        const k = monoQKey(e.fullName);
-        if (k && removedNames.has(k)) {
-          removed += 1;
-          return false;
-        }
-        return true;
-      });
-      if (!removed) sheet.employees.splice(idx, 1);
+      sheet.employees.splice(idx, 1);
       current.updatedAt = new Date().toISOString();
       monoQSave(true);
       try {
         if (typeof flushCloudSave === "function") flushCloudSave();
       } catch (_) {}
-      if (typeof toast === "function") {
-        toast(
-          removed > 1
-            ? `Eliminado ${emp.fullName} (${removed} filas)`
-            : `Eliminado: ${emp.fullName}`
-        );
-      }
+      if (typeof toast === "function") toast(`Eliminado: ${emp.fullName}`);
       renderMonorrielQuincenaModule();
     });
   });

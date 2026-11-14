@@ -1,6 +1,6 @@
 {
-  "build": 233,
-  "label": "v233",
-  "minBuild": 233,
-  "note": "Vargas/Monorriel: Quitar ✕ elimina de la lista; puesto editable por bloque"
+  "build": 234,
+  "label": "v234",
+  "minBuild": 234,
+  "note": "Quitar solo una fila; Guardar/Recuperar respaldo en Vargas y Monorriel"
 }
