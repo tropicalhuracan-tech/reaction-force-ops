@@ -229,6 +229,9 @@ function normalizeVargasReport(raw = {}) {
     removedEmployeeKeys: Array.isArray(raw.removedEmployeeKeys)
       ? [...new Set(raw.removedEmployeeKeys.map((k) => String(k || "").trim()).filter(Boolean))]
       : [],
+    removedNameKeys: Array.isArray(raw.removedNameKeys)
+      ? [...new Set(raw.removedNameKeys.map((k) => String(k || "").trim()).filter(Boolean))]
+      : [],
     sections: (Array.isArray(raw.sections) ? raw.sections : []).map((sec) => ({
       shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
       postName: String(sec.postName || "").trim() || "(sin puesto)",
@@ -342,6 +345,18 @@ function vargasReportRemovedKeys(report) {
   return Array.isArray(report && report.removedEmployeeKeys) ? report.removedEmployeeKeys : [];
 }
 
+function vargasReportRemovedNameKeys(report) {
+  return Array.isArray(report && report.removedNameKeys) ? report.removedNameKeys : [];
+}
+
+function vargasIsNameRemoved(report, fullName) {
+  const nk = vargasNameKey(fullName);
+  if (!nk) return false;
+  const list = vargasReportRemovedNameKeys(report);
+  if (list.includes(nk)) return true;
+  return list.some((ban) => vargasNamesMatch(ban, fullName) || vargasNamesMatch(fullName, ban));
+}
+
 /** Conserva borrados locales al mezclar con la nube. */
 function vargasPreserveLocalDeletes(merged, localRaw) {
   const local = normalizeVargasData(localRaw || {});
@@ -351,6 +366,7 @@ function vargasPreserveLocalDeletes(merged, localRaw) {
     r.removedEmployeeKeys = [
       ...new Set([...vargasReportRemovedKeys(r), ...vargasReportRemovedKeys(lr)]),
     ];
+    r.removedNameKeys = [...new Set([...vargasReportRemovedNameKeys(r), ...vargasReportRemovedNameKeys(lr)])];
     const lsecByKey = new Map((lr.sections || []).map((s) => [vargasSectionKey(s), s]));
     (r.sections || []).forEach((sec) => {
       const lsec = lsecByKey.get(vargasSectionKey(sec));
@@ -651,6 +667,9 @@ function mergeVargasReportSticky(base, other) {
   out.removedEmployeeKeys = [
     ...new Set([...vargasReportRemovedKeys(base), ...vargasReportRemovedKeys(other)]),
   ];
+  out.removedNameKeys = [
+    ...new Set([...vargasReportRemovedNameKeys(base), ...vargasReportRemovedNameKeys(other)]),
+  ];
   vargasScrubDeletedFromReport(out);
   const otherSections = new Map();
   (other.sections || []).forEach((sec) => otherSections.set(vargasSectionKey(sec), sec));
@@ -668,6 +687,7 @@ function mergeVargasReportSticky(base, other) {
     const delUnion = [...vargasSectionDeletedKeys(sec), ...vargasSectionDeletedKeys(osec)];
     (osec.employees || []).forEach((oemp, oi) => {
       if (taken.has(oi)) return;
+      if (vargasIsNameRemoved(out, oemp.fullName)) return;
       const tomb = vargasEmployeeDeleteKey(sec, oemp);
       if (tomb && (out.removedEmployeeKeys || []).includes(tomb)) return;
       if (vargasIsDeletedEmployee(sec, oemp, delUnion, out)) return;
@@ -687,9 +707,10 @@ function mergeVargasReportSticky(base, other) {
   otherSections.forEach((sec) => {
     const delSec = vargasSectionDeletedKeys(sec);
     const emps = (sec.employees || []).filter((e) => {
+      if (vargasIsNameRemoved(out, e.fullName)) return false;
       const tomb = vargasEmployeeDeleteKey(sec, e);
       if (tomb && (out.removedEmployeeKeys || []).includes(tomb)) return false;
-      if (vargasIsDeletedEmployee(sec, e, delSec)) return false;
+      if (vargasIsDeletedEmployee(sec, e, delSec, out)) return false;
       const hasMarks = Object.keys(e.marks || {}).some((d) => Number(e.marks[d]) > 0);
       return hasMarks || e.nameManual || Number(e.horasExtras) > 0;
     });
@@ -702,6 +723,7 @@ function mergeVargasReportSticky(base, other) {
     });
   });
   out.deletedNameKeys = [];
+  out.removedNameKeys = [...new Set([...vargasReportRemovedNameKeys(out)])];
   out.updatedAt =
     String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
   const norm = normalizeVargasReport(out);
@@ -949,6 +971,7 @@ function vargasEmployeeDeleteKey(section, emp) {
 }
 
 function vargasIsDeletedEmployee(section, emp, extraKeys, report) {
+  if (report && vargasIsNameRemoved(report, emp && emp.fullName)) return true;
   const dk = vargasEmployeeDeleteKey(section, emp);
   if (!dk) return false;
   if (report && vargasReportRemovedKeys(report).includes(dk)) return true;
@@ -1392,15 +1415,26 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   if (!emp) return { ok: false, reason: "no-emp" };
   vargasPushUndo("quitar");
   const name = emp.fullName;
-  sec.deletedKeys = vargasSectionDeletedKeys(sec);
-  const dk = vargasEmployeeDeleteKey(sec, emp);
-  if (dk && !sec.deletedKeys.includes(dk)) sec.deletedKeys.push(dk);
+  const nameKey = vargasNameKey(name);
+  report.removedNameKeys = vargasReportRemovedNameKeys(report);
+  if (nameKey && !report.removedNameKeys.includes(nameKey)) report.removedNameKeys.push(nameKey);
   report.removedEmployeeKeys = vargasReportRemovedKeys(report);
-  if (dk && !report.removedEmployeeKeys.includes(dk)) report.removedEmployeeKeys.push(dk);
-  sec.employees.splice(empIdx, 1);
-  if (!(sec.employees || []).length) {
-    report.sections.splice(sectionIdx, 1);
-  }
+  let removed = 0;
+  (report.sections || []).forEach((section) => {
+    section.deletedKeys = vargasSectionDeletedKeys(section);
+    const before = (section.employees || []).length;
+    (section.employees || []).forEach((e) => {
+      if (!vargasNamesMatch(e.fullName, name) && vargasNameKey(e.fullName) !== nameKey) return;
+      const dk = vargasEmployeeDeleteKey(section, e);
+      if (dk && !section.deletedKeys.includes(dk)) section.deletedKeys.push(dk);
+      if (dk && !report.removedEmployeeKeys.includes(dk)) report.removedEmployeeKeys.push(dk);
+    });
+    section.employees = (section.employees || []).filter(
+      (e) => !vargasNamesMatch(e.fullName, name) && vargasNameKey(e.fullName) !== nameKey
+    );
+    removed += before - section.employees.length;
+  });
+  report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
   report.updatedAt = new Date().toISOString();
   vargasScrubDeletedFromReport(report);
   saveVargasData(true, true);
@@ -1411,7 +1445,7 @@ function removeVargasEmployee(sectionIdx, empIdx) {
     localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(vargasData));
   } catch (_) {}
   persistVargasSafetyNet(vargasData);
-  return { ok: true, fullName: name, removed: 1 };
+  return { ok: true, fullName: name, removed: Math.max(1, removed) };
 }
 
 function removeVargasEmployeeByRowKey(rowKey) {
@@ -2914,9 +2948,14 @@ function bindVargasUiHandlers() {
         if (typeof toast === "function") toast("No se pudo quitar. Recarga e intenta otra vez.");
         return;
       }
-      if (tr && tr.parentElement) tr.remove();
-      refreshVargasSummaryBar();
-      if (typeof toast === "function") toast(`Eliminado: ${name}`);
+      renderVargasModule();
+      if (typeof toast === "function") {
+        toast(
+          (result.removed || 1) > 1
+            ? `Eliminado: ${name} (${result.removed} filas — no vuelve al sync)`
+            : `Eliminado: ${name} (no vuelve al sincronizar)`
+        );
+      }
       if (typeof logActivity === "function") logActivity("vargas_del", `Vargas − ${name}`);
     });
   });
@@ -2948,6 +2987,7 @@ window.RFSVargas = {
   renderVargasModule,
   addVargasEmployee,
   removeVargasEmployee,
+  vargasPreserveLocalDeletes,
   undoVargasStep,
   vargasPushUndo,
   guardarVargasRespaldo,

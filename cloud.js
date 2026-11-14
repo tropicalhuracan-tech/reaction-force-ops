@@ -2116,6 +2116,7 @@
       if (remoteVargas && typeof mergeVargasDataSticky === "function") {
         const localScore =
           typeof vargasDataMarkScore === "function" ? vargasDataMarkScore(vargasToSave) : 0;
+        const localVargasSnap = vargasToSave;
         vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
         if (
           remoteVargasMarkScore > 0 &&
@@ -2130,12 +2131,25 @@
         } else if (localScore > vargasDataMarkScore(vargasToSave)) {
           vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
         }
+        if (
+          typeof window !== "undefined" &&
+          window.RFSVargas &&
+          typeof window.RFSVargas.vargasPreserveLocalDeletes === "function"
+        ) {
+          window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, localVargasSnap);
+        }
         if (typeof vargasData !== "undefined") {
           if (
             typeof vargasDataMarkScore === "function" &&
             vargasDataMarkScore(vargasData) > vargasDataMarkScore(vargasToSave) + 1
           ) {
             vargasToSave = mergeVargasDataSticky(vargasData, vargasToSave);
+            if (
+              window.RFSVargas &&
+              typeof window.RFSVargas.vargasPreserveLocalDeletes === "function"
+            ) {
+              window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, vargasData);
+            }
           }
           vargasData = vargasToSave;
           try {
