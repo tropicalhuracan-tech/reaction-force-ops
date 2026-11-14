@@ -961,7 +961,23 @@ function saveContabilidadData(push = true) {
   if (push && typeof queueCloudSave === "function") queueCloudSave();
 }
 
+function contabilidadPinOpenPayrollDraft(mergedData, localData) {
+  const pinId = String(selectedPayrollId || "").trim();
+  if (!pinId) return mergedData;
+  if (typeof isPayrollBeingEdited === "function" && !isPayrollBeingEdited()) return mergedData;
+  const local = normalizeContabilidadData(localData || {});
+  const pinned = (local.payrolls || []).find((x) => x && x.id === pinId);
+  if (!pinned) return mergedData;
+  const out = mergedData && typeof mergedData === "object" ? mergedData : contabilidadData;
+  const i = (out.payrolls || []).findIndex((x) => x && x.id === pinId);
+  const copy = JSON.parse(JSON.stringify(pinned));
+  if (i >= 0) out.payrolls[i] = copy;
+  else out.payrolls = [copy, ...(out.payrolls || [])];
+  return out;
+}
+
 function applyRemoteContabilidadData(remote) {
+  // Con nómina abierta (p. ej. Oficina + imprimir), no fusionar remoto encima del tecleo
   if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return;
   // Conservar tecleo local de nómina antes de fusionar con la nube
   try {
@@ -969,6 +985,9 @@ function applyRemoteContabilidadData(remote) {
   } catch (_) {}
   const remoteNorm = normalizeContabilidadData(remote || {});
   const local = normalizeContabilidadData(contabilidadData);
+  const pinnedPayrollSnapshot = selectedPayrollId
+    ? (local.payrolls || []).find((x) => x && x.id === selectedPayrollId)
+    : null;
 
   function mergeById(a, b) {
     const map = new Map();
@@ -1136,6 +1155,16 @@ function applyRemoteContabilidadData(remote) {
   try {
     recoverLavegaOctPayrollIfEmpty();
   } catch (_) {}
+  if (
+    pinnedPayrollSnapshot &&
+    typeof isPayrollBeingEdited === "function" &&
+    isPayrollBeingEdited()
+  ) {
+    const pin = JSON.parse(JSON.stringify(pinnedPayrollSnapshot));
+    const idx = (contabilidadData.payrolls || []).findIndex((x) => x && x.id === pin.id);
+    if (idx >= 0) contabilidadData.payrolls[idx] = pin;
+    else contabilidadData.payrolls = [pin, ...(contabilidadData.payrolls || [])];
+  }
   localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
 }
 
@@ -2873,6 +2902,7 @@ function generateOfficePayroll() {
   const result = generatePayrollForSelection({});
   if (!result) return;
   selectedPayrollId = result.payroll.id;
+  renderNominaTab._forceRecomputePayrollId = result.payroll.id;
   saveContabilidadData(true);
   openNominaView();
   toast(
@@ -4116,6 +4146,8 @@ function resolveOpenPayrollForExport() {
     return null;
   }
   try {
+    markPayrollEdited();
+    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     syncOpenPayrollFromDom(false);
   } catch (_) {}
   const p = ensureOpenPayrollDraft();
@@ -4126,6 +4158,7 @@ function resolveOpenPayrollForExport() {
   try {
     saveContabilidadData(true);
   } catch (_) {}
+  markPayrollEdited();
   return p;
 }
 
@@ -4584,9 +4617,29 @@ let lastPayrollEditAt = 0;
 function isPayrollBeingEdited() {
   const active = document.querySelector(".view.active");
   if (!active || active.id !== "nominaView") return false;
+  if (!selectedPayrollId) return false;
   const root = document.getElementById("contabPayrollDetail");
-  if (root && document.activeElement && root.contains(document.activeElement)) return true;
-  return Date.now() - lastPayrollEditAt < 25000;
+  if (!root || root.hidden) return false;
+  if (document.activeElement && root.contains(document.activeElement)) return true;
+  if (Date.now() - lastPayrollEditAt < 45 * 60 * 1000) return true;
+  // Imprimir / PDF: ventana emergente quita el foco pero la tabla sigue abierta
+  if (root.querySelector("tr[data-line-idx]")) return true;
+  return false;
+}
+
+/** No recalcular filas en cada render (eso borraba tecleo en Oficina). */
+function payrollShouldRecomputeLinesOnRender(p) {
+  if (!p || !p.id) return false;
+  if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return false;
+  const forceId = renderNominaTab._forceRecomputePayrollId;
+  if (forceId && forceId === p.id) {
+    renderNominaTab._forceRecomputePayrollId = "";
+    return true;
+  }
+  renderNominaTab._openedPayrollIds = renderNominaTab._openedPayrollIds || new Set();
+  if (renderNominaTab._openedPayrollIds.has(p.id)) return false;
+  renderNominaTab._openedPayrollIds.add(p.id);
+  return true;
 }
 
 function markPayrollEdited() {
@@ -5214,6 +5267,7 @@ function renderNominaTab() {
       .join("");
     list.querySelectorAll(".btn-pay-open").forEach((btn) =>
       btn.addEventListener("click", () => {
+        renderNominaTab._forceRecomputePayrollId = btn.dataset.id;
         selectedPayrollId = btn.dataset.id;
         const p = contabilidadData.payrolls.find((x) => x.id === btn.dataset.id);
         if (p && halfSel) halfSel.value = String(p.half || 1);
@@ -5302,12 +5356,30 @@ function renderNominaTab() {
     return;
   }
   selectedPayrollId = p.id;
-  pullSharedPayrollTypedAmounts(p);
+  try {
+    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
+  } catch (_) {}
+  p = contabilidadData.payrolls.find((x) => x.id === selectedPayrollId) || p;
+  const skipDetailRebuild =
+    typeof isPayrollBeingEdited === "function" &&
+    isPayrollBeingEdited() &&
+    detail.querySelector("tr[data-line-idx]") &&
+    String(detail.dataset.payrollId || "") === String(p.id);
+  if (skipDetailRebuild) {
+    try {
+      updatePayrollReadonlyDom(p);
+    } catch (_) {}
+    renderPayrollBackupsPanel(p.id);
+    return;
+  }
+  detail.dataset.payrollId = String(p.id);
+  const recomputeLines = payrollShouldRecomputeLinesOnRender(p);
+  if (recomputeLines) pullSharedPayrollTypedAmounts(p);
   if (halfSel && !document.activeElement?.id?.includes("contabPayrollHalf")) {
     // keep user selection unless opening a different payroll
   }
   // Oficina: reglas propias + nombre corto (1 nombre + 1 apellido)
-  if (payrollIsOffice(p)) {
+  if (recomputeLines && payrollIsOffice(p)) {
     p.showFeriado = false;
     const officeStaffById = new Map();
     try {
@@ -5356,11 +5428,11 @@ function renderNominaTab() {
     });
     if (cleanedOffice) {
       p.updatedAt = new Date().toISOString();
-      saveContabilidadData(true);
+      saveContabilidadData(false);
     }
   }
   // La Vega / Monorriel: nombre corto + uniforme 215→115; comida editable + Seg. vida 90
-  if (payrollUsesLvaParams(p)) {
+  if (recomputeLines && payrollUsesLvaParams(p)) {
     const openFormulaOpts = payrollComputeOpts(p);
     const staffById = new Map();
     try {
@@ -5420,10 +5492,10 @@ function renderNominaTab() {
     });
     if (cleaned) {
       p.updatedAt = new Date().toISOString();
-      saveContabilidadData(true);
+      saveContabilidadData(false);
     }
   }
-  if (!payrollIsOffice(p) && !payrollUsesLvaParams(p)) {
+  if (recomputeLines && !payrollIsOffice(p) && !payrollUsesLvaParams(p)) {
     const openFormulaOpts = payrollComputeOpts(p);
     let sfsChanged = false;
     p.lines = (p.lines || []).map((l) => {
@@ -5433,7 +5505,7 @@ function renderNominaTab() {
     });
     if (sfsChanged) {
       p.updatedAt = new Date().toISOString();
-      saveContabilidadData(true);
+      saveContabilidadData(false);
     }
   }
   // Monorriel: no reescribir Préstamos al abrir/renderizar (borra lo tecleado).
