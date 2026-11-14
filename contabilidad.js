@@ -530,8 +530,10 @@ function computePayrollLineTotals(line, opts = {}) {
       salaryQuincena = roundMoney2(salaryMonthly / 2);
     }
   } else if (office) {
-    // Oficina: quincena = mitad del sueldo; días no influyen. SFS por defecto fijo (editable a mano).
-    salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : 0;
+    const quincenaManual = !!line.quincenaManual;
+    if (!quincenaManual) {
+      salaryQuincena = salaryMonthly ? roundMoney2(salaryMonthly / 2) : salaryQuincena;
+    }
     uniformes = 0;
     volaos = 0;
     if (!horasExtrasManual) horasExtras = 0;
@@ -554,8 +556,10 @@ function computePayrollLineTotals(line, opts = {}) {
     }
   }
 
-  // Todas las nóminas: SFS RD$ 800 si no lo fijaron a mano. 0 escrito a mano se queda.
-  if (!manual && !sfsManual) sfs = hasName ? PAYROLL_DEFAULT_SFS : 0;
+  if (!manual && !sfsManual) {
+    if (office && hasName) sfs = OFFICE_PAYROLL_SFS;
+    else if (!office) sfs = hasName ? PAYROLL_DEFAULT_SFS : 0;
+  }
 
   // LVA: comida editable + seguro de vida fijo 90 (filas manuales: sin seguro auto)
   const svda = lavega && hasName && !manual ? LVA_PAYROLL_SVDA : 0;
@@ -2379,7 +2383,7 @@ const PAYROLL_OFFICE_TABLE_COLS = [
   ["fullName", "Nombre", "name"],
   ["cedula", "Cédula", "text"],
   ["salaryMonthly", "Sueldo mes", "num"],
-  ["salaryQuincena", "Quincena", "ro"],
+  ["salaryQuincena", "Quincena", "num"],
   ["sfs", "SFS", "num"],
   ["rifa", "Rifa", "num"],
   ["incentivos", "Incent.", "num"],
@@ -3259,13 +3263,20 @@ function readPayrollLinesFromDom(payrollId) {
     const reviewedEl = tr.querySelector('[data-f="reviewed"]');
     // Oficina normal: quincena la calcula la fórmula. Manual: lo que esté en pantalla (si hay input).
     const quincenaDom = g("salaryQuincena");
+    const quincenaTouched = quincenaDom !== "" && quincenaDom != null;
     const salaryQuincenaVal = isManual
       ? quincenaDom === "" || quincenaDom == null
         ? Math.max(0, Number(prev.salaryQuincena) || 0)
         : quincenaDom
       : isOffice
-        ? 0
+        ? quincenaTouched
+          ? quincenaDom
+          : prev.salaryQuincena != null && prev.salaryQuincena !== ""
+            ? prev.salaryQuincena
+            : ""
         : g("salaryQuincena");
+    const sfsRaw = g("sfs");
+    const sfsTouched = sfsRaw !== "" && sfsRaw != null;
     return normalizePayrollLine(
       {
         ...prev,
@@ -3279,11 +3290,12 @@ function readPayrollLinesFromDom(payrollId) {
         salaryMonthly: g("salaryMonthly"),
         salaryQuincena: salaryQuincenaVal,
         quincenaManual: isManual
-          ? !!(prev.quincenaManual || (quincenaDom !== "" && quincenaDom != null))
-          : !!prev.quincenaManual,
-        // Manual: vacío = 0 (no resucitar SFS anterior al guardar)
+          ? !!(prev.quincenaManual || quincenaTouched)
+          : isOffice
+            ? !!(quincenaTouched || prev.quincenaManual)
+            : !!prev.quincenaManual,
         sfs: readNum("sfs", prev.sfs),
-        sfsManual: isManual ? true : !!prev.sfsManual,
+        sfsManual: isManual || (isOffice && sfsTouched) ? true : !!prev.sfsManual,
         uniformes: isOffice ? 0 : ur.uniformes,
         rifa: rifaVal,
         volaos: isOffice ? 0 : g("volaos"),
@@ -3923,22 +3935,36 @@ function emptyPayrollLine(overrides = {}) {
 }
 
 function removePayrollLineAt(idx) {
-  syncOpenPayrollFromDom(false);
   const p = ensureOpenPayrollDraft();
   if (!p) return;
   const i = Number(idx);
-  if (!Number.isFinite(i) || i < 0 || i >= (p.lines || []).length) return;
-  const removedLine = p.lines[i];
+  const opts = payrollComputeOpts(p);
+  const domLines = readPayrollLinesFromDom(p.id);
+  const lineCount = domLines ? domLines.length : (p.lines || []).length;
+  if (!Number.isFinite(i) || i < 0 || i >= lineCount) return;
+  const removedLine =
+    (domLines && domLines[i]) ||
+    (p.lines && p.lines[i]) ||
+    { fullName: `fila ${i + 1}` };
   const name = (removedLine.fullName || "").trim() || `fila ${i + 1}`;
-  if (!confirm(`¿Eliminar la fila de "${name}"?`)) return;
-  if (payrollIsOffice(p)) payrollRegisterOfficeLineRemoval(p, removedLine);
-  p.lines.splice(i, 1);
-  p.updatedAt = new Date().toISOString();
-  markPayrollEdited();
+  if (!confirm(`¿Quitar "${name}" de esta nómina?`)) return;
   renderNominaTab._forceDetailRebuild = true;
+  markPayrollEdited();
+  if (payrollIsOffice(p)) payrollRegisterOfficeLineRemoval(p, removedLine);
+  if (domLines) {
+    domLines.splice(i, 1);
+    p.lines = domLines.map((l) =>
+      isManualPayrollLine(l)
+        ? computePayrollLineTotals({ ...l, sfsManual: true, horasExtrasManual: true }, opts)
+        : computePayrollLineTotals(l, opts)
+    );
+  } else {
+    p.lines.splice(i, 1);
+  }
+  p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
   renderNominaTab();
-  toast("Fila eliminada.");
+  toast("Fila quitada de la nómina.");
 }
 
 function ensureOpenPayrollDraft() {
@@ -5280,6 +5306,13 @@ function bindPayrollLiveTotals() {
       schedulePayrollLiveUpdate(ev);
     }
   });
+  root.addEventListener("click", (ev) => {
+    const btn = ev.target && ev.target.closest ? ev.target.closest(".btn-row-del") : null;
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    removePayrollLineAt(btn.getAttribute("data-idx"));
+  });
 }
 
 function pullSharedPayrollTypedAmounts(p) {
@@ -5559,9 +5592,11 @@ function renderNominaTab() {
     return;
   }
   selectedPayrollId = p.id;
+  const forceDetailRebuild = !!renderNominaTab._forceDetailRebuild;
   const domPayrollId = String(detail.dataset.payrollId || "");
   const hasDomRows = !!detail.querySelector("tr[data-line-idx]");
   if (
+    !forceDetailRebuild &&
     hasDomRows &&
     domPayrollId &&
     domPayrollId === String(selectedPayrollId) &&
@@ -5573,7 +5608,7 @@ function renderNominaTab() {
   }
   p = contabilidadData.payrolls.find((x) => x.id === selectedPayrollId) || p;
   const skipDetailRebuild =
-    !renderNominaTab._forceDetailRebuild &&
+    !forceDetailRebuild &&
     typeof isPayrollBeingEdited === "function" &&
     isPayrollBeingEdited() &&
     detail.querySelector("tr[data-line-idx]") &&
@@ -5620,7 +5655,7 @@ function renderNominaTab() {
           ...l,
           fullName: short || l.fullName,
           daysWorked: "",
-          salaryQuincena: officeManual || l.quincenaManual ? l.salaryQuincena : 0,
+          salaryQuincena: l.quincenaManual || officeManual ? l.salaryQuincena : 0,
           sfs: l.sfsManual || officeManual ? l.sfs : OFFICE_PAYROLL_SFS,
           uniformes: 0,
           volaos: 0,
@@ -5945,7 +5980,10 @@ function renderNominaTab() {
     <p class="muted tight">${helpLine}</p>
     ${
       isOfficeOpen
-        ? ""
+        ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px">
+      <button type="button" class="btn secondary" id="btnContabAddManualOfficeTop" style="width:auto" title="Fila con montos 100% a mano">＋ Manual</button>
+      <span class="muted tight" style="align-self:center">Quitar fila: botón − · Quincena/SFS/Adelantos/Préstamos editables</span>
+    </div>`
         : `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 10px">
       ${
         p.group === "reaction"
@@ -6016,6 +6054,7 @@ function renderNominaTab() {
   document.getElementById("btnContabLoadLoans2")?.addEventListener("click", () => loadOpenPayrollLoans());
   document.getElementById("btnContabLoanCheck")?.addEventListener("click", () => reviewPayrollLoanNames());
   document.getElementById("btnContabAddManual2")?.addEventListener("click", () => addManualPayrollRows());
+  document.getElementById("btnContabAddManualOfficeTop")?.addEventListener("click", () => addManualPayrollRows());
   document.getElementById("btnContabPrintReceipts2")?.addEventListener("click", () => printOpenPayrollReceipts());
   document.getElementById("btnContabPrintPayroll2")?.addEventListener("click", () => printOpenPayrollSheet());
   document.getElementById("btnContabDownloadPayroll2")?.addEventListener("click", () => {
