@@ -3656,11 +3656,26 @@ function loadOpenPayrollLoans() {
     toast("No tienes acceso a Contabilidad.");
     return;
   }
-  syncOpenPayrollFromDom(false);
-  const p = ensureOpenPayrollDraft();
+  let p = ensureOpenPayrollDraft();
   if (!p) {
     toast("Abre o genera una nómina primero.");
     return;
+  }
+  const memSnap = JSON.parse(JSON.stringify(p.lines || []));
+  syncOpenPayrollFromDom(false);
+  p = ensureOpenPayrollDraft();
+  if (p) {
+    p.lines = (p.lines || []).map((l, i) => {
+      const prev = memSnap[i];
+      if (!prev) return l;
+      const next = { ...l };
+      ["adelantos", "prestamos"].forEach((f) => {
+        const domAmt = Math.max(0, Number(l[f]) || 0);
+        const memAmt = Math.max(0, Number(prev[f]) || 0);
+        if (!domAmt && memAmt) next[f] = memAmt;
+      });
+      return next;
+    });
   }
   if (p.status === "paid") {
     toast("Nómina pagada: no se modifican préstamos.");
@@ -3687,7 +3702,7 @@ function loadOpenPayrollLoans() {
   }).map((l) => computePayrollLineTotals(l, opts));
   p.lines = workLines;
   p.updatedAt = new Date().toISOString();
-  renderNominaTab._forceDetailRebuild = true;
+  payrollRequestTableRebuild();
   saveContabilidadData(true);
   renderNominaTab();
   const applied = workLines.filter(
@@ -4382,6 +4397,10 @@ function payrollPrintCss(paperSize, options = {}) {
   `;
 }
 
+function payrollRequestTableRebuild() {
+  renderNominaTab._forceDetailRebuild = true;
+}
+
 function togglePayrollFeriado() {
   syncOpenPayrollFromDom(false);
   const p = ensureOpenPayrollDraft();
@@ -4400,6 +4419,7 @@ function togglePayrollFeriado() {
     );
   }
   p.updatedAt = new Date().toISOString();
+  payrollRequestTableRebuild();
   saveContabilidadData(true);
   renderNominaTab();
   toast(p.showFeriado ? "Columna Feriado habilitada." : "Columna Feriado oculta.");
@@ -5002,12 +5022,12 @@ function updatePayrollReadonlyDom(p) {
     if (asv && document.activeElement !== asv) asv.value = formatAlmuerzoSvda(l);
     if (vol && document.activeElement !== vol) vol.value = l.volaos || "";
     if (hex && document.activeElement !== hex) hex.value = String(Number(l.horasExtras) || 0);
-    const adel = tr.querySelector('[data-f="adelantos"]');
-    if (adel && document.activeElement !== adel) adel.value = String(Number(l.adelantos) || 0);
-    const prest = tr.querySelector('[data-f="prestamos"]');
-    if (prest && document.activeElement !== prest) prest.value = String(Number(l.prestamos) || 0);
     const prestRo = [...tr.children].find((cell) => cell.dataset && cell.dataset.ro === "prestamos");
     if (prestRo) prestRo.textContent = moneyCell(l.prestamos);
+    ["feriado", "incentivos", "adelantos", "prestamos"].forEach((field) => {
+      const inp = tr.querySelector(`[data-f="${field}"]`);
+      if (inp && document.activeElement !== inp) inp.value = String(Number(l[field]) || 0);
+    });
   });
   const totals = {
     salaryMonthly: sumPayrollField(lines, "salaryMonthly"),
@@ -5032,18 +5052,16 @@ function updatePayrollReadonlyDom(p) {
   };
   const foot = root.querySelector("tfoot tr.nomina-total-row");
   if (foot) {
-    const cells = [...foot.children];
-    const cols = getPayrollEditorCols(p);
-    cols.forEach((col, i) => {
-      const [key] = col;
-      if (!cells[i]) return;
-      if (key === "daysWorked" || key === "cedula" || key === "fullName") return;
+    foot.querySelectorAll("[data-total]").forEach((cell) => {
+      const key = cell.dataset.total;
+      if (!key) return;
       if (key === "redondeo") {
         const v = Number(totals.redondeo) || 0;
-        cells[i].innerHTML = `<strong>${escapeHtml(moneyPlain(v) || "0")}</strong>`;
+        cell.innerHTML = `<strong>${escapeHtml(moneyPlain(v) || "0")}</strong>`;
         return;
       }
-      cells[i].textContent = moneyCell(totals[key]);
+      const val = key === "unifRifa" ? totals.unifRifa : key === "almuerzo" ? totals.almuerzo : totals[key];
+      cell.textContent = moneyCell(val);
     });
   }
   const summary = root.querySelector("[data-nomina-total-summary]");
@@ -5960,20 +5978,24 @@ function renderNominaTab() {
         if (key === "cedula") return `<td class="nomina-col-fit"></td>`;
         if (key === "fullName") return `<td class="sticky-name"></td>`;
         if (key === "unifRifa") {
-          return `<td class="right nomina-col-fit" data-ro="unifRifa">${escapeHtml(moneyCell(totals.unifRifa))}</td>`;
+          return `<td class="right nomina-col-fit" data-total="unifRifa" data-ro="unifRifa">${escapeHtml(
+            moneyCell(totals.unifRifa)
+          )}</td>`;
         }
         if (kind === "almuerzoSvda") {
-          return `<td class="right nomina-col-fit" data-ro="almuerzo">${escapeHtml(moneyCell(totals.almuerzo))}</td>`;
+          return `<td class="right nomina-col-fit" data-total="almuerzo" data-ro="almuerzo">${escapeHtml(
+            moneyCell(totals.almuerzo)
+          )}</td>`;
         }
         if (key === "redondeo") {
-          return `<td class="right nomina-col-fit nomina-col-redondeo nomina-total-redondeo" data-ro="redondeo"><strong>${escapeHtml(
+          return `<td class="right nomina-col-fit nomina-col-redondeo nomina-total-redondeo" data-total="redondeo" data-ro="redondeo"><strong>${escapeHtml(
             moneyPlain(totals.redondeo || 0) || "0"
           )}</strong></td>`;
         }
         if (key === "sfs") {
-          return `<td class="right nomina-col-fit nomina-col-sfs">${escapeHtml(moneyCell(totals.sfs))}</td>`;
+          return `<td class="right nomina-col-fit nomina-col-sfs" data-total="sfs">${escapeHtml(moneyCell(totals.sfs))}</td>`;
         }
-        return `<td class="right nomina-col-fit">${escapeHtml(moneyCell(totals[key]))}</td>`;
+        return `<td class="right nomina-col-fit" data-total="${key}">${escapeHtml(moneyCell(totals[key]))}</td>`;
       })
       .join("") + `<td class="nomina-col-del"></td>`;
   const openMeta = payrollGroupMeta(

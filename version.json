@@ -1,6 +1,6 @@
 {
-  "build": 251,
-  "label": "v251",
-  "minBuild": 251,
-  "note": "Reportes Monorriel/Vargas: borrados y marcas no se pierden al sync"
+  "build": 252,
+  "label": "v252",
+  "minBuild": 252,
+  "note": "Feriado y préstamos visibles (rebuild tabla Lotedom y todas)"
 }
