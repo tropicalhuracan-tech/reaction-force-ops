@@ -2951,11 +2951,13 @@ function renderVargasModule() {
       <div class="vargas-actions">
         <button type="button" class="primary" id="btnVargasGuardar">Guardar respaldo</button>
         <button type="button" class="secondary" id="btnVargasRecuperar">Recuperar respaldo</button>
+        <button type="button" class="secondary" id="btnVargasImportExcel" title="Sube .xlsx con Nombre, Puesto, Turno y columnas de días">Importar Excel</button>
         <button type="button" class="secondary" id="btnVargasDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnVargasNuevaQuincena">Abrir siguiente quincena</button>
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
         <button type="button" class="primary" id="btnVargasNominaGeneral">Enviar a nómina general</button>
       </div>
+      <p class="muted tight" style="margin-top:6px">Excel: encabezado <strong>Nombre · Puesto · Turno (D/N) · B/E</strong> y columnas <strong>16, 17, 18…</strong> (marcas 1, 1.5, 2). Combina con esta quincena.</p>
       <p class="muted tight" style="margin-top:10px">
         <strong>1</strong> = turno (1 día). <strong>1.5</strong> = 1 día + 6 h extras (no hace falta en Horas ext.).
         <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
@@ -3383,6 +3385,7 @@ function bindVargasUiHandlers() {
       if (typeof logActivity === "function") logActivity("vargas_del", `Vargas − ${name}`);
     });
   });
+  if (typeof bindVargasExcelImport === "function") bindVargasExcelImport();
 }
 
 // Expose for cloud / app wiring

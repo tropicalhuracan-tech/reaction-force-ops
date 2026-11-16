@@ -1075,9 +1075,11 @@ function renderMonorrielQuincenaModule() {
       <div class="vargas-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" class="primary" id="btnMonoQGuardar">Guardar respaldo</button>
         <button type="button" class="secondary" id="btnMonoQRecuperar">Recuperar respaldo</button>
+        <button type="button" class="secondary" id="btnMonoQImportExcel" title="Sube .xlsx: Nombre, Puesto, Planilla (dia/noche/moto) y días">Importar Excel</button>
         <button type="button" class="secondary" id="btnMonoQDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnMonoQNext">Abrir siguiente quincena</button>
       </div>
+      <p class="muted tight" style="margin-top:6px">Excel: <strong>Nombre · Puesto · Planilla</strong> (dia, noche, moto_dia, moto_noche) y columnas de días. Una hoja por planilla o columna Planilla.</p>
       <p class="muted tight" style="margin-top:10px">
         Igual que Ramón. <strong>1</strong> = un día. <strong>1.5</strong> = 1 día + 6 h extras (automático).
         <strong>2</strong> = el mismo día + volao
@@ -1383,6 +1385,7 @@ function bindMonorrielQuincenaUi(report) {
       if (typeof toast === "function") toast(`Eliminado: ${name}`);
     });
   });
+  if (typeof bindMonorrielExcelImport === "function") bindMonorrielExcelImport();
 }
 
 function monoQReportForPayroll(period, half) {
