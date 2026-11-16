@@ -2501,14 +2501,26 @@ function applyMonorrielLoanDeductionsToLines(lines, payDate, opts = {}) {
     // Sin fecha/función: al forzar, limpiar montos viejos de prueba
     return (lines || []).map((l) => (skipManual && isManualPayrollLine(l) ? l : { ...l, prestamos: 0 }));
   }
+  const splitFn =
+    typeof loanPayrollSplitForName === "function"
+      ? loanPayrollSplitForName
+      : (name, date, id) => {
+          const p = loanPayrollDeductionForName(name, date, id) || 0;
+          return { adelantos: 0, prestamos: p };
+        };
   return (lines || []).map((l) => {
     if (skipManual && isManualPayrollLine(l)) return l;
     const name = String(l.fullName || "").trim();
-    if (!name) return force ? { ...l, prestamos: 0 } : l;
-    const amt = loanPayrollDeductionForName(name, payDate, l.employeeId) || 0;
-    // forceClear=true: borra lo cargado antes y deja solo la cuota real (o 0)
-    if (!force && !amt) return l;
-    return { ...l, prestamos: amt };
+    if (!name) return force ? { ...l, adelantos: 0, prestamos: 0 } : l;
+    const split = splitFn(name, payDate, l.employeeId);
+    const adel = Math.max(0, Number(split.adelantos) || 0);
+    const prest = Math.max(0, Number(split.prestamos) || 0);
+    if (!force && !adel && !prest) return l;
+    return {
+      ...l,
+      adelantos: adel || (force ? 0 : Math.max(0, Number(l.adelantos) || 0)),
+      prestamos: prest || (force ? 0 : Math.max(0, Number(l.prestamos) || 0)),
+    };
   });
 }
 
@@ -3665,20 +3677,30 @@ function loadOpenPayrollLoans() {
   }
   p.payDate = payDate;
   const opts = payrollComputeOpts(p);
-  const before = (p.lines || []).map((l) => Number(l.prestamos) || 0);
+  const before = (p.lines || []).map((l) => [
+    Number(l.adelantos) || 0,
+    Number(l.prestamos) || 0,
+  ]);
   let workLines = applyMonorrielLoanDeductionsToLines(p.lines || [], payDate, {
     forceClear: false,
     skipManual: false,
   }).map((l) => computePayrollLineTotals(l, opts));
   p.lines = workLines;
   p.updatedAt = new Date().toISOString();
+  renderNominaTab._forceDetailRebuild = true;
   saveContabilidadData(true);
   renderNominaTab();
-  const applied = workLines.filter((l, i) => (Number(l.prestamos) || 0) > 0).length;
-  const changed = workLines.filter((l, i) => (Number(l.prestamos) || 0) !== before[i]).length;
+  const applied = workLines.filter(
+    (l) => (Number(l.prestamos) || 0) > 0 || (Number(l.adelantos) || 0) > 0
+  ).length;
+  const changed = workLines.filter((l, i) => {
+    const prev = before[i] || [0, 0];
+    return (Number(l.adelantos) || 0) !== prev[0] || (Number(l.prestamos) || 0) !== prev[1];
+  }).length;
   toast(
-    `Préstamos cargados · pago ${payDate} · ${applied} empleado(s) con cuota` +
-      (changed ? ` · ${changed} fila(s) actualizada(s)` : "")
+    `Préstamos/adelantos cargados · pago ${payDate} · ${applied} empleado(s) con cuota` +
+      (changed ? ` · ${changed} fila(s) actualizada(s)` : "") +
+      ` · Usa «Revisar préstamos» para ver quién entró.`
   );
 }
 
@@ -4980,8 +5002,10 @@ function updatePayrollReadonlyDom(p) {
     if (asv && document.activeElement !== asv) asv.value = formatAlmuerzoSvda(l);
     if (vol && document.activeElement !== vol) vol.value = l.volaos || "";
     if (hex && document.activeElement !== hex) hex.value = String(Number(l.horasExtras) || 0);
+    const adel = tr.querySelector('[data-f="adelantos"]');
+    if (adel && document.activeElement !== adel) adel.value = String(Number(l.adelantos) || 0);
     const prest = tr.querySelector('[data-f="prestamos"]');
-    if (prest && document.activeElement !== prest) prest.value = l.prestamos || "";
+    if (prest && document.activeElement !== prest) prest.value = String(Number(l.prestamos) || 0);
     const prestRo = [...tr.children].find((cell) => cell.dataset && cell.dataset.ro === "prestamos");
     if (prestRo) prestRo.textContent = moneyCell(l.prestamos);
   });

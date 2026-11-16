@@ -1,6 +1,6 @@
 {
-  "build": 249,
-  "label": "v249",
-  "minBuild": 249,
-  "note": "Vargas: una fila por persona, sin ocultar"
+  "build": 250,
+  "label": "v250",
+  "minBuild": 250,
+  "note": "Cargar préstamos: adelantos y préstamos visibles por fila"
 }
