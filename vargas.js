@@ -509,12 +509,14 @@ function vargasUndoV248FactoryHiddenBans(data) {
   });
 }
 
-function normalizeVargasData(raw = {}) {
+function normalizeVargasData(raw = {}, opts = {}) {
+  const dedupeLoose = opts.dedupeLoose === true;
   const reports = (Array.isArray(raw.reports) ? raw.reports : [])
     .map((r) => {
       const n = normalizeVargasReport(r);
       vargasScrubDeletedFromReport(n);
-      vargasDedupeReportLoose(n);
+      if (dedupeLoose) vargasDedupeReportLoose(n);
+      else vargasDedupeSectionEmployeesInReport(n);
       return n;
     })
     .filter((r) => r.period && r.sections);
@@ -547,9 +549,22 @@ function ensureVargasSeedLoaded() {
   return true;
 }
 
+function vargasDedupeSectionEmployeesInReport(report) {
+  if (!report) return;
+  (report.sections || []).forEach((sec) => vargasDedupeSectionEmployees(sec));
+  report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
+}
+
+function vargasDataBanScore(data) {
+  return (normalizeVargasData(data || {}, { dedupeLoose: false }).reports || []).reduce(
+    (s, r) => s + vargasReportBanScore(r),
+    0
+  );
+}
+
 function saveVargasData(push = true, urgent = false) {
   if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
-  vargasData = normalizeVargasData(vargasData);
+  vargasData = normalizeVargasData(vargasData, { dedupeLoose: true });
   persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
   if (push && typeof queueCloudSave === "function") queueCloudSave();
@@ -591,18 +606,17 @@ function vargasDataMarkScore(data) {
 
 function persistVargasSafetyNet(data) {
   try {
-    const current = normalizeVargasData(data || vargasData);
+    const current = normalizeVargasData(data || vargasData, { dedupeLoose: false });
     const prev = JSON.parse(localStorage.getItem(VARGAS_SAFETY_KEY) || "null");
-    // La copia actual va primero: no reinsertar personas ya quitadas desde el respaldo viejo.
-    const merged = mergeVargasDataSticky(
-      current,
-      prev && prev.reports ? prev : { reports: [] }
-    );
-    vargasApplyAllBansToData(merged);
-    (merged.reports || []).forEach((r) => vargasDedupeReportLoose(r));
-    (merged.reports || []).forEach((r) => vargasScrubDeletedFromReport(r));
-    if (vargasDataMarkScore(merged) > 0) {
-      localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(merged));
+    const prevMarks = prev ? vargasDataMarkScore(prev) : 0;
+    const prevBans = prev ? vargasDataBanScore(prev) : 0;
+    const curMarks = vargasDataMarkScore(current);
+    const curBans = vargasDataBanScore(current);
+  // Solo guardar copia nueva si no pierde marcas ni borrados (evita resucitar nombres viejos).
+    if (curMarks >= prevMarks || curBans > prevBans || !prev) {
+      if (curMarks > 0 || curBans > 0) {
+        localStorage.setItem(VARGAS_SAFETY_KEY, JSON.stringify(current));
+      }
     }
   } catch (_) {}
 }
@@ -796,9 +810,10 @@ function restoreVargasFromSafetyNet() {
   if (before > 2) return 0;
     const merged = mergeVargasDataSticky(vargasData, safety);
     vargasPreserveLocalDeletes(merged, vargasData);
+    vargasPreserveLocalDeletes(merged, vargasData);
     const after = vargasDataMarkScore(merged);
     if (after > before) {
-      vargasData = normalizeVargasData(merged);
+      vargasData = normalizeVargasData(merged, { dedupeLoose: false });
       localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
       return after - before;
     }
@@ -1026,9 +1041,24 @@ function mergeVargasReportSticky(base, other) {
 }
 
 /** Une reportes: los días se combinan de ambos lados; no gana la copia vacía por fecha. */
+function vargasLocateByRowKey(rowKey, report) {
+  const rep = report || getActiveVargasReport();
+  if (!rep || !rowKey) return null;
+  for (let s = 0; s < (rep.sections || []).length; s++) {
+    const sec = rep.sections[s];
+    for (let e = 0; e < (sec.employees || []).length; e++) {
+      const emp = sec.employees[e];
+      if (vargasEmployeeExactKey(sec, emp) === rowKey) {
+        return { report: rep, sectionIdx: s, empIdx: e, sec, emp };
+      }
+    }
+  }
+  return null;
+}
+
 function mergeVargasDataSticky(localRaw, remoteRaw) {
-  const local = normalizeVargasData(localRaw || {});
-  const remote = normalizeVargasData(remoteRaw || {});
+  const local = normalizeVargasData(localRaw || {}, { dedupeLoose: true });
+  const remote = normalizeVargasData(remoteRaw || {}, { dedupeLoose: true });
   const ids = new Set([...local.reports, ...remote.reports].map((r) => r && r.id).filter(Boolean));
   const reports = [];
   ids.forEach((id) => {
@@ -1064,7 +1094,7 @@ function applyRemoteVargasData(remote) {
   vargasApplyAllBansToData(localSnapshot);
   const merged = mergeVargasDataSticky(vargasData, remote || {});
   vargasPreserveLocalDeletes(merged, localSnapshot);
-  vargasData = vargasApplyAllBansToData(normalizeVargasData(merged));
+  vargasData = vargasApplyAllBansToData(normalizeVargasData(merged, { dedupeLoose: true }));
   persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
 }
@@ -1078,7 +1108,6 @@ function setActiveVargasReport(id) {
 
 function getActiveVargasReport() {
   ensureVargasSeedLoaded();
-  vargasData = normalizeVargasData(vargasData);
   const wanted = vargasData.reports.find((r) => r && r.id === vargasActiveReportId);
   if (wanted) return wanted;
   return vargasData.reports[0] || null;
@@ -1818,6 +1847,7 @@ function removeVargasEmployee(sectionIdx, empIdx) {
   });
   report.sections = (report.sections || []).filter((s) => (s.employees || []).length > 0);
   report.updatedAt = new Date().toISOString();
+  report.deleteRevision = Date.now();
   vargasScrubDeletedFromReport(report);
   saveVargasData(true, true);
   try {
@@ -1952,11 +1982,17 @@ function printVargasReport() {
   });
 }
 
-function setVargasEmployeeMark(sectionIdx, empIdx, day, value) {
-  const report = getActiveVargasReport();
-  if (!report || !report.sections[sectionIdx]) return;
-  const emp = report.sections[sectionIdx].employees[empIdx];
-  if (!emp) return;
+function setVargasEmployeeMark(sectionIdx, empIdx, day, value, rowKey) {
+  let report = getActiveVargasReport();
+  let emp = report && report.sections[sectionIdx] && report.sections[sectionIdx].employees[empIdx];
+  if (rowKey) {
+    const loc = vargasLocateByRowKey(rowKey, report);
+    if (loc) {
+      report = loc.report;
+      emp = loc.emp;
+    }
+  }
+  if (!report || !emp) return;
   const key = String(day);
   const raw = String(value == null ? "" : value).trim();
   const prev = emp.marks && emp.marks[key];
@@ -2786,7 +2822,7 @@ function renderVargasModule() {
   if (typeof canAccessVargas === "function" && !canAccessVargas()) return;
   const scrollPos = captureVargasScroll();
   ensureVargasSeedLoaded();
-  vargasData = vargasApplyAllBansToData(normalizeVargasData(vargasData));
+  vargasApplyAllBansToData(vargasData);
   ensureVargasNovember2026();
   const report = getActiveVargasReport();
   const summary = document.getElementById("vargasSummary");
@@ -2837,7 +2873,9 @@ function renderVargasModule() {
             : worked && vargasParseMarkNumber(mark) != null && !Number.isInteger(vargasParseMarkNumber(mark))
               ? ` title="${val}: fracción × 12 h = horas extras (ej. 1.5 = 1 día + 6 h)"`
               : ` title="1 = día · 2 = día + volao · 1.5 = 1 día + 6 h extras"`;
-          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" data-memo-field="d:${d}" contenteditable="true" spellcheck="false"${title}${ms(
+          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-row="${escapeVargasAttr(
+            row.rowKey
+          )}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" data-memo-field="d:${d}" contenteditable="true" spellcheck="false"${title}${ms(
             `d:${d}`
           )}>${escapeVargasHtml(val)}</td>`;
         })
@@ -2853,9 +2891,11 @@ function renderVargasModule() {
       const hexTitle = hexFilled
         ? ` title="${hexVal} h × RD$${VARGAS_EXTRA_HOUR_RATE} = RD$${row.horasExtrasPay} (se suma a Horas extras de nómina)"`
         : ` title="Horas extras (ej. 2 o 2.3). RD$${VARGAS_EXTRA_HOUR_RATE}/h sumadas a la nómina"`;
-      return `<tr data-shift="${row.shift}">
+      return `<tr data-shift="${row.shift}" data-row="${escapeVargasAttr(row.rowKey)}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
-        <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="name" title="Toca para corregir el nombre"${ms(
+        <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-row="${escapeVargasAttr(
+          row.rowKey
+        )}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="name" title="Toca para corregir el nombre"${ms(
           "name"
         )}>${escapeVargasHtml(row.fullName)}</td>
         <td class="vargas-post vargas-post-edit" contenteditable="true" spellcheck="false" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="post" title="Toca para cambiar el puesto de este bloque"${ms(
@@ -3076,7 +3116,8 @@ function bindVargasUiHandlers() {
       const s = Number(cell.dataset.s);
       const e = Number(cell.dataset.e);
       const day = Number(cell.dataset.day);
-      setVargasEmployeeMark(s, e, day, cell.textContent);
+      const row = cell.dataset.row || "";
+      setVargasEmployeeMark(s, e, day, cell.textContent, row);
     });
   });
   document.querySelectorAll(".vargas-pagos-cell").forEach((cell) => {
