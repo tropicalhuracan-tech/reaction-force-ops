@@ -329,7 +329,14 @@ function mergeMonoReportSticky(base, other) {
   });
   const updatedAt =
     String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
-  return monoQNormalizeReport({ ...base, sheets, updatedAt });
+  return monoQNormalizeReport({
+    ...base,
+    sheets,
+    removedNameKeys: [
+      ...new Set([...(base.removedNameKeys || []), ...(other.removedNameKeys || [])]),
+    ],
+    updatedAt,
+  });
 }
 
 function monoQNormalizeReport(raw) {
@@ -346,10 +353,15 @@ function monoQNormalizeReport(raw) {
     const src = raw && raw.sheets && raw.sheets[s.id] && raw.sheets[s.id].employees;
     const seen = new Set((sheets[s.id].employees || []).map((e) => monoQKey(e.fullName)));
     const deleted = new Set(monoQSheetDeleted(sheets[s.id]));
+    const removedNames = new Set(
+      (Array.isArray(raw && raw.removedNameKeys) ? raw.removedNameKeys : []).map((k) => String(k || "").trim())
+    );
     (src || []).forEach((emp) => {
       const fullName = String((emp && emp.fullName) || "").trim();
       const key = monoQKey(fullName);
       if (!key) return;
+      if (removedNames.has(key)) return;
+      if (deleted.has(key)) return;
       const eid = String((emp && emp.employeeId) || "").trim();
       const rowKey = monoQEmployeeDeleteKey(emp);
       if (rowKey && deleted.has(rowKey)) return;
@@ -393,13 +405,14 @@ function monoQNormalizeReport(raw) {
       });
     });
     sheets[s.id].employees.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
-    sheets[s.id].deletedKeys = monoQSheetDeleted(sheets[s.id]).filter(
-      (k) => k.startsWith("id:") || k.startsWith("row:")
-    );
+    sheets[s.id].deletedKeys = [...new Set(monoQSheetDeleted(sheets[s.id]))];
   });
   return {
     ...spec,
     sheets,
+    removedNameKeys: Array.isArray(raw && raw.removedNameKeys)
+      ? [...new Set(raw.removedNameKeys.map((k) => String(k || "").trim()).filter(Boolean))]
+      : [],
     updatedAt: (raw && raw.updatedAt) || new Date().toISOString(),
   };
 }
@@ -616,12 +629,66 @@ function guardarMonoQRespaldo() {
   return { ok: true };
 }
 
+function monoQReportBanScore(report) {
+  if (!report) return 0;
+  let n = Array.isArray(report.removedNameKeys) ? report.removedNameKeys.length : 0;
+  MONOQ_SHEETS.forEach((s) => {
+    const sh = report.sheets && report.sheets[s.id];
+    n += monoQSheetDeleted(sh).length;
+  });
+  return n;
+}
+
+function monoQDataBanScore(data) {
+  return (data && Array.isArray(data.reports) ? data.reports : []).reduce((s, r) => s + monoQReportBanScore(r), 0);
+}
+
+function monoQPreserveLocalDeletes(merged, localRaw) {
+  if (!merged || !localRaw) return;
+  const local = localRaw.reports ? localRaw : { reports: localRaw.reports || [] };
+  merged.removedNameKeys = [
+    ...new Set([
+      ...(merged.removedNameKeys || []),
+      ...(local.reports || []).flatMap((r) => r.removedNameKeys || []),
+    ]),
+  ];
+  (merged.reports || []).forEach((r) => {
+    const lr = (local.reports || []).find((x) => x && x.id === r.id);
+    if (!lr) return;
+    r.removedNameKeys = [...new Set([...(r.removedNameKeys || []), ...(lr.removedNameKeys || [])])];
+    MONOQ_SHEETS.forEach((s) => {
+      const sh = r.sheets && r.sheets[s.id];
+      const lsh = lr.sheets && lr.sheets[s.id];
+      if (!sh) return;
+      sh.deletedKeys = [...new Set([...monoQSheetDeleted(sh), ...monoQSheetDeleted(lsh)])];
+      const removed = new Set([...(r.removedNameKeys || []), ...sh.deletedKeys]);
+      sh.employees = (sh.employees || []).filter((emp) => {
+        const nk = monoQKey(emp.fullName);
+        if (nk && removed.has(nk)) return false;
+        const id = String(emp.employeeId || "").trim();
+        if (id && removed.has(`id:${id}`)) return false;
+        const rk = monoQEmployeeDeleteKey(emp);
+        if (rk && removed.has(rk)) return false;
+        return true;
+      });
+    });
+  });
+}
+
 function persistMonoQSafetyNet(data) {
   try {
+    const current = {
+      reports: (data && data.reports ? data.reports : monoQData.reports || []).map((r) => monoQNormalizeReport(r)),
+    };
     const prev = JSON.parse(localStorage.getItem(MONOQ_SAFETY_KEY) || "null");
-    const merged = monoQMerge(prev && prev.reports ? prev : { reports: [] }, data || monoQData);
-    if (monoQDataMarkScore(merged) > 0) {
-      localStorage.setItem(MONOQ_SAFETY_KEY, JSON.stringify({ reports: merged.reports }));
+    const prevMarks = prev ? monoQDataMarkScore(prev) : 0;
+    const prevBans = prev ? monoQDataBanScore(prev) : 0;
+    const curMarks = monoQDataMarkScore(current);
+    const curBans = monoQDataBanScore(current);
+    if (curMarks >= prevMarks || curBans > prevBans || !prev) {
+      if (curMarks > 0 || curBans > 0) {
+        localStorage.setItem(MONOQ_SAFETY_KEY, JSON.stringify(current));
+      }
     }
   } catch (_) {}
 }
@@ -634,10 +701,13 @@ function restoreMonoQFromSafetyNet() {
     if (!safety || !Array.isArray(safety.reports) || !safety.reports.length) return 0;
     ensureMonorrielQuincenasLoaded();
     const before = monoQDataMarkScore(monoQData);
-    monoQData = monoQMerge(monoQData, safety);
-    monoQData._ready = true;
-    const after = monoQDataMarkScore(monoQData);
+    if (before > 2) return 0;
+    const localSnap = JSON.parse(JSON.stringify(monoQData));
+    const merged = monoQMerge(monoQData, safety);
+    monoQPreserveLocalDeletes(merged, localSnap);
+    const after = monoQDataMarkScore(merged);
     if (after > before) {
+      monoQData = { ...merged, _ready: true };
       try {
         localStorage.setItem(MONOQ_KEY, JSON.stringify(monoQData));
       } catch (_) {}
@@ -658,7 +728,9 @@ function syncMonorrielQuincenasPacked(packed) {
       return;
     }
   }
+  const localSnap = JSON.parse(JSON.stringify(monoQData));
   monoQData = { reports: packed.reports.map((r) => monoQNormalizeReport(r)), _ready: true };
+  monoQPreserveLocalDeletes(monoQData, localSnap);
   monoQSave(false);
 }
 
@@ -673,9 +745,17 @@ function monoQMerge(localRaw, remoteRaw) {
     if (a && b) {
       const ls = monoQReportMarkScore(a);
       const rs = monoQReportMarkScore(b);
+      const lb = monoQReportBanScore(a);
+      const rb = monoQReportBanScore(b);
       let base;
       let other;
-      if (ls > rs + 1) {
+      if (lb > rb) {
+        base = a;
+        other = b;
+      } else if (rb > lb) {
+        base = b;
+        other = a;
+      } else if (ls > rs + 1) {
         base = a;
         other = b;
       } else if (rs > ls + 1) {
@@ -686,7 +766,11 @@ function monoQMerge(localRaw, remoteRaw) {
         base = localNewer ? a : b;
         other = localNewer ? b : a;
       }
-      reports.push(mergeMonoReportSticky(base, other));
+      const merged = mergeMonoReportSticky(base, other);
+      merged.removedNameKeys = [
+        ...new Set([...(merged.removedNameKeys || []), ...(a.removedNameKeys || []), ...(b.removedNameKeys || [])]),
+      ];
+      reports.push(merged);
     } else {
       reports.push(monoQNormalizeReport(a || b));
     }
@@ -746,9 +830,11 @@ function applyRemoteMonorrielQuincenas(remote) {
   }
   if (!remote || !Array.isArray(remote.reports)) return;
   ensureMonorrielQuincenasLoaded();
-  restoreMonoQFromSafetyNet();
+  const localSnap = JSON.parse(JSON.stringify(monoQData));
+  const before = monoQDataMarkScore(monoQData);
   monoQData = monoQMerge(monoQData, remote);
-  restoreMonoQFromSafetyNet();
+  monoQPreserveLocalDeletes(monoQData, localSnap);
+  if (before < 2) restoreMonoQFromSafetyNet();
   monoQData._ready = true;
   persistMonoQSafetyNet(monoQData);
   monoQSave(false);
@@ -1276,10 +1362,19 @@ function bindMonorrielQuincenaUi(report) {
       const tr = btn.closest("tr");
       monoQPushUndo("quitar");
       sheet.deletedKeys = sheet.deletedKeys || [];
+      const nk = monoQKey(emp.fullName);
       const dk = monoQEmployeeDeleteKey(emp);
+      if (nk && !sheet.deletedKeys.includes(nk)) sheet.deletedKeys.push(nk);
+      if (emp.employeeId) {
+        const idk = `id:${emp.employeeId}`;
+        if (!sheet.deletedKeys.includes(idk)) sheet.deletedKeys.push(idk);
+      }
       if (dk && !sheet.deletedKeys.includes(dk)) sheet.deletedKeys.push(dk);
+      current.removedNameKeys = current.removedNameKeys || [];
+      if (nk && !current.removedNameKeys.includes(nk)) current.removedNameKeys.push(nk);
       sheet.employees.splice(idx, 1);
       current.updatedAt = new Date().toISOString();
+      current.deleteRevision = Date.now();
       monoQSave(true);
       try {
         if (typeof flushCloudSave === "function") flushCloudSave();
@@ -1486,6 +1581,8 @@ if (typeof window !== "undefined") {
   window.llenarMonorrielNominaDesdeReporte = llenarMonorrielNominaDesdeReporte;
   window.enviarMonorrielPlanillaANomina = enviarMonorrielPlanillaANomina;
   window.monoQMerge = monoQMerge;
+  window.monoQPreserveLocalDeletes = monoQPreserveLocalDeletes;
+  window.monoQDataBanScore = monoQDataBanScore;
   window.monoQDataMarkScore = monoQDataMarkScore;
   window.restoreMonoQFromSafetyNet = restoreMonoQFromSafetyNet;
   window.syncMonorrielQuincenasPacked = syncMonorrielQuincenasPacked;

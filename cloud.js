@@ -2067,6 +2067,12 @@
       }
       if (localQ && remoteQ && typeof monoQMerge === "function") {
         monorrielQuincenasPacked = monoQMerge(localQ, remoteQ);
+        if (
+          window.monoQPreserveLocalDeletes &&
+          typeof window.monoQPreserveLocalDeletes === "function"
+        ) {
+          window.monoQPreserveLocalDeletes(monorrielQuincenasPacked, localQ);
+        }
       } else if (localQ) {
         monorrielQuincenasPacked = localQ;
       } else if (remoteQ) {
