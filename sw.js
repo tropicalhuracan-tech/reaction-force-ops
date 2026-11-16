@@ -1,11 +1,11 @@
-const CACHE = "rfs-ops-v249";
+const CACHE = "rfs-ops-v250";
 const ASSETS = [
   "./",
   "index.html",
   "styles.css",
   "styles.css?v=227",
   "app.js",
-  "app.js?v=249",
+  "app.js?v=250",
   "hr.js",
   "hr.js?v=144",
   "depuracion.js",
@@ -13,7 +13,7 @@ const ASSETS = [
   "suplidores.js",
   "suplidores.js?v=175",
   "contabilidad.js",
-  "contabilidad.js?v=249",
+  "contabilidad.js?v=250",
   "monorriel-report.js",
   "monorriel-report.js?v=230",
   "report-cells.js",

@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 249;
-const APP_VERSION_LABEL = "v249";
+const APP_BUILD = 250;
+const APP_VERSION_LABEL = "v250";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -6035,10 +6035,12 @@ function loanMatchNameCandidates(loan) {
  * Suma todas las cuotas pendientes con dueDate = payDate (o misma quincena).
  * Usa alias/hint para cuadrar con nombres cortos de nómina Monorriel (1+1).
  */
-function loanPayrollDeductionForName(employeeName, payDate, employeeId) {
+/** Cuotas del pago 5/20: avances → columna Adelantos; préstamo amortizado → Préstamos. */
+function loanPayrollSplitForName(employeeName, payDate, employeeId) {
   const pay = String(payDate || "").slice(0, 10);
-  if (!pay) return 0;
-  let total = 0;
+  if (!pay) return { adelantos: 0, prestamos: 0 };
+  let adelantos = 0;
+  let prestamos = 0;
   const name = employeeName || "";
   (loans || []).forEach((loan) => {
     if (!loan || loan.status === "paid") return;
@@ -6052,12 +6054,18 @@ function loanPayrollDeductionForName(employeeName, payDate, employeeId) {
     if (!idOk && score < 0.9) return;
     (loan.schedule || []).forEach((inst) => {
       if (!inst || inst.paid) return;
-      if (String(inst.dueDate || "").slice(0, 10) === pay) {
-        total += Number(inst.payment) || 0;
-      }
+      if (String(inst.dueDate || "").slice(0, 10) !== pay) return;
+      const amt = Number(inst.payment) || 0;
+      if (loan.type === "advance") adelantos += amt;
+      else prestamos += amt;
     });
   });
-  return roundMoney(total);
+  return { adelantos: roundMoney(adelantos), prestamos: roundMoney(prestamos) };
+}
+
+function loanPayrollDeductionForName(employeeName, payDate, employeeId) {
+  const { adelantos, prestamos } = loanPayrollSplitForName(employeeName, payDate, employeeId);
+  return roundMoney(adelantos + prestamos);
 }
 
 /** Importa el Excel de amortizaciones: borra pruebas y carga préstamos reales. */
@@ -14471,7 +14479,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v249")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v250")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
