@@ -802,8 +802,39 @@ function monoQMerge(localRaw, remoteRaw) {
   return { reports };
 }
 
+function monoQBlankSheetsOnly() {
+  const sheets = {};
+  MONOQ_SHEETS.forEach((s) => {
+    sheets[s.id] = { employees: [], deletedKeys: [] };
+  });
+  return sheets;
+}
+
+function monoQResetActiveQuincenaBlank() {
+  ensureMonorrielQuincenasLoaded();
+  const cur = monoQActive();
+  const spec = cur ? monoQSpec(cur.period, cur.half) : monoQSpec("2026-11", 1);
+  const report = monoQNormalizeReport({
+    ...spec,
+    sheets: monoQBlankSheetsOnly(),
+    updatedAt: new Date().toISOString(),
+  });
+  monoQData.reports = [report];
+  monoQActiveId = report.id;
+  monoQData._ready = true;
+  if (typeof markMonoQLocalAuthority === "function") markMonoQLocalAuthority();
+  monoQSave(true);
+  if (typeof flushCloudSave === "function") {
+    try {
+      flushCloudSave().catch(() => {});
+    } catch (_) {}
+  }
+  return { ok: true, id: report.id };
+}
+
 function monoQSave(push) {
   if (typeof canSyncMonorrielQuincenaData === "function" && !canSyncMonorrielQuincenaData()) return;
+  if (typeof markMonoQLocalAuthority === "function") markMonoQLocalAuthority();
   if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
   try {
     localStorage.setItem(MONOQ_KEY, JSON.stringify(monoQData));
@@ -826,6 +857,14 @@ function ensureMonorrielQuincenasLoaded() {
     monoQData = buildMonorrielQuincenasFromDaily(daily);
   }
   monoQData._ready = true;
+  if (
+    typeof canSyncMonorrielQuincenaData === "function" &&
+    canSyncMonorrielQuincenaData() &&
+    monoQDataMarkScore(monoQData) > 0 &&
+    typeof markMonoQLocalAuthority === "function"
+  ) {
+    markMonoQLocalAuthority();
+  }
   try {
     monoQActiveId = localStorage.getItem(MONOQ_ACTIVE_KEY) || "";
   } catch (_) {}
@@ -852,6 +891,25 @@ function applyRemoteMonorrielQuincenas(remote) {
   }
   if (!remote || !Array.isArray(remote.reports)) return;
   ensureMonorrielQuincenasLoaded();
+  if (typeof canSyncMonorrielQuincenaData === "function" && canSyncMonorrielQuincenaData()) {
+    const localMarks = monoQDataMarkScore(monoQData);
+    if (typeof monoQExclusivePushOnly === "function" && monoQExclusivePushOnly()) {
+      return;
+    }
+    if (localMarks > 0) {
+      if (typeof markMonoQLocalAuthority === "function") markMonoQLocalAuthority();
+      return;
+    }
+    monoQData = {
+      reports: remote.reports.map((r) => monoQNormalizeReport(r)),
+      _ready: true,
+    };
+    persistMonoQSafetyNet(monoQData);
+    monoQSave(false);
+    if (typeof markMonoQLocalAuthority === "function") markMonoQLocalAuthority();
+    if (document.getElementById("monoQuincenaHost")) renderMonorrielQuincenaModule();
+    return;
+  }
   const localMarks = monoQDataMarkScore(monoQData);
   const remoteMarks = monoQDataMarkScore(remote);
   const localBans = monoQDataBanScore(monoQData);
@@ -1117,6 +1175,7 @@ function renderMonorrielQuincenaModule() {
         <button type="button" class="primary" id="btnMonoQGuardar">Guardar respaldo</button>
         <button type="button" class="secondary" id="btnMonoQRecuperar">Recuperar respaldo</button>
         <button type="button" class="secondary" id="btnMonoQImportExcel" title="Sube .xlsx: Nombre, Puesto, Planilla (dia/noche/moto) y días">Importar Excel</button>
+        <button type="button" class="secondary danger-outline" id="btnMonoQBlank" title="Borra planillas de esta quincena; luego Importar Excel">Vaciar quincena (Excel nuevo)</button>
         <button type="button" class="secondary" id="btnMonoQDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnMonoQNext">Abrir siguiente quincena</button>
       </div>
@@ -1234,6 +1293,18 @@ function bindMonorrielQuincenaUi(report) {
           : new Date(r.at).toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" });
       toast(r.gained ? `Recuperado (${when}). +${r.gained} marcas/datos.` : `Recuperado (${when}).`);
     }
+    renderMonorrielQuincenaModule();
+  });
+  document.getElementById("btnMonoQBlank")?.addEventListener("click", () => {
+    if (
+      !confirm(
+        "¿Vaciar esta quincena Monorriel?\n\nSe borran filas y marcas en las 4 planillas.\nLuego Importar Excel.\n\nNo se revierte con Ctrl+Z."
+      )
+    ) {
+      return;
+    }
+    monoQResetActiveQuincenaBlank();
+    if (typeof toast === "function") toast("Quincena vacía. Sube el Excel nuevo.");
     renderMonorrielQuincenaModule();
   });
   document.getElementById("btnMonoQDedupe")?.addEventListener("click", () => {

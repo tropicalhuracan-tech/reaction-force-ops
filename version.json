@@ -1,6 +1,6 @@
 {
-  "build": 255,
-  "label": "v255",
-  "minBuild": 255,
-  "note": "Reportes: Vargas01 y Ashley28 exclusivos (UI + sync nube)"
+  "build": 256,
+  "label": "v256",
+  "minBuild": 256,
+  "note": "Reportes: push-only editor, vaciar quincena + Excel, sin merge al guardar"
 }

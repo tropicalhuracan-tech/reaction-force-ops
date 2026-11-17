@@ -13,6 +13,28 @@ const OWNER_USERNAME = "admin";
 const VARGAS_REPORT_EXCLUSIVE_USER = "vargas01";
 /** Único usuario que puede ver, editar y sincronizar el cuadro de quincena Monorriel. */
 const MONORRIEL_QUINCENA_EXCLUSIVE_USER = "ashley28";
+const VARGAS_LOCAL_AUTH_KEY = "rfs-vargas-local-authority";
+const MONOQ_LOCAL_AUTH_KEY = "rfs-monoq-local-authority";
+
+function markVargasLocalAuthority() {
+  try {
+    sessionStorage.setItem(VARGAS_LOCAL_AUTH_KEY, "1");
+  } catch (_) {}
+}
+
+function markMonoQLocalAuthority() {
+  try {
+    sessionStorage.setItem(MONOQ_LOCAL_AUTH_KEY, "1");
+  } catch (_) {}
+}
+
+function vargasExclusivePushOnly() {
+  return canSyncVargasReportData() && sessionStorage.getItem(VARGAS_LOCAL_AUTH_KEY) === "1";
+}
+
+function monoQExclusivePushOnly() {
+  return canSyncMonorrielQuincenaData() && sessionStorage.getItem(MONOQ_LOCAL_AUTH_KEY) === "1";
+}
 
 function sessionUsernameLower() {
   return String((currentUser && currentUser.username) || "")
@@ -31,7 +53,7 @@ function canSyncMonorrielQuincenaData() {
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
 const APP_BUILD = 254;
-const APP_VERSION_LABEL = "v255";
+const APP_VERSION_LABEL = "v256";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2387,6 +2409,10 @@ if (typeof window !== "undefined") {
   window.shouldSkipSensitiveRemoteMergeBeforeSave = shouldSkipSensitiveRemoteMergeBeforeSave;
   window.canSyncVargasReportData = canSyncVargasReportData;
   window.canSyncMonorrielQuincenaData = canSyncMonorrielQuincenaData;
+  window.markVargasLocalAuthority = markVargasLocalAuthority;
+  window.markMonoQLocalAuthority = markMonoQLocalAuthority;
+  window.vargasExclusivePushOnly = vargasExclusivePushOnly;
+  window.monoQExclusivePushOnly = monoQExclusivePushOnly;
 }
 
 function queueCloudSave() {
@@ -14522,7 +14548,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v255")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v256")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
