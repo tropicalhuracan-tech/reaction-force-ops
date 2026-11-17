@@ -11,8 +11,8 @@ const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 253;
-const APP_VERSION_LABEL = "v253";
+const APP_BUILD = 254;
+const APP_VERSION_LABEL = "v254";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2296,7 +2296,7 @@ let liveSyncTimer = null;
 const CLOUD_SAVE_DEBOUNCE_MS = 1200;
 const LIVE_SYNC_INTERVAL_MS = 12000;
 const LIVE_PULL_MIN_GAP_MS = 8000;
-const LOCAL_EDIT_GRACE_MS = 12000;
+const LOCAL_EDIT_GRACE_MS = 90000;
 
 function setCloudStatus(text) {
   const el = document.getElementById("cloudStatus");
@@ -14479,7 +14479,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v253")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v254")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
