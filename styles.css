@@ -3220,3 +3220,8 @@ body.lightbox-open {
   border-color: #f59e0b;
   color: #fbbf24;
 }
+
+.payroll-local-only-card.payroll-local-only-active {
+  border: 2px solid #f59e0b;
+  background: #fffbeb;
+}

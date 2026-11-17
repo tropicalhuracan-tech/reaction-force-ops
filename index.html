@@ -1314,6 +1314,20 @@
         </label>
       </div>
 
+      <div class="form-card payroll-local-only-card" id="payrollLocalOnlyCard">
+        <h2 style="margin:0 0 8px;font-size:1.05rem">Cierre en una sola PC (modo local)</h2>
+        <p class="muted tight" style="margin:0 0 10px">
+          Mientras está activo, los cambios de <strong>nómina</strong> se guardan en este navegador y
+          <strong>no se sincronizan</strong> con la nube hasta que usted lo indique. El resto de la app puede seguir en nube.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button id="btnPayrollLocalOnlyOn" class="btn secondary" type="button">Activar modo local</button>
+          <button id="btnPayrollLocalOnlyUpload" class="btn primary" type="button" hidden>Subir nóminas a la nube</button>
+          <button id="btnPayrollLocalOnlyOff" class="btn ghost" type="button" hidden>Desactivar modo local</button>
+        </div>
+        <p id="payrollLocalOnlyStatus" class="muted tight" style="margin:10px 0 0"></p>
+      </div>
+
       <div id="contabTabNomina" class="contab-tab-panel">
         <div class="form-card">
           <h2 id="contabNominaTitle">Nómina Reaction</h2>
@@ -2105,13 +2119,13 @@
   <script src="hr.js?v=144"></script>
   <script src="depuracion.js?v=144"></script>
   <script src="suplidores.js?v=175"></script>
-  <script src="contabilidad.js?v=265"></script>
+  <script src="contabilidad.js?v=266"></script>
   <script src="report-cells.js?v=246"></script>
   <script src="monorriel-report.js?v=261"></script>
   <script src="report-excel-import.js?v=261"></script>
   <script src="vargas.js?v=261"></script>
   <script src="quotes.js?v=246"></script>
-  <script src="app.js?v=265"></script>
+  <script src="app.js?v=266"></script>
 
   <div id="appVersionGate" class="app-version-gate" hidden>
     <div class="app-version-gate-card">

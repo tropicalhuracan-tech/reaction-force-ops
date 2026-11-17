@@ -59,8 +59,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 265;
-const APP_VERSION_LABEL = "v265";
+const APP_BUILD = 266;
+const APP_VERSION_LABEL = "v266";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
@@ -2397,6 +2397,7 @@ function saveAllEmployees() {
 function shouldSkipSensitiveRemoteMergeBeforeSave() {
   const now = Date.now();
   if (now - lastLocalEditAt < LOCAL_EDIT_GRACE_MS) return true;
+  if (typeof isPayrollLocalOnlyMode === "function" && isPayrollLocalOnlyMode()) return true;
   if (typeof isPayrollPrintLocked === "function" && isPayrollPrintLocked()) return true;
   if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return true;
   const active = document.activeElement;
@@ -2571,6 +2572,13 @@ async function livePullFromCloud(reason, opts) {
   // Solo el botón Actualizar puede forzar sync encima de alguien escribiendo
   const bypassEditing = force && reason === "manual";
   if (!window.RFSCloudApi || !navigator.onLine) return { pulled: false };
+  if (
+    typeof isPayrollLocalOnlyMode === "function" &&
+    isPayrollLocalOnlyMode() &&
+    reason !== "manual"
+  ) {
+    return { pulled: false, skipped: "payroll-local-only" };
+  }
   if (cloudSaving || livePullInFlight) return { pulled: false, busy: true };
   const now = Date.now();
   if (!force && now - lastLocalEditAt < LOCAL_EDIT_GRACE_MS) {
@@ -2683,6 +2691,15 @@ function startLiveCloudSync() {
   if (btn && !btn.dataset.bound) {
     btn.dataset.bound = "1";
     btn.addEventListener("click", () => {
+      if (
+        typeof isPayrollLocalOnlyMode === "function" &&
+        isPayrollLocalOnlyMode() &&
+        !confirm(
+          "Modo local activo: bajar de la nube puede pisar la nómina de ESTA PC.\n\n¿Actualizar desde la nube de todos modos?"
+        )
+      ) {
+        return;
+      }
       flushCloudSave();
       livePullFromCloud("manual", { force: true })
         .then((r) => {
@@ -2840,6 +2857,9 @@ function cloudDepuracionPayload() {
 }
 
 function cloudContabilidadPayload() {
+  if (typeof payrollContabilidadPayloadForCloud === "function") {
+    return payrollContabilidadPayloadForCloud();
+  }
   return typeof contabilidadData !== "undefined"
     ? contabilidadData
     : {
