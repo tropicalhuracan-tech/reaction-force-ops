@@ -803,6 +803,7 @@ function monoQMerge(localRaw, remoteRaw) {
 }
 
 function monoQSave(push) {
+  if (typeof canSyncMonorrielQuincenaData === "function" && !canSyncMonorrielQuincenaData()) return;
   if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
   try {
     localStorage.setItem(MONOQ_KEY, JSON.stringify(monoQData));
@@ -1018,6 +1019,12 @@ function renderMonorrielQuincenaModule() {
   const host = document.getElementById("monoQuincenaHost");
   const summary = document.getElementById("monorrielSummary");
   if (!host) return;
+  if (typeof canAccessMonorrielQuincena === "function" && !canAccessMonorrielQuincena()) {
+    host.innerHTML =
+      '<div class="form-card"><p class="muted">Cuadro de quincena Monorriel: solo la usuaria <strong>Ashley28</strong> puede verlo y editarlo. Otros usuarios no sincronizan ni modifican esta planilla.</p></div>';
+    if (summary) summary.textContent = "Monorriel · reportes diarios (cuadro de quincena restringido)";
+    return;
+  }
   const report = monoQActive();
   if (!report) {
     if (summary) summary.textContent = "Sin reporte de quincena.";

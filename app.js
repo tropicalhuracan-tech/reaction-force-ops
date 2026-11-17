@@ -9,10 +9,29 @@ const APP_SESSION_KEY = "rfs-app-session-user";
 const ADMIN_SESSION_KEY = "rfs-admin-unlocked";
 const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
+/** Único usuario que puede ver, editar y sincronizar el reporte Ramón Vargas. */
+const VARGAS_REPORT_EXCLUSIVE_USER = "vargas01";
+/** Único usuario que puede ver, editar y sincronizar el cuadro de quincena Monorriel. */
+const MONORRIEL_QUINCENA_EXCLUSIVE_USER = "ashley28";
+
+function sessionUsernameLower() {
+  return String((currentUser && currentUser.username) || "")
+    .trim()
+    .toLowerCase();
+}
+
+function canSyncVargasReportData() {
+  return sessionUsernameLower() === VARGAS_REPORT_EXCLUSIVE_USER;
+}
+
+function canSyncMonorrielQuincenaData() {
+  const u = sessionUsernameLower();
+  return u === MONORRIEL_QUINCENA_EXCLUSIVE_USER || u === "ashley";
+}
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
 const APP_BUILD = 254;
-const APP_VERSION_LABEL = "v254";
+const APP_VERSION_LABEL = "v255";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2366,6 +2385,8 @@ function markSensitiveReportEdit() {
 if (typeof window !== "undefined") {
   window.markSensitiveReportEdit = markSensitiveReportEdit;
   window.shouldSkipSensitiveRemoteMergeBeforeSave = shouldSkipSensitiveRemoteMergeBeforeSave;
+  window.canSyncVargasReportData = canSyncVargasReportData;
+  window.canSyncMonorrielQuincenaData = canSyncMonorrielQuincenaData;
 }
 
 function queueCloudSave() {
@@ -2727,7 +2748,11 @@ async function mergeRemoteBundleBeforeSave() {
     }
     const skipSensitive = shouldSkipSensitiveRemoteMergeBeforeSave();
     if (!skipSensitive) {
-      if (remote.monorrielQuincenas && typeof applyRemoteMonorrielQuincenas === "function") {
+      if (
+        remote.monorrielQuincenas &&
+        canSyncMonorrielQuincenaData() &&
+        typeof applyRemoteMonorrielQuincenas === "function"
+      ) {
         applyRemoteMonorrielQuincenas(remote.monorrielQuincenas);
       }
       if (typeof flushOpenMonoReportDraft === "function") flushOpenMonoReportDraft();
@@ -2735,7 +2760,12 @@ async function mergeRemoteBundleBeforeSave() {
       if (remote.contabilidad && typeof remote.contabilidad === "object" && typeof applyRemoteContabilidadData === "function") {
         applyRemoteContabilidadData(remote.contabilidad);
       }
-      if (remote.vargas && typeof remote.vargas === "object" && typeof applyRemoteVargasData === "function") {
+      if (
+        remote.vargas &&
+        typeof remote.vargas === "object" &&
+        canSyncVargasReportData() &&
+        typeof applyRemoteVargasData === "function"
+      ) {
         applyRemoteVargasData(remote.vargas);
       }
     }
@@ -2996,7 +3026,11 @@ async function syncFromCloud() {
       monorrielReports = mergeMonorrielReportsForCloud(monorrielReports, localMono);
     }
     persistMonorrielReportsSafetyNet(monorrielReports);
-    if (remote.monorrielQuincenas && typeof applyRemoteMonorrielQuincenas === "function") {
+    if (
+      remote.monorrielQuincenas &&
+      canSyncMonorrielQuincenaData() &&
+      typeof applyRemoteMonorrielQuincenas === "function"
+    ) {
       applyRemoteMonorrielQuincenas(remote.monorrielQuincenas);
     }
     const remoteUsers = Array.isArray(remote.users) ? remote.users.map(normalizeUser) : [];
@@ -3063,7 +3097,7 @@ async function syncFromCloud() {
         }
       }
     }
-    if (typeof applyRemoteVargasData === "function") {
+    if (typeof applyRemoteVargasData === "function" && canSyncVargasReportData()) {
       if (remote.vargas && typeof remote.vargas === "object") {
         applyRemoteVargasData(remote.vargas);
       } else if (typeof ensureVargasSeedLoaded === "function") {
@@ -4353,12 +4387,14 @@ function normalizeUser(u = {}) {
   if (role === "owner" || modules.admin || username === "fortuna") {
     modules.suplidores = true;
   }
-  // Ramón Vargas: acceso inmediato para owner/admin y usuario vargas10
-  if (role === "owner" || modules.admin || username === "vargas10") {
+  // Ramón Vargas: solo el usuario dedicado (permiso de pestaña; ver canAccessVargas)
+  if (username === VARGAS_REPORT_EXCLUSIVE_USER) {
     modules.vargas = true;
+  } else if (role !== "owner") {
+    modules.vargas = false;
   }
-  // Ashley28: puede borrar/editar personal Monorriel (lista del reporte)
-  if (username === "ashley28" || username === "ashley") {
+  // Ashley28: cuadro de quincena Monorriel + personal del servicio
+  if (username === MONORRIEL_QUINCENA_EXCLUSIVE_USER || username === "ashley") {
     modules.employees = true;
     modules.employeesWrite = true;
     modules.monorriel = true;
@@ -11521,10 +11557,12 @@ function applyRemotePettyCash(remote) {
 
 function canAccessVargas() {
   if (!currentUser) return false;
-  if (currentUser.role === "owner") return true;
-  if (canAccessModule("admin")) return true;
-  if (String(currentUser.username || "").toLowerCase() === "vargas10") return true;
-  return canAccessModule("vargas");
+  return canSyncVargasReportData();
+}
+
+function canAccessMonorrielQuincena() {
+  if (!currentUser) return false;
+  return canSyncMonorrielQuincenaData();
 }
 
 function renderVargasModule() {
@@ -13959,7 +13997,12 @@ function restoreBackupMerge() {
         applyRemoteSuplidoresData(data.suplidores);
         saveSuplidoresData(true);
       }
-      if (data.vargas && typeof data.vargas === "object" && typeof applyRemoteVargasData === "function") {
+      if (
+        data.vargas &&
+        typeof data.vargas === "object" &&
+        canSyncVargasReportData() &&
+        typeof applyRemoteVargasData === "function"
+      ) {
         applyRemoteVargasData(data.vargas);
         if (typeof saveVargasData === "function") saveVargasData(true);
       }
@@ -14479,7 +14522,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v254")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v255")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

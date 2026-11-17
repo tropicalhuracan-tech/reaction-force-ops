@@ -1,6 +1,6 @@
 {
-  "build": 254,
-  "label": "v254",
-  "minBuild": 254,
-  "note": "Reportes: fila fija (rowId), sin reordenar, local gana en sync"
+  "build": 255,
+  "label": "v255",
+  "minBuild": 255,
+  "note": "Reportes: Vargas01 y Ashley28 exclusivos (UI + sync nube)"
 }

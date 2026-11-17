@@ -593,6 +593,7 @@ function vargasLocateByRowId(rowId) {
 }
 
 function saveVargasData(push = true, urgent = false) {
+  if (typeof canSyncVargasReportData === "function" && !canSyncVargasReportData()) return;
   if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
   vargasData = normalizeVargasData(vargasData, { dedupeLoose: false });
   persistVargasSafetyNet(vargasData);

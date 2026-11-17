@@ -2052,9 +2052,13 @@
     let monorrielQuincenasPacked = null;
     let remoteQ = null;
     let remoteQMarkScore = 0;
+    const canMonoQEdit =
+      typeof window.canSyncMonorrielQuincenaData === "function" && window.canSyncMonorrielQuincenaData();
     try {
       const localQ =
-        typeof monorrielQuincenasForCloud === "function" ? monorrielQuincenasForCloud() : null;
+        canMonoQEdit && typeof monorrielQuincenasForCloud === "function"
+          ? monorrielQuincenasForCloud()
+          : null;
       const remoteMonoQDoc = await getDoc(partPath("monorriel")).catch(() => null);
       remoteQ =
         remoteMonoQDoc &&
@@ -2065,7 +2069,9 @@
       if (typeof monoQDataMarkScore === "function" && remoteQ) {
         remoteQMarkScore = monoQDataMarkScore(remoteQ);
       }
-      if (localQ && remoteQ && typeof monoQMerge === "function") {
+      if (!canMonoQEdit && remoteQ) {
+        monorrielQuincenasPacked = remoteQ;
+      } else if (localQ && remoteQ && typeof monoQMerge === "function") {
         monorrielQuincenasPacked = monoQMerge(localQ, remoteQ);
         if (
           window.monoQPreserveLocalDeletes &&
@@ -2091,12 +2097,12 @@
           monorrielQuincenasPacked = monoQMerge(remoteQ, localQ || { reports: [] });
         }
       }
-      if (monorrielQuincenasPacked && typeof syncMonorrielQuincenasPacked === "function") {
+      if (canMonoQEdit && monorrielQuincenasPacked && typeof syncMonorrielQuincenasPacked === "function") {
         syncMonorrielQuincenasPacked(monorrielQuincenasPacked);
       }
     } catch (err) {
       console.warn("RFS: no se pudieron fusionar quincenas Monorriel al guardar", err);
-      if (typeof monorrielQuincenasForCloud === "function") {
+      if (canMonoQEdit && typeof monorrielQuincenasForCloud === "function") {
         monorrielQuincenasPacked = monorrielQuincenasForCloud();
       }
       if (remoteQMarkScore > 0) throw err;
@@ -2110,6 +2116,8 @@
     let vargasToSave = vargas && typeof vargas === "object" ? vargas : emptyVargas();
     let remoteVargas = null;
     let remoteVargasMarkScore = 0;
+    const canVargasEdit =
+      typeof window.canSyncVargasReportData === "function" && window.canSyncVargasReportData();
     try {
       const remoteVargasDoc = await getDoc(partPath("vargas")).catch(() => null);
       remoteVargas =
@@ -2119,7 +2127,9 @@
       if (typeof vargasDataMarkScore === "function" && remoteVargas) {
         remoteVargasMarkScore = vargasDataMarkScore(remoteVargas);
       }
-      if (remoteVargas && typeof mergeVargasDataSticky === "function") {
+      if (!canVargasEdit && remoteVargas) {
+        vargasToSave = remoteVargas;
+      } else if (remoteVargas && typeof mergeVargasDataSticky === "function") {
         const localScore =
           typeof vargasDataMarkScore === "function" ? vargasDataMarkScore(vargasToSave) : 0;
         const localVargasSnap = vargasToSave;
@@ -2150,7 +2160,7 @@
         ) {
           vargasToSave = window.RFSVargas.vargasApplyAllBansToData(vargasToSave);
         }
-        if (typeof vargasData !== "undefined") {
+        if (canVargasEdit && typeof vargasData !== "undefined") {
           if (
             typeof vargasDataMarkScore === "function" &&
             vargasDataMarkScore(vargasData) > vargasDataMarkScore(vargasToSave) + 1
@@ -2174,7 +2184,7 @@
             if (typeof persistVargasSafetyNet === "function") persistVargasSafetyNet(vargasData);
           } catch (_) {}
         }
-      } else if (remoteVargasMarkScore > 0 && remoteVargas) {
+      } else if (canVargasEdit && remoteVargasMarkScore > 0 && remoteVargas) {
         vargasToSave = mergeVargasDataSticky(vargasToSave || { reports: [] }, remoteVargas);
       }
     } catch (err) {
