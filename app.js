@@ -9,8 +9,13 @@ const APP_SESSION_KEY = "rfs-app-session-user";
 const ADMIN_SESSION_KEY = "rfs-admin-unlocked";
 const ADMIN_PASSWORD = "mitesoro01";
 const OWNER_USERNAME = "admin";
-/** Único usuario que puede ver, editar y sincronizar el reporte Ramón Vargas. */
-const VARGAS_REPORT_EXCLUSIVE_USER = "vargas01";
+/** Usuarios que pueden ver, editar y sincronizar el reporte Ramón Vargas (minúsculas). */
+const VARGAS_REPORT_USERS = new Set(["vargas01", "vargas10"]);
+
+function isVargasReportUser(usernameLower) {
+  const u = String(usernameLower || "").trim().toLowerCase();
+  return VARGAS_REPORT_USERS.has(u);
+}
 /** Único usuario que puede ver, editar y sincronizar el cuadro de quincena Monorriel. */
 const MONORRIEL_QUINCENA_EXCLUSIVE_USER = "ashley28";
 const VARGAS_LOCAL_AUTH_KEY = "rfs-vargas-local-authority";
@@ -43,7 +48,7 @@ function sessionUsernameLower() {
 }
 
 function canSyncVargasReportData() {
-  return sessionUsernameLower() === VARGAS_REPORT_EXCLUSIVE_USER;
+  return isVargasReportUser(sessionUsernameLower());
 }
 
 function canSyncMonorrielQuincenaData() {
@@ -52,8 +57,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 261;
-const APP_VERSION_LABEL = "v261";
+const APP_BUILD = 262;
+const APP_VERSION_LABEL = "v262";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
@@ -4422,8 +4427,8 @@ function normalizeUser(u = {}) {
   if (role === "owner" || modules.admin || username === "fortuna") {
     modules.suplidores = true;
   }
-  // Ramón Vargas: solo el usuario dedicado (permiso de pestaña; ver canAccessVargas)
-  if (username === VARGAS_REPORT_EXCLUSIVE_USER) {
+  // Ramón Vargas: solo usuario(s) dedicados (ver canAccessVargas / canSyncVargasReportData)
+  if (isVargasReportUser(username)) {
     modules.vargas = true;
   } else if (role !== "owner") {
     modules.vargas = false;
