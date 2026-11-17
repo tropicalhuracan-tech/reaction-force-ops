@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Actualizar Reaction Force</title>
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #0d0d0f;
+        color: #e8e8ea;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+        text-align: center;
+      }
+      p { max-width: 360px; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <div>
+      <p id="msg">Limpiando caché antigua…</p>
+      <p class="muted"><a id="go" href="./index.html" style="color:#fbbf24">Si no avanza, toque aquí</a></p>
+    </div>
+    <script>
+      (function () {
+        var target = "./index.html?rfs_fresh=1&nocache=" + Date.now();
+        document.getElementById("go").href = target;
+        function done() {
+          try {
+            sessionStorage.setItem("rfs-version-gate-override", "1");
+            sessionStorage.setItem("rfs-force-sw-update", "260");
+          } catch (_) {}
+          location.replace(target);
+        }
+        var p = Promise.resolve();
+        if ("serviceWorker" in navigator) {
+          p = p.then(function () {
+            return navigator.serviceWorker.getRegistrations();
+          }).then(function (regs) {
+            return Promise.all(regs.map(function (r) { return r.unregister(); }));
+          });
+        }
+        if (window.caches) {
+          p = p.then(function () {
+            return caches.keys();
+          }).then(function (keys) {
+            return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+          });
+        }
+        p.then(done).catch(done);
+        setTimeout(done, 8000);
+      })();
+    </script>
+  </body>
+</html>
