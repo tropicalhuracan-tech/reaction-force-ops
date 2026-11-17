@@ -28,6 +28,10 @@ function emptyContabilidadData() {
 
 /** Solo el último respaldo por nómina (una ranura; al guardar se sobrescribe). */
 const PAYROLL_BACKUP_MAX = 40;
+/** Cierre nómina en una PC: no subir ni bajar nube hasta «Subir a la nube». */
+const PAYROLL_LOCAL_ONLY_KEY = "rfs-payroll-local-only";
+const PAYROLL_LOCAL_CLOUD_SNAP_KEY = "rfs-payroll-local-cloud-snap";
+let payrollLocalOnlyBypassOnce = false;
 const PAYROLL_BACKUP_MAX_PER_ID = 1;
 const PAYROLL_BACKUP_DELETED_MAX = 300;
 
@@ -1100,9 +1104,132 @@ function normalizeContabilidadData(raw = {}) {
   };
 }
 
+function isPayrollLocalOnlyMode() {
+  try {
+    return localStorage.getItem(PAYROLL_LOCAL_ONLY_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function shouldBlockCloudSaveForPayrollLocal() {
+  return false;
+}
+
+function readPayrollLocalCloudSnapshot() {
+  try {
+    const raw = localStorage.getItem(PAYROLL_LOCAL_CLOUD_SNAP_KEY);
+    if (!raw) return null;
+    return normalizeContabilidadData(JSON.parse(raw));
+  } catch (_) {
+    return null;
+  }
+}
+
+function writePayrollLocalCloudSnapshot(data) {
+  try {
+    if (!data) {
+      localStorage.removeItem(PAYROLL_LOCAL_CLOUD_SNAP_KEY);
+      return;
+    }
+    localStorage.setItem(PAYROLL_LOCAL_CLOUD_SNAP_KEY, JSON.stringify(normalizeContabilidadData(data)));
+  } catch (_) {}
+}
+
+/** Lo que la nube debe seguir viendo mientras el AOC edita en local (no sube hasta «Subir»). */
+function payrollContabilidadPayloadForCloud() {
+  if (payrollLocalOnlyBypassOnce) return contabilidadData;
+  if (!isPayrollLocalOnlyMode()) return contabilidadData;
+  const snap = readPayrollLocalCloudSnapshot();
+  return snap || contabilidadData;
+}
+
+function setPayrollLocalOnlyMode(on) {
+  try {
+    if (on) {
+      localStorage.setItem(PAYROLL_LOCAL_ONLY_KEY, "1");
+      writePayrollLocalCloudSnapshot(contabilidadData);
+    } else {
+      localStorage.removeItem(PAYROLL_LOCAL_ONLY_KEY);
+      writePayrollLocalCloudSnapshot(null);
+    }
+  } catch (_) {}
+  updatePayrollLocalOnlyUi();
+  if (typeof setCloudStatus === "function") {
+    setCloudStatus(
+      on
+        ? "Nómina: solo esta PC · guardado local (no sync automático)"
+        : "Nómina: sincroniza con la nube"
+    );
+  }
+}
+
+function updatePayrollLocalOnlyUi() {
+  const on = isPayrollLocalOnlyMode();
+  const card = document.getElementById("payrollLocalOnlyCard");
+  const status = document.getElementById("payrollLocalOnlyStatus");
+  const btnOn = document.getElementById("btnPayrollLocalOnlyOn");
+  const btnOff = document.getElementById("btnPayrollLocalOnlyOff");
+  const btnUp = document.getElementById("btnPayrollLocalOnlyUpload");
+  if (card) card.classList.toggle("payroll-local-only-active", on);
+  if (btnOn) btnOn.hidden = on;
+  if (btnOff) btnOff.hidden = !on;
+  if (btnUp) btnUp.hidden = !on;
+  if (status) {
+    status.textContent = on
+      ? "Activo: los cambios de nómina quedan en este equipo. Al terminar el cierre use «Subir nóminas a la nube». «Guardar cambios» solo guarda en esta PC."
+      : "Inactivo: la nómina se sincroniza con la nube como antes (recomendado fuera del cierre).";
+  }
+  const summary = document.getElementById("nominaSummary");
+  if (summary && on) {
+    summary.textContent =
+      "Modo cierre (solo esta PC): trabaje tranquilos; al final suben a la nube. Use Respaldos y Guardar dentro de cada nómina.";
+  }
+}
+
+async function uploadPayrollLocalToCloud() {
+  if (!canAccessContabilidad()) {
+    toast("Sin acceso a nómina.");
+    return;
+  }
+  if (
+    !confirm(
+      "¿Subir las nóminas de ESTA computadora a la nube?\n\n" +
+        "Hágalo cuando terminó de revisar el corte (nov 01–15, etc.).\n" +
+        "Otras personas verán estos datos en la nube.\n\n" +
+        "¿Continuar?"
+    )
+  ) {
+    return;
+  }
+  try {
+    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
+    const p = typeof ensureOpenPayrollDraft === "function" ? ensureOpenPayrollDraft() : null;
+    if (p && typeof snapshotPayrollBackup === "function") snapshotPayrollBackup(p, "save");
+    saveContabilidadData(false);
+    payrollLocalOnlyBypassOnce = true;
+    if (typeof pushToCloud === "function") {
+      await pushToCloud();
+    } else if (typeof queueCloudSave === "function") {
+      queueCloudSave();
+    }
+    payrollLocalOnlyBypassOnce = false;
+    writePayrollLocalCloudSnapshot(null);
+    setPayrollLocalOnlyMode(false);
+    toast("Nóminas subidas a la nube. Modo local desactivado.");
+  } catch (err) {
+    payrollLocalOnlyBypassOnce = false;
+    console.error(err);
+    toast("No se pudo subir. Revise conexión y vuelva a intentar (sigue guardado en esta PC).");
+  }
+}
+
 function saveContabilidadData(push = true) {
   contabilidadData = normalizeContabilidadData(contabilidadData);
   localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
+  if (push && typeof shouldBlockCloudSaveForPayrollLocal === "function" && shouldBlockCloudSaveForPayrollLocal()) {
+    push = false;
+  }
   if (push && typeof queueCloudSave === "function") queueCloudSave();
 }
 
@@ -1123,6 +1250,7 @@ function contabilidadPinOpenPayrollDraft(mergedData, localData) {
 
 function applyRemoteContabilidadData(remote) {
   // Con nómina abierta (p. ej. Oficina + imprimir), no fusionar remoto encima del tecleo
+  if (typeof isPayrollLocalOnlyMode === "function" && isPayrollLocalOnlyMode()) return;
   if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return;
   if (typeof isPayrollPrintLocked === "function" && isPayrollPrintLocked()) return;
   const remoteNorm = normalizeContabilidadData(remote || {});
@@ -1388,10 +1516,11 @@ function renderNominaModule() {
   ensureMonthFilter();
   syncNominaMonthFilter();
   const summary = document.getElementById("nominaSummary");
-  if (summary) {
+  if (summary && !isPayrollLocalOnlyMode()) {
     const n = (contabilidadData.payrolls || []).length;
     summary.textContent = `${monthLabel(getSelectedMonth())} · ${n} nómina(s) · cada una en su propio documento en la nube (hasta 1 MB).`;
   }
+  updatePayrollLocalOnlyUi();
   renderNominaTab();
 }
 
@@ -3441,7 +3570,11 @@ function saveOpenPayrollEdits() {
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
   renderNominaTab();
-  toast("Cambios guardados (respaldo del día actualizado).");
+  toast(
+    isPayrollLocalOnlyMode()
+      ? "Guardado en esta PC (modo local). Al terminar: «Subir nóminas a la nube»."
+      : "Cambios guardados (respaldo del día actualizado)."
+  );
 }
 
 /**
@@ -6278,6 +6411,35 @@ function onExpenseAmountInput() {
 }
 
 function bindContabilidadUi() {
+  document.getElementById("btnPayrollLocalOnlyOn")?.addEventListener("click", () => {
+    if (
+      !confirm(
+        "¿Activar modo cierre (solo esta PC)?\n\n" +
+          "La nómina NO subirá ni bajará de la nube sola hasta que pulse «Subir nóminas a la nube».\n" +
+          "Ideal para cerrar en una sola computadora (AOC).\n\n" +
+          "¿Activar?"
+      )
+    ) {
+      return;
+    }
+    setPayrollLocalOnlyMode(true);
+    toast("Modo local activo: guarde en esta PC. Al terminar, suba a la nube.");
+  });
+  document.getElementById("btnPayrollLocalOnlyOff")?.addEventListener("click", () => {
+    if (
+      isPayrollLocalOnlyMode() &&
+      !confirm(
+        "¿Volver a sincronización automática?\n\nSi aún no subió, los cambios siguen solo en esta PC hasta que use «Subir nóminas a la nube»."
+      )
+    ) {
+      return;
+    }
+    setPayrollLocalOnlyMode(false);
+    toast("Sync automático de nómina restaurado.");
+  });
+  document.getElementById("btnPayrollLocalOnlyUpload")?.addEventListener("click", () => {
+    uploadPayrollLocalToCloud().catch(() => {});
+  });
   document.querySelectorAll(".contab-tabs .emp-tab").forEach((btn) => {
     btn.addEventListener("click", () => setContabTab(btn.dataset.contabTab));
   });

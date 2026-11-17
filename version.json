@@ -1,7 +1,7 @@
 {
-  "build": 265,
-  "label": "v265",
-  "badgeNote": "Nómina: no borrar al imprimir + respaldo",
+  "build": 266,
+  "label": "v266",
+  "badgeNote": "Modo nómina solo PC AOC",
   "minBuild": 240,
-  "note": "v265: candado imprimir, respaldo 2m y antes de imprimir"
+  "note": "v266: cierre local, subir nómina al terminar"
 }
