@@ -1,4 +1,4 @@
-const CACHE = "rfs-ops-v261";
+const CACHE = "rfs-ops-v262";
 /** Estos archivos NUNCA se sirven desde caché vieja (solo red). */
 const NETWORK_ONLY = new Set([
   "",
@@ -16,7 +16,7 @@ const ASSETS = [
   "styles.css",
   "styles.css?v=227",
   "app.js",
-  "app.js?v=261",
+  "app.js?v=262",
   "hr.js",
   "hr.js?v=144",
   "depuracion.js",

@@ -1,6 +1,6 @@
 {
-  "build": 261,
-  "label": "v261",
+  "build": 262,
+  "label": "v262",
   "badgeNote": "Badge ya no dice v254; mira Nube/Esta PC"
   "minBuild": 240,
   "note": "Fix candado versión: entrar con caché v248+; min nube desde version.json"
