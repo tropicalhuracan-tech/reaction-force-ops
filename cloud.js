@@ -2321,7 +2321,10 @@
       appBuild: { integerValue: String(publishBuild || 0) },
       minAppBuild: {
         integerValue: String(
-          Math.max(0, Number(opts.minAppBuild) > 0 ? Number(opts.minAppBuild) : publishBuild || 0)
+          Math.min(
+            240,
+            Math.max(0, Number(opts.minAppBuild) > 0 ? Number(opts.minAppBuild) : publishBuild || 0)
+          )
         ),
       },
       // Liberar campos legacy pesados del documento main

@@ -52,8 +52,11 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 258;
-const APP_VERSION_LABEL = "v258";
+const APP_BUILD = 259;
+const APP_VERSION_LABEL = "v259";
+/** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
+const APP_ENTRY_MIN_BUILD = 240;
+const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -5037,38 +5040,49 @@ async function fetchPublishedVersionInfo() {
   }
 }
 
+function isVersionGateOverridden() {
+  try {
+    return sessionStorage.getItem(VERSION_GATE_OVERRIDE_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function clearVersionGateBlock() {
+  appVersionBlocked = false;
+  appVersionBlockReason = "";
+  hideAppVersionGate();
+}
+
 async function checkAppVersionGate(opts = {}) {
   const forceShow = !!opts.forceShow;
-  let required = 0;
-  let source = "";
+
+  if (isVersionGateOverridden() || APP_BUILD >= APP_ENTRY_MIN_BUILD) {
+    clearVersionGateBlock();
+    return true;
+  }
+
+  let required = APP_ENTRY_MIN_BUILD;
+  let source = `build mín. ${APP_ENTRY_MIN_BUILD}`;
 
   const published = await fetchPublishedVersionInfo();
   if (published && published.build) {
     publishedAppBuild = published.build;
-    // Solo minBuild obliga (no la última build publicada — evita bloquear todas las PC en despliegue).
     const minFromFile = Number(published.minBuild) || 0;
-    if (minFromFile > 0) {
+    if (minFromFile > 0 && minFromFile < required) {
       required = minFromFile;
-      source = published.label ? `${published.label} (mín. ${minFromFile})` : `build mín. ${minFromFile}`;
+      source = published.label ? `${published.label} (mín. ${minFromFile})` : source;
     }
   }
 
-  if (required > 0 && APP_BUILD < required) {
+  if (APP_BUILD < required) {
     appVersionBlocked = true;
-    appVersionBlockReason = `Tu App es ${APP_VERSION_LABEL} (build ${APP_BUILD}). Se requiere ${source || "build " + required}.`;
+    appVersionBlockReason = `Tu App es build ${APP_BUILD}. Se requiere al menos ${required}. Pulsa «Actualizar ahora» o «Entrar» si ya recargó la página.`;
     showAppVersionGate(appVersionBlockReason);
     return false;
   }
 
-  if (published && published.build && APP_BUILD < published.build) {
-    // Aviso suave: puede entrar; se recomienda actualizar (Ctrl+F5 / Actualizar ahora).
-    appVersionBlocked = false;
-    appVersionBlockReason = "";
-  }
-
-  appVersionBlocked = false;
-  appVersionBlockReason = "";
-  if (!forceShow) hideAppVersionGate();
+  clearVersionGateBlock();
   return true;
 }
 
@@ -5096,26 +5110,20 @@ async function refreshAppShell() {
       const reg = await navigator.serviceWorker.getRegistration();
       if (reg) {
         await reg.update().catch(() => {});
-        if (reg.waiting) {
-          reg.waiting.postMessage({ type: "SKIP_WAITING" });
-          // controllerchange en boot hace reload; respaldo por si no dispara
-          setTimeout(() => {
-            window.location.reload();
-          }, 900);
-          return;
-        }
+        if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        await reg.unregister().catch(() => {});
       }
     }
   } catch (_) {}
   try {
     if (window.caches) {
       const keys = await caches.keys();
-      await Promise.all(
-        keys.filter((k) => k.startsWith("rfs-ops-")).map((k) => caches.delete(k))
-      );
+      await Promise.all(keys.filter((k) => k.startsWith("rfs-ops-")).map((k) => caches.delete(k)));
     }
   } catch (_) {}
-  window.location.reload();
+  const url = new URL(window.location.href);
+  url.searchParams.set("rfs_reload", String(Date.now()));
+  window.location.replace(url.toString());
 }
 
 function logoutAppUser() {
@@ -12768,6 +12776,9 @@ function bindCajaUi() {
 
 
 function switchView(viewId) {
+  if (isVersionGateOverridden() || APP_BUILD >= APP_ENTRY_MIN_BUILD) {
+    clearVersionGateBlock();
+  }
   if (!currentUser) {
     viewId = "loginView";
   } else if (viewId !== "loginView" && appVersionBlocked) {
@@ -14375,6 +14386,14 @@ function bindUi() {
   document.getElementById("btnForceAppUpdate")?.addEventListener("click", () => {
     refreshAppShell();
   });
+  document.getElementById("btnForceAppEnter")?.addEventListener("click", () => {
+    try {
+      sessionStorage.setItem(VERSION_GATE_OVERRIDE_KEY, "1");
+    } catch (_) {}
+    clearVersionGateBlock();
+    if (currentUser) switchView(firstAllowedView());
+    else if (typeof toast === "function") toast("Puedes iniciar sesión.");
+  });
   document.getElementById("btnSaveUser").addEventListener("click", saveUserFromForm);
   document.getElementById("btnCancelUserEdit").addEventListener("click", clearUserForm);
   document.getElementById("btnToggleUserPass")?.addEventListener("click", () => {
@@ -14540,7 +14559,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v258")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v259")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
