@@ -48,6 +48,8 @@ function sessionUsernameLower() {
 }
 
 function canSyncVargasReportData() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner" || canAccessModule("admin")) return true;
   return isVargasReportUser(sessionUsernameLower());
 }
 
@@ -57,8 +59,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 262;
-const APP_VERSION_LABEL = "v262";
+const APP_BUILD = 263;
+const APP_VERSION_LABEL = "v263";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
@@ -4390,7 +4392,7 @@ function normalizeUser(u = {}) {
       return;
     }
     if (m.key === "vargas" && !Object.prototype.hasOwnProperty.call(incoming, "vargas")) {
-      modules.vargas = false;
+      modules.vargas = true;
       return;
     }
     if (m.key === "contabilidad" && !Object.prototype.hasOwnProperty.call(incoming, "contabilidad")) {
@@ -4427,11 +4429,9 @@ function normalizeUser(u = {}) {
   if (role === "owner" || modules.admin || username === "fortuna") {
     modules.suplidores = true;
   }
-  // Ramón Vargas: solo usuario(s) dedicados (ver canAccessVargas / canSyncVargasReportData)
+  // Ramón Vargas: usuarios dedicados siempre; el resto según casilla Admin (no quitar permiso existente)
   if (isVargasReportUser(username)) {
     modules.vargas = true;
-  } else if (role !== "owner") {
-    modules.vargas = false;
   }
   // Ashley28: cuadro de quincena Monorriel + personal del servicio
   if (username === MONORRIEL_QUINCENA_EXCLUSIVE_USER || username === "ashley") {
@@ -4571,8 +4571,11 @@ function canAccessView(viewId) {
   if (viewId === "vargasView") {
     return typeof canAccessVargas === "function" ? canAccessVargas() : canAccessModule("vargas");
   }
-  if (viewId === "contabilidadView" || viewId === "nominaView") {
-    // Nóminas usa el mismo permiso que Contabilidad (usuarios existentes)
+  if (viewId === "nominaView") {
+    if (typeof canAccessNominaAfterVargas === "function" && canAccessNominaAfterVargas()) return true;
+    return typeof canAccessContabilidad === "function" ? canAccessContabilidad() : canAccessModule("contabilidad");
+  }
+  if (viewId === "contabilidadView") {
     return typeof canAccessContabilidad === "function" ? canAccessContabilidad() : canAccessModule("contabilidad");
   }
   if (viewId === "hrView") return canAccessRrhh();
@@ -5205,7 +5208,7 @@ function clearUserForm() {
     finance: false,
     cajachica: false,
     suplidores: false,
-    vargas: false,
+    vargas: true,
     contabilidad: false,
     rrhh: false,
     depuracion: false,
@@ -11603,7 +11606,17 @@ function applyRemotePettyCash(remote) {
 
 function canAccessVargas() {
   if (!currentUser) return false;
-  return canSyncVargasReportData();
+  if (currentUser.role === "owner") return true;
+  if (canAccessModule("admin")) return true;
+  if (canAccessModule("vargas")) return true;
+  return isVargasReportUser(sessionUsernameLower());
+}
+
+function canAccessNominaAfterVargas() {
+  if (!currentUser) return false;
+  if (currentUser.role === "owner" || canAccessModule("admin")) return true;
+  if (typeof canAccessContabilidad === "function" && canAccessContabilidad()) return true;
+  return canAccessVargas();
 }
 
 function canAccessMonorrielQuincena() {
