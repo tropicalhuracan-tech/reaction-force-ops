@@ -52,8 +52,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 260;
-const APP_VERSION_LABEL = "v260";
+const APP_BUILD = 261;
+const APP_VERSION_LABEL = "v261";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
@@ -5023,6 +5023,21 @@ function hideAppVersionGate() {
   const gate = document.getElementById("appVersionGate");
   if (gate) gate.hidden = true;
   document.body.classList.remove("app-version-locked");
+}
+
+async function refreshAppVersionBadge() {
+  const el = document.getElementById("appVersionBadge");
+  if (!el) return;
+  let cloud = "";
+  try {
+    const pub = await fetchPublishedVersionInfo();
+    if (pub && pub.label) cloud = pub.label;
+    else if (pub && pub.build) cloud = "v" + pub.build;
+  } catch (_) {}
+  el.textContent = `Esta PC: ${APP_VERSION_LABEL} (build ${APP_BUILD})${cloud ? ` · Nube: ${cloud}` : ""}`;
+  if (cloud && publishedAppBuild && APP_BUILD < publishedAppBuild) {
+    el.textContent += " · Pulse ⟳ recarga limpia si no cambia";
+  }
 }
 
 async function fetchPublishedVersionInfo() {
@@ -14438,6 +14453,7 @@ async function mergeImportedPosts() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  refreshAppVersionBadge().catch(() => {});
   // IMPORTANTE: nunca borrar datos del usuario
   posts = loadPreservingUserData(POSTS_KEY, LEGACY_POST_KEYS).map(normalizePost);
   reportTrashIds = normalizeReportTrash(loadJson(REPORT_TRASH_KEY, []));
@@ -14559,7 +14575,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v260")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v261")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
