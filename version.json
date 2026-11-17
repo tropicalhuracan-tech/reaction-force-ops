@@ -1,7 +1,7 @@
 {
-  "build": 263,
-  "label": "v263",
-  "badgeNote": "Badge ya no dice v254; mira Nube/Esta PC"
+  "build": 264,
+  "label": "v264",
+  "badgeNote": "Vargas visible todos; fix envío nómina",
   "minBuild": 240,
-  "note": "Fix candado versión: entrar con caché v248+; min nube desde version.json"
+  "note": "v264: Ramón Vargas todos; admin sync; nómina tras enviar"
 }
