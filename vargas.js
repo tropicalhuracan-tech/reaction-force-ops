@@ -2744,9 +2744,23 @@ function openVargasGeneralPayrollView(payroll, period, half) {
   if (p && p.id && typeof selectedPayrollId !== "undefined") {
     selectedPayrollId = p.id;
   }
-  if (typeof switchView === "function") switchView("nominaView");
-  else if (typeof openNominaView === "function") openNominaView();
-  else if (typeof renderNominaModule === "function") renderNominaModule();
+  const mayOpenNomina =
+    (typeof canAccessNominaAfterVargas === "function" && canAccessNominaAfterVargas()) ||
+    (typeof canAccessContabilidad === "function" && canAccessContabilidad());
+  if (mayOpenNomina && typeof switchView === "function") {
+    switchView("nominaView");
+  } else if (mayOpenNomina && typeof openNominaView === "function") {
+    openNominaView();
+  } else {
+    if (typeof toast === "function") {
+      toast(
+        "Nómina Reaction General actualizada en la nube. Sin permiso Nóminas: queda en el reporte Vargas."
+      );
+    }
+    renderVargasModule();
+    return;
+  }
+  if (typeof renderNominaModule === "function") renderNominaModule();
   else if (typeof renderNominaTab === "function") renderNominaTab();
 }
 
@@ -2817,8 +2831,12 @@ function refreshVargasPayrollUi() {
 }
 
 function syncVargasGeneralPayrollAction() {
-  if (!canAccessVargas()) {
+  if (typeof canAccessVargas === "function" && !canAccessVargas()) {
     if (typeof toast === "function") toast("Sin acceso a Ramón Vargas.");
+    return;
+  }
+  if (typeof canSyncVargasReportData === "function" && !canSyncVargasReportData()) {
+    if (typeof toast === "function") toast("Solo el usuario del reporte puede enviar a nómina (vargas01 / vargas10).");
     return;
   }
   const report = getActiveVargasReport();
@@ -2855,13 +2873,15 @@ function syncVargasGeneralPayrollAction() {
     }
     return;
   }
-  // Primero fijar selectores y abrir Nómina (refreshVargas re-renderiza Vargas al final)
-  openVargasGeneralPayrollView(synced.payroll, synced.period || report.period, synced.half != null ? synced.half : report.half);
-  if (typeof renderNominaTab === "function") {
-    try {
-      renderNominaTab();
-    } catch (_) {}
+  if (typeof toast === "function") {
+    const n = synced.lines || synced.kept || 0;
+    toast(
+      n
+        ? `Nómina general actualizada (${n} líneas). Abriendo Nóminas…`
+        : "Nómina general actualizada. Abriendo Nóminas…"
+    );
   }
+  openVargasGeneralPayrollView(synced.payroll, synced.period || report.period, synced.half != null ? synced.half : report.half);
 }
 
 function sendVargasToBucketsAction() {
