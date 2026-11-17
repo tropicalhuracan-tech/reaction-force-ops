@@ -59,8 +59,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 263;
-const APP_VERSION_LABEL = "v263";
+const APP_BUILD = 264;
+const APP_VERSION_LABEL = "v264";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
@@ -4429,10 +4429,8 @@ function normalizeUser(u = {}) {
   if (role === "owner" || modules.admin || username === "fortuna") {
     modules.suplidores = true;
   }
-  // Ramón Vargas: usuarios dedicados siempre; el resto según casilla Admin (no quitar permiso existente)
-  if (isVargasReportUser(username)) {
-    modules.vargas = true;
-  }
+  // Ramón Vargas: pestaña visible para todos; casilla Admin solo documenta (siempre true al cargar).
+  modules.vargas = true;
   // Ashley28: cuadro de quincena Monorriel + personal del servicio
   if (username === MONORRIEL_QUINCENA_EXCLUSIVE_USER || username === "ashley") {
     modules.employees = true;
@@ -11605,11 +11603,8 @@ function applyRemotePettyCash(remote) {
 
 
 function canAccessVargas() {
-  if (!currentUser) return false;
-  if (currentUser.role === "owner") return true;
-  if (canAccessModule("admin")) return true;
-  if (canAccessModule("vargas")) return true;
-  return isVargasReportUser(sessionUsernameLower());
+  // Todos los usuarios activos ven el reporte; edición/sync solo vargas01|10 y admin (canSyncVargasReportData).
+  return !!currentUser;
 }
 
 function canAccessNominaAfterVargas() {
