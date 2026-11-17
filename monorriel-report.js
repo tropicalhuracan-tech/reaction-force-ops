@@ -7,7 +7,7 @@
 const MONOQ_KEY = "rfs-ops-monorriel-quincenas";
 const MONOQ_SAFETY_KEY = "rfs-ops-monoq-payroll-safety";
 const MONOQ_MANUAL_BACKUP_KEY = "rfs-ops-monoq-manual-backups";
-const MONOQ_MANUAL_BACKUP_MAX = 12;
+const MONOQ_MANUAL_BACKUP_MAX = 20;
 const MONOQ_UNDO_KEY = "rfs-ops-monoq-undo-stack";
 const MONOQ_UNDO_MAX = 40;
 let monoQUndoStack = [];
@@ -640,14 +640,40 @@ function restoreMonoQFromStoredBackup() {
   return { ok: true, at: backup.at, gained: Math.max(0, after - before) };
 }
 
-function guardarMonoQRespaldo() {
-  pushMonoQManualBackup("guardar");
+function restoreMonoQFromSnapshotReplace(payload) {
+  if (!payload || !Array.isArray(payload.reports) || !payload.reports.length) {
+    return { ok: false, reason: "empty" };
+  }
+  ensureMonorrielQuincenasLoaded();
+  monoQData = {
+    reports: payload.reports.map((r) => monoQNormalizeReport(r)),
+    _ready: true,
+  };
+  if (payload.activeReportId) monoQActiveId = payload.activeReportId;
+  if (payload.activeSheet) monoQSheet = payload.activeSheet;
+  if (typeof markMonoQLocalAuthority === "function") markMonoQLocalAuthority();
   persistMonoQSafetyNet(monoQData);
   monoQSave(true);
   try {
     if (typeof flushCloudSave === "function") flushCloudSave();
   } catch (_) {}
+  renderMonorrielQuincenaModule();
   return { ok: true };
+}
+
+async function guardarMonoQRespaldo() {
+  pushMonoQManualBackup("guardar");
+  persistMonoQSafetyNet(monoQData);
+  monoQSave(true);
+  let cloudNote = "";
+  if (window.RFSReportSnapshots && typeof window.RFSReportSnapshots.pushMonoQCloudSnapshot === "function") {
+    const r = await window.RFSReportSnapshots.pushMonoQCloudSnapshot("manual");
+    if (r && r.ok) cloudNote = " · copia en nube";
+  }
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  return { ok: true, cloudNote };
 }
 
 function monoQReportBanScore(report) {
@@ -1077,6 +1103,9 @@ function renderMonorrielQuincenaModule() {
   const host = document.getElementById("monoQuincenaHost");
   const summary = document.getElementById("monorrielSummary");
   if (!host) return;
+  if (window.RFSReportSnapshots && typeof window.RFSReportSnapshots.ensureMonoQTabWatch === "function") {
+    window.RFSReportSnapshots.ensureMonoQTabWatch();
+  }
   if (typeof canAccessMonorrielQuincena === "function" && !canAccessMonorrielQuincena()) {
     host.innerHTML =
       '<div class="form-card"><p class="muted">Cuadro de quincena Monorriel: solo la usuaria <strong>Ashley28</strong> puede verlo y editarlo. Otros usuarios no sincronizan ni modifican esta planilla.</p></div>';
@@ -1173,13 +1202,16 @@ function renderMonorrielQuincenaModule() {
       <div class="vargas-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${sendButtons}</div>
       <div class="vargas-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
         <button type="button" class="primary" id="btnMonoQGuardar">Guardar respaldo</button>
-        <button type="button" class="secondary" id="btnMonoQRecuperar">Recuperar respaldo</button>
+        <button type="button" class="secondary" id="btnMonoQRecuperar">Recuperar último</button>
+        <button type="button" class="secondary" id="btnMonoQHistorial">Historial respaldos</button>
         <button type="button" class="secondary" id="btnMonoQImportExcel" title="Sube .xlsx: Nombre, Puesto, Planilla (dia/noche/moto) y días">Importar Excel</button>
         <button type="button" class="secondary danger-outline" id="btnMonoQBlank" title="Borra planillas de esta quincena; luego Importar Excel">Vaciar quincena (Excel nuevo)</button>
         <button type="button" class="secondary" id="btnMonoQDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnMonoQNext">Abrir siguiente quincena</button>
       </div>
+      ${window.RFSReportSnapshots && typeof window.RFSReportSnapshots.monoQTabWarningHtml === "function" ? window.RFSReportSnapshots.monoQTabWarningHtml() : ""}
       <p class="muted tight" style="margin-top:6px">Excel: <strong>Nombre · Puesto · Planilla</strong> (dia, noche, moto_dia, moto_noche) y columnas de días. Una hoja por planilla o columna Planilla.</p>
+      <p class="muted tight"><strong>Guardar respaldo</strong> = PC + nube (10 por quincena). Auto ~5 min. <strong>Historial</strong> elige qué copia restaurar.</p>
       <p class="muted tight" style="margin-top:10px">
         Igual que Ramón. <strong>1</strong> = un día. <strong>1.5</strong> = 1 día + 6 h extras (automático).
         <strong>2</strong> = el mismo día + volao
@@ -1269,9 +1301,28 @@ function bindMonorrielQuincenaUi(report) {
       renderMonorrielQuincenaModule();
     });
   });
-  document.getElementById("btnMonoQGuardar")?.addEventListener("click", () => {
-    guardarMonoQRespaldo();
-    if (typeof toast === "function") toast("Respaldo guardado (local + nube).");
+  document.getElementById("btnMonoQGuardar")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btnMonoQGuardar");
+    if (btn) btn.disabled = true;
+    const r = await guardarMonoQRespaldo();
+    if (btn) btn.disabled = false;
+    if (typeof toast === "function") toast(`Respaldo guardado (PC${r.cloudNote || ""}).`);
+  });
+  document.getElementById("btnMonoQHistorial")?.addEventListener("click", () => {
+    const rep = monoQActive();
+    if (!window.RFSReportSnapshots || typeof window.RFSReportSnapshots.openSnapshotHistoryModal !== "function") {
+      if (typeof toast === "function") toast("Historial no disponible (actualiza la app).");
+      return;
+    }
+    window.RFSReportSnapshots.openSnapshotHistoryModal({
+      kind: "monoq",
+      reportId: rep && rep.id,
+      title: `Historial · ${rep ? monoQTitle(rep) : "Monorriel"}`,
+      onRestore: (payload) => {
+        restoreMonoQFromSnapshotReplace(payload);
+        if (typeof toast === "function") toast("Planilla restaurada desde historial.");
+      },
+    });
   });
   document.getElementById("btnMonoQRecuperar")?.addEventListener("click", () => {
     if (

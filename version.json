@@ -1,6 +1,6 @@
 {
-  "build": 256,
-  "label": "v256",
-  "minBuild": 256,
-  "note": "Reportes: push-only editor, vaciar quincena + Excel, sin merge al guardar"
+  "build": 257,
+  "label": "v257",
+  "minBuild": 257,
+  "note": "Historial respaldos nube (10/quincena), auto 5m, aviso doble pestaña"
 }
