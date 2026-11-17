@@ -546,6 +546,15 @@ function normalizeVargasData(raw = {}, opts = {}) {
 
 function ensureVargasSeedLoaded() {
   vargasData = normalizeVargasData(vargasData);
+  if (
+    typeof canSyncVargasReportData === "function" &&
+    canSyncVargasReportData() &&
+    vargasData.reports.length &&
+    vargasDataMarkScore(vargasData) > 0 &&
+    typeof markVargasLocalAuthority === "function"
+  ) {
+    markVargasLocalAuthority();
+  }
   if (vargasData.reports.length) return false;
   const seed = typeof window !== "undefined" ? window.RFS_VARGAS_SEED : null;
   if (!seed || !Array.isArray(seed.sections) || !seed.sections.length) return false;
@@ -594,6 +603,7 @@ function vargasLocateByRowId(rowId) {
 
 function saveVargasData(push = true, urgent = false) {
   if (typeof canSyncVargasReportData === "function" && !canSyncVargasReportData()) return;
+  if (typeof markVargasLocalAuthority === "function") markVargasLocalAuthority();
   if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
   vargasData = normalizeVargasData(vargasData, { dedupeLoose: false });
   persistVargasSafetyNet(vargasData);
@@ -1120,6 +1130,23 @@ function applyRemoteVargasData(remote) {
     return;
   }
   ensureVargasSeedLoaded();
+  if (typeof canSyncVargasReportData === "function" && canSyncVargasReportData()) {
+    const localMarks = vargasDataMarkScore(vargasData);
+    if (typeof vargasExclusivePushOnly === "function" && vargasExclusivePushOnly()) {
+      return;
+    }
+    if (localMarks > 0) {
+      if (typeof markVargasLocalAuthority === "function") markVargasLocalAuthority();
+      return;
+    }
+    if (remote && Array.isArray(remote.reports) && remote.reports.length) {
+      vargasData = vargasApplyAllBansToData(normalizeVargasData(remote, { dedupeLoose: false }));
+      persistVargasSafetyNet(vargasData);
+      localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
+      if (typeof markVargasLocalAuthority === "function") markVargasLocalAuthority();
+    }
+    return;
+  }
   const localMarks = vargasDataMarkScore(vargasData);
   const remoteMarks = vargasDataMarkScore(remote || {});
   const localBans = vargasDataBanScore(vargasData);
@@ -1152,6 +1179,30 @@ function getActiveVargasReport() {
   const wanted = vargasData.reports.find((r) => r && r.id === vargasActiveReportId);
   if (wanted) return wanted;
   return vargasData.reports[0] || null;
+}
+
+/** Deja solo la quincena activa vacía (para importar Excel limpio). */
+function vargasResetActiveQuincenaBlank() {
+  ensureVargasSeedLoaded();
+  const current = getActiveVargasReport();
+  const spec = current
+    ? vargasQuincenaSpec(current.period, current.half)
+    : vargasQuincenaSpec("2026-11", 1);
+  const blank = normalizeVargasReport({
+    ...spec,
+    sections: [],
+    removedNameKeys: [],
+    updatedAt: new Date().toISOString(),
+  });
+  vargasData = {
+    reports: [blank],
+    globalRemovedNameKeys: [],
+    globalRemovedLabels: [],
+  };
+  setActiveVargasReport(blank.id);
+  if (typeof markVargasLocalAuthority === "function") markVargasLocalAuthority();
+  saveVargasData(true, true);
+  return { ok: true, id: blank.id };
 }
 
 function vargasDaysInMonth(period) {
@@ -3004,6 +3055,7 @@ function renderVargasModule() {
         <button type="button" class="primary" id="btnVargasGuardar">Guardar respaldo</button>
         <button type="button" class="secondary" id="btnVargasRecuperar">Recuperar respaldo</button>
         <button type="button" class="secondary" id="btnVargasImportExcel" title="Sube .xlsx con Nombre, Puesto, Turno y columnas de días">Importar Excel</button>
+        <button type="button" class="secondary danger-outline" id="btnVargasBlank" title="Borra filas de esta quincena; luego Importar Excel">Vaciar quincena (Excel nuevo)</button>
         <button type="button" class="secondary" id="btnVargasDedupe">Quitar duplicados</button>
         <button type="button" class="secondary" id="btnVargasNuevaQuincena">Abrir siguiente quincena</button>
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
@@ -3272,6 +3324,21 @@ function bindVargasUiHandlers() {
             : new Date(r.at).toLocaleString("es-DO", { dateStyle: "short", timeStyle: "short" });
         toast(r.gained ? `Recuperado (${when}). +${r.gained} marcas/datos.` : `Recuperado (${when}).`);
       }
+      renderVargasModule();
+    });
+  }
+  const btnBlank = document.getElementById("btnVargasBlank");
+  if (btnBlank) {
+    btnBlank.addEventListener("click", () => {
+      if (
+        !confirm(
+          "¿Vaciar esta quincena?\n\nSe borran filas y marcas de ESTA quincena en esta PC y en la nube.\nLuego usa Importar Excel con el archivo nuevo.\n\nEsta acción no se puede deshacer con Ctrl+Z."
+        )
+      ) {
+        return;
+      }
+      vargasResetActiveQuincenaBlank();
+      if (typeof toast === "function") toast("Quincena vacía. Sube el Excel nuevo.");
       renderVargasModule();
     });
   }

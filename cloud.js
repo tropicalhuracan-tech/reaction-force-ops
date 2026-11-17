@@ -2069,36 +2069,23 @@
       if (typeof monoQDataMarkScore === "function" && remoteQ) {
         remoteQMarkScore = monoQDataMarkScore(remoteQ);
       }
-      if (!canMonoQEdit && remoteQ) {
-        monorrielQuincenasPacked = remoteQ;
-      } else if (localQ && remoteQ && typeof monoQMerge === "function") {
-        monorrielQuincenasPacked = monoQMerge(localQ, remoteQ);
-        if (
-          window.monoQPreserveLocalDeletes &&
-          typeof window.monoQPreserveLocalDeletes === "function"
-        ) {
-          window.monoQPreserveLocalDeletes(monorrielQuincenasPacked, localQ);
+      if (canMonoQEdit) {
+        const localScore =
+          localQ && typeof monoQDataMarkScore === "function" ? monoQDataMarkScore(localQ) : 0;
+        if (remoteQ && localScore < 2 && remoteQMarkScore > 10) {
+          console.warn("RFS: Monorriel quincena local vacía — se conserva la nube");
+          monorrielQuincenasPacked = remoteQ;
+        } else if (localQ) {
+          monorrielQuincenasPacked = localQ;
+        } else if (remoteQ) {
+          monorrielQuincenasPacked = remoteQ;
         }
+      } else if (!canMonoQEdit && remoteQ) {
+        monorrielQuincenasPacked = remoteQ;
       } else if (localQ) {
         monorrielQuincenasPacked = localQ;
       } else if (remoteQ) {
         monorrielQuincenasPacked = remoteQ;
-      }
-      if (
-        monorrielQuincenasPacked &&
-        remoteQMarkScore > 0 &&
-        typeof monoQDataMarkScore === "function" &&
-        typeof monoQMerge === "function"
-      ) {
-        const localQScore = localQ ? monoQDataMarkScore(localQ) : 0;
-        const mergedScore = monoQDataMarkScore(monorrielQuincenasPacked);
-        if (mergedScore < remoteQMarkScore && localQScore < 1) {
-          console.warn("RFS: re-fusion Monorriel quincenas (copia local vacía)");
-          monorrielQuincenasPacked = monoQMerge(remoteQ, localQ || { reports: [] });
-        }
-      }
-      if (canMonoQEdit && monorrielQuincenasPacked && typeof syncMonorrielQuincenasPacked === "function") {
-        syncMonorrielQuincenasPacked(monorrielQuincenasPacked);
       }
     } catch (err) {
       console.warn("RFS: no se pudieron fusionar quincenas Monorriel al guardar", err);
@@ -2129,53 +2116,20 @@
       }
       if (!canVargasEdit && remoteVargas) {
         vargasToSave = remoteVargas;
-      } else if (remoteVargas && typeof mergeVargasDataSticky === "function") {
+      } else if (canVargasEdit) {
+        let localPack = vargasToSave;
+        if (typeof normalizeVargasData === "function") {
+          localPack = normalizeVargasData(localPack, { dedupeLoose: false });
+        }
         const localScore =
-          typeof vargasDataMarkScore === "function" ? vargasDataMarkScore(vargasToSave) : 0;
-        const localVargasSnap = vargasToSave;
-        vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
-        if (
-          remoteVargasMarkScore > 0 &&
-          typeof vargasDataMarkScore === "function" &&
-          localScore < 1
-        ) {
-          const mergedScore = vargasDataMarkScore(vargasToSave);
-          if (mergedScore < remoteVargasMarkScore) {
-            console.warn("RFS: re-fusion Ramón Vargas (copia local vacía)");
-            vargasToSave = mergeVargasDataSticky(remoteVargas, vargas);
-          }
-        } else if (localScore > vargasDataMarkScore(vargasToSave)) {
-          vargasToSave = mergeVargasDataSticky(vargasToSave, remoteVargas);
+          typeof vargasDataMarkScore === "function" ? vargasDataMarkScore(localPack) : 0;
+        if (remoteVargas && localScore < 2 && remoteVargasMarkScore > 10) {
+          console.warn("RFS: Vargas local vacío — se conserva la nube");
+          vargasToSave = remoteVargas;
+        } else {
+          vargasToSave = localPack;
         }
-        if (
-          typeof window !== "undefined" &&
-          window.RFSVargas &&
-          typeof window.RFSVargas.vargasPreserveLocalDeletes === "function"
-        ) {
-          window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, localVargasSnap);
-        }
-        if (
-          window.RFSVargas &&
-          typeof window.RFSVargas.vargasApplyAllBansToData === "function"
-        ) {
-          vargasToSave = window.RFSVargas.vargasApplyAllBansToData(vargasToSave);
-        }
-        if (canVargasEdit && typeof vargasData !== "undefined") {
-          if (
-            typeof vargasDataMarkScore === "function" &&
-            vargasDataMarkScore(vargasData) > vargasDataMarkScore(vargasToSave) + 1
-          ) {
-            vargasToSave = mergeVargasDataSticky(vargasData, vargasToSave);
-            if (
-              window.RFSVargas &&
-              typeof window.RFSVargas.vargasPreserveLocalDeletes === "function"
-            ) {
-              window.RFSVargas.vargasPreserveLocalDeletes(vargasToSave, vargasData);
-            }
-            if (typeof window.RFSVargas.vargasApplyAllBansToData === "function") {
-              vargasToSave = window.RFSVargas.vargasApplyAllBansToData(vargasToSave);
-            }
-          }
+        if (typeof vargasData !== "undefined") {
           vargasData = vargasToSave;
           try {
             if (typeof VARGAS_KEY !== "undefined") {
@@ -2184,8 +2138,8 @@
             if (typeof persistVargasSafetyNet === "function") persistVargasSafetyNet(vargasData);
           } catch (_) {}
         }
-      } else if (canVargasEdit && remoteVargasMarkScore > 0 && remoteVargas) {
-        vargasToSave = mergeVargasDataSticky(vargasToSave || { reports: [] }, remoteVargas);
+      } else if (remoteVargas) {
+        vargasToSave = remoteVargas;
       }
     } catch (err) {
       console.warn("RFS: no se pudo fusionar Ramón Vargas al guardar", err);
