@@ -250,7 +250,12 @@ function normalizeVargasReport(raw = {}) {
       shift: sec.shift === "nocturno" ? "nocturno" : "diurno",
       postName: String(sec.postName || "").trim() || "(sin puesto)",
       deletedKeys: vargasSectionDeletedKeys(sec),
-      employees: (Array.isArray(sec.employees) ? sec.employees : []).map((emp) => ({
+      employees: (Array.isArray(sec.employees) ? sec.employees : []).map((emp) => {
+        const rowId =
+          String(emp.rowId || "").trim() ||
+          `vr-${vargasNameKey(emp.fullName) || "x"}-${Math.random().toString(36).slice(2, 8)}`;
+        return {
+        rowId,
         fullName: String(emp.fullName || "").trim(),
         marks: emp.marks && typeof emp.marks === "object" ? { ...emp.marks } : {},
         payBucket: normalizeVargasPayBucket(emp.payBucket),
@@ -264,7 +269,8 @@ function normalizeVargasReport(raw = {}) {
         memoColors: vargasMemoTools()
           ? vargasMemoTools().normalizeMemoColors(emp.memoColors)
           : {},
-      })),
+      };
+      }),
     })),
     updatedAt: raw.updatedAt || new Date().toISOString(),
   };
@@ -562,9 +568,33 @@ function vargasDataBanScore(data) {
   );
 }
 
+function vargasEnsureRowId(emp) {
+  if (!emp || typeof emp !== "object") return "";
+  if (String(emp.rowId || "").trim()) return String(emp.rowId).trim();
+  emp.rowId = `vr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return emp.rowId;
+}
+
+function vargasLocateByRowId(rowId) {
+  const rid = String(rowId || "").trim();
+  if (!rid) return null;
+  const report = getActiveVargasReport();
+  if (!report) return null;
+  for (let s = 0; s < (report.sections || []).length; s++) {
+    const sec = report.sections[s];
+    for (let e = 0; e < (sec.employees || []).length; e++) {
+      const emp = sec.employees[e];
+      if (emp && String(emp.rowId || "").trim() === rid) {
+        return { report, sectionIdx: s, empIdx: e, sec, emp };
+      }
+    }
+  }
+  return null;
+}
+
 function saveVargasData(push = true, urgent = false) {
   if (typeof markSensitiveReportEdit === "function") markSensitiveReportEdit();
-  vargasData = normalizeVargasData(vargasData, { dedupeLoose: true });
+  vargasData = normalizeVargasData(vargasData, { dedupeLoose: false });
   persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
   if (push && typeof queueCloudSave === "function") queueCloudSave();
@@ -1036,7 +1066,6 @@ function mergeVargasReportSticky(base, other) {
     String(base.updatedAt || "") >= String(other.updatedAt || "") ? base.updatedAt : other.updatedAt;
   const norm = normalizeVargasReport(out);
   vargasScrubDeletedFromReport(norm);
-  vargasDedupeReportLoose(norm);
   return norm;
 }
 
@@ -1057,8 +1086,8 @@ function vargasLocateByRowKey(rowKey, report) {
 }
 
 function mergeVargasDataSticky(localRaw, remoteRaw) {
-  const local = normalizeVargasData(localRaw || {}, { dedupeLoose: true });
-  const remote = normalizeVargasData(remoteRaw || {}, { dedupeLoose: true });
+  const local = normalizeVargasData(localRaw || {}, { dedupeLoose: false });
+  const remote = normalizeVargasData(remoteRaw || {}, { dedupeLoose: false });
   const ids = new Set([...local.reports, ...remote.reports].map((r) => r && r.id).filter(Boolean));
   const reports = [];
   ids.forEach((id) => {
@@ -1090,11 +1119,22 @@ function applyRemoteVargasData(remote) {
     return;
   }
   ensureVargasSeedLoaded();
+  const localMarks = vargasDataMarkScore(vargasData);
+  const remoteMarks = vargasDataMarkScore(remote || {});
+  const localBans = vargasDataBanScore(vargasData);
+  const remoteBans = vargasDataBanScore(remote || {});
+  if (
+    (localMarks > remoteMarks + 1 && localMarks > 2) ||
+    (localBans > remoteBans && localMarks >= remoteMarks)
+  ) {
+    console.warn("RFS Vargas: se conserva la copia local (más datos o más borrados).");
+    return;
+  }
   const localSnapshot = JSON.parse(JSON.stringify(vargasData || { reports: [] }));
   vargasApplyAllBansToData(localSnapshot);
   const merged = mergeVargasDataSticky(vargasData, remote || {});
   vargasPreserveLocalDeletes(merged, localSnapshot);
-  vargasData = vargasApplyAllBansToData(normalizeVargasData(merged, { dedupeLoose: true }));
+  vargasData = vargasApplyAllBansToData(normalizeVargasData(merged, { dedupeLoose: false }));
   persistVargasSafetyNet(vargasData);
   localStorage.setItem(VARGAS_KEY, JSON.stringify(vargasData));
 }
@@ -1770,6 +1810,7 @@ function addVargasEmployee(opts = {}) {
 
   vargasPushUndo("agregar");
   section.employees.push({
+    rowId: `vr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
     fullName,
     marks: {},
     payBucket,
@@ -1982,10 +2023,14 @@ function printVargasReport() {
   });
 }
 
-function setVargasEmployeeMark(sectionIdx, empIdx, day, value, rowKey) {
+function setVargasEmployeeMark(sectionIdx, empIdx, day, value, rowKey, rowId) {
   let report = getActiveVargasReport();
   let emp = report && report.sections[sectionIdx] && report.sections[sectionIdx].employees[empIdx];
-  if (rowKey) {
+  const locId = rowId ? vargasLocateByRowId(rowId) : null;
+  if (locId) {
+    report = locId.report;
+    emp = locId.emp;
+  } else if (rowKey) {
     const loc = vargasLocateByRowKey(rowKey, report);
     if (loc) {
       report = loc.report;
@@ -2031,9 +2076,11 @@ function flattenVargasEmployees(report, opts = {}) {
       const volaoMarks = countVargasVolaoMarks(emp.marks, report.dayNums);
       const fromMarks = vargasExtraHoursFromMarks(emp.marks, report.dayNums);
       const horasExtras = normalizeVargasHorasExtras(emp.horasExtras) + fromMarks;
+      vargasEnsureRowId(emp);
       rows.push({
         sectionIdx: sIdx,
         empIdx: eIdx,
+        rowId: emp.rowId,
         rowKey: vargasEmployeeExactKey(sec, emp),
         shift: sec.shift,
         postName: sec.postName,
@@ -2873,7 +2920,9 @@ function renderVargasModule() {
             : worked && vargasParseMarkNumber(mark) != null && !Number.isInteger(vargasParseMarkNumber(mark))
               ? ` title="${val}: fracción × 12 h = horas extras (ej. 1.5 = 1 día + 6 h)"`
               : ` title="1 = día · 2 = día + volao · 1.5 = 1 día + 6 h extras"`;
-          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-row="${escapeVargasAttr(
+          return `<td class="vargas-day-cell${worked ? " is-work" : ""}${volao ? " is-volao" : ""}${excl ? " is-excl" : ""}" data-row-id="${escapeVargasAttr(
+            row.rowId
+          )}" data-row="${escapeVargasAttr(
             row.rowKey
           )}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-day="${d}" data-memo-field="d:${d}" contenteditable="true" spellcheck="false"${title}${ms(
             `d:${d}`
@@ -2891,9 +2940,11 @@ function renderVargasModule() {
       const hexTitle = hexFilled
         ? ` title="${hexVal} h × RD$${VARGAS_EXTRA_HOUR_RATE} = RD$${row.horasExtrasPay} (se suma a Horas extras de nómina)"`
         : ` title="Horas extras (ej. 2 o 2.3). RD$${VARGAS_EXTRA_HOUR_RATE}/h sumadas a la nómina"`;
-      return `<tr data-shift="${row.shift}" data-row="${escapeVargasAttr(row.rowKey)}">
+      return `<tr data-shift="${row.shift}" data-row-id="${escapeVargasAttr(row.rowId)}" data-row="${escapeVargasAttr(row.rowKey)}">
         <td class="vargas-shift">${row.shift === "nocturno" ? "N" : "D"}</td>
-        <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-row="${escapeVargasAttr(
+        <td class="sticky-name vargas-name" contenteditable="true" spellcheck="false" data-row-id="${escapeVargasAttr(
+          row.rowId
+        )}" data-row="${escapeVargasAttr(
           row.rowKey
         )}" data-s="${row.sectionIdx}" data-e="${row.empIdx}" data-memo-field="name" title="Toca para corregir el nombre"${ms(
           "name"
@@ -3119,7 +3170,8 @@ function bindVargasUiHandlers() {
       const e = Number(cell.dataset.e);
       const day = Number(cell.dataset.day);
       const row = cell.dataset.row || "";
-      setVargasEmployeeMark(s, e, day, cell.textContent, row);
+      const rowId = cell.dataset.rowId || "";
+      setVargasEmployeeMark(s, e, day, cell.textContent, row, rowId);
     });
   });
   document.querySelectorAll(".vargas-pagos-cell").forEach((cell) => {

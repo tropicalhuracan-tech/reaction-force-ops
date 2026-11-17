@@ -115,6 +115,25 @@ function monoQEmployeeDeleteKey(emp) {
   return `row:${nk}|${pos}|${fp || "0"}`;
 }
 
+function monoQEnsureRowId(emp) {
+  if (!emp || typeof emp !== "object") return "";
+  if (String(emp.rowId || "").trim()) return String(emp.rowId).trim();
+  emp.rowId = `mq-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  return emp.rowId;
+}
+
+function monoQFindEmployee(sheet, el) {
+  if (!sheet || !el) return null;
+  const rid = el.getAttribute && el.getAttribute("data-row-id");
+  if (rid) {
+    const hit = (sheet.employees || []).find((e) => e && String(e.rowId || "") === rid);
+    if (hit) return hit;
+  }
+  const idx = Number(el.getAttribute("data-i"));
+  if (Number.isFinite(idx) && idx >= 0) return (sheet.employees || [])[idx] || null;
+  return null;
+}
+
 function monoQKey(name) {
   return String(name || "")
     .normalize("NFD")
@@ -316,7 +335,6 @@ function mergeMonoSheetSticky(baseSheet, otherSheet) {
     if (id && deleted.has(`id:${id}`)) return false;
     return true;
   });
-  kept.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
   return { employees: kept, deletedKeys: [...deleted] };
 }
 
@@ -392,7 +410,11 @@ function monoQNormalizeReport(raw) {
       }
       if (seen.has(key)) return;
       seen.add(key);
+      const rowId =
+        String((emp && emp.rowId) || "").trim() ||
+        `mq-${monoQKey(fullName) || "x"}-${Math.random().toString(36).slice(2, 8)}`;
       sheets[s.id].employees.push({
+        rowId,
         fullName,
         employeeId: String((emp && emp.employeeId) || ""),
         position: String((emp && emp.position) || "").trim(),
@@ -404,7 +426,6 @@ function monoQNormalizeReport(raw) {
         memoColors: monoQMemoTools() ? monoQMemoTools().normalizeMemoColors(emp.memoColors) : {},
       });
     });
-    sheets[s.id].employees.sort((a, b) => a.fullName.localeCompare(b.fullName, "es"));
     sheets[s.id].deletedKeys = [...new Set(monoQSheetDeleted(sheets[s.id]))];
   });
   return {
@@ -830,6 +851,17 @@ function applyRemoteMonorrielQuincenas(remote) {
   }
   if (!remote || !Array.isArray(remote.reports)) return;
   ensureMonorrielQuincenasLoaded();
+  const localMarks = monoQDataMarkScore(monoQData);
+  const remoteMarks = monoQDataMarkScore(remote);
+  const localBans = monoQDataBanScore(monoQData);
+  const remoteBans = monoQDataBanScore(remote);
+  if (
+    (localMarks > remoteMarks + 1 && localMarks > 2) ||
+    (localBans > remoteBans && localMarks >= remoteMarks)
+  ) {
+    console.warn("RFS Monorriel: se conserva la copia local (más datos o más borrados).");
+    return;
+  }
   const localSnap = JSON.parse(JSON.stringify(monoQData));
   const before = monoQDataMarkScore(monoQData);
   monoQData = monoQMerge(monoQData, remote);
@@ -1004,6 +1036,8 @@ function renderMonorrielQuincenaModule() {
     .join("");
   const body = employees
     .map((emp, idx) => {
+      monoQEnsureRowId(emp);
+      const rid = emp.rowId;
       const memoTools = monoQMemoTools();
       const memo = (emp.memoColors && typeof emp.memoColors === "object" ? emp.memoColors : {}) || {};
       const ms = (key) => (memoTools ? memoTools.memoStyleAttr(memo, key) : "");
@@ -1020,7 +1054,7 @@ function renderMonorrielQuincenaModule() {
               : n > 0 && !Number.isInteger(n)
                 ? ` title="${val}: fracción × 12 h = horas extras (1.5 = 6 h)"`
                 : ` title="1 = día · 2 = día + volao · 1.5 = 1 día + 6 h extras"`;
-          return `<td class="vargas-day-cell monoq-day${cls}${Number(d) === 31 ? " is-excl" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-day="${d}" data-memo-field="d:${d}"${title}${ms(
+          return `<td class="vargas-day-cell monoq-day${cls}${Number(d) === 31 ? " is-excl" : ""}" contenteditable="true" spellcheck="false" data-row-id="${monoQEsc(rid)}" data-i="${idx}" data-day="${d}" data-memo-field="d:${d}"${title}${ms(
             `d:${d}`
           )}>${monoQEsc(val)}</td>`;
         })
@@ -1031,22 +1065,22 @@ function renderMonorrielQuincenaModule() {
       const pagos = monoQPagos(emp.volaosPagos);
       const horas = monoQHoras(emp.horasExtras);
       const horasTxt = horas ? String(horas) : "";
-      return `<tr>
-        <td class="sticky-name vargas-name monoq-name" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="name" title="${monoQEsc(emp.fullName)}"${ms(
+      return `<tr data-row-id="${monoQEsc(rid)}">
+        <td class="sticky-name vargas-name monoq-name" contenteditable="true" spellcheck="false" data-row-id="${monoQEsc(rid)}" data-i="${idx}" data-memo-field="name" title="${monoQEsc(emp.fullName)}"${ms(
           "name"
         )}>${monoQEsc(emp.fullName)}</td>
-        <td class="vargas-post monoq-post" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="post"${ms("post")}>${monoQEsc(
+        <td class="vargas-post monoq-post" contenteditable="true" spellcheck="false" data-row-id="${monoQEsc(rid)}" data-i="${idx}" data-memo-field="post"${ms("post")}>${monoQEsc(
         emp.position || ""
       )}</td>
         <td class="vargas-days-total">${daysLabel}</td>
-        <td class="vargas-pagos-cell monoq-pagos${pagos ? " is-paid" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="pagos" title="Volaos ya pagados. Solo control: no suma en la nómina"${ms(
+        <td class="vargas-pagos-cell monoq-pagos${pagos ? " is-paid" : ""}" contenteditable="true" spellcheck="false" data-row-id="${monoQEsc(rid)}" data-i="${idx}" data-memo-field="pagos" title="Volaos ya pagados. Solo control: no suma en la nómina"${ms(
           "pagos"
         )}>${monoQEsc(pagos === "" ? "" : String(pagos))}</td>
-        <td class="vargas-hex-cell monoq-horas${horasTxt ? " has-hex" : ""}" contenteditable="true" spellcheck="false" data-i="${idx}" data-memo-field="horas" title="Horas extras. RD$60 por hora, se suman a la nómina sin quitar lo ya calculado"${ms(
+        <td class="vargas-hex-cell monoq-horas${horasTxt ? " has-hex" : ""}" contenteditable="true" spellcheck="false" data-row-id="${monoQEsc(rid)}" data-i="${idx}" data-memo-field="horas" title="Horas extras. RD$60 por hora, se suman a la nómina sin quitar lo ya calculado"${ms(
           "horas"
         )}>${monoQEsc(horasTxt)}</td>
         ${cells}
-        <td class="vargas-del-cell"><button type="button" class="vargas-del-btn monoq-del" data-i="${idx}" title="Quitar de esta planilla">✕</button></td>
+        <td class="vargas-del-cell"><button type="button" class="vargas-del-btn monoq-del" data-row-id="${monoQEsc(rid)}" data-i="${idx}" title="Quitar de esta planilla">✕</button></td>
       </tr>`;
     })
     .join("");
@@ -1273,7 +1307,7 @@ function bindMonorrielQuincenaUi(report) {
     cell.addEventListener("focusout", () => {
       const current = monoQActive();
       const sheet = current && current.sheets[monoQSheet];
-      const emp = sheet && sheet.employees[Number(cell.getAttribute("data-i"))];
+      const emp = sheet && monoQFindEmployee(sheet, cell);
       if (!emp) return;
       emp.position = String(cell.textContent || "").replace(/\s+/g, " ").trim();
       current.updatedAt = new Date().toISOString();
@@ -1284,7 +1318,7 @@ function bindMonorrielQuincenaUi(report) {
     cell.addEventListener("focusout", () => {
       const current = monoQActive();
       const sheet = current && current.sheets[monoQSheet];
-      const emp = sheet && sheet.employees[Number(cell.getAttribute("data-i"))];
+      const emp = sheet && monoQFindEmployee(sheet, cell);
       if (!emp) return;
       emp.volaosPagos = monoQPagos(cell.textContent);
       cell.textContent = emp.volaosPagos === "" ? "" : String(emp.volaosPagos);
@@ -1296,7 +1330,7 @@ function bindMonorrielQuincenaUi(report) {
     cell.addEventListener("focusout", () => {
       const current = monoQActive();
       const sheet = current && current.sheets[monoQSheet];
-      const emp = sheet && sheet.employees[Number(cell.getAttribute("data-i"))];
+      const emp = sheet && monoQFindEmployee(sheet, cell);
       if (!emp) return;
       emp.horasExtras = monoQHoras(cell.textContent);
       cell.textContent = emp.horasExtras ? String(emp.horasExtras) : "";
@@ -1308,7 +1342,7 @@ function bindMonorrielQuincenaUi(report) {
     cell.addEventListener("focusout", () => {
       const current = monoQActive();
       const sheet = current && current.sheets[monoQSheet];
-      const emp = sheet && sheet.employees[Number(cell.getAttribute("data-i"))];
+      const emp = sheet && monoQFindEmployee(sheet, cell);
       if (!emp) return;
       monoQSetMark(emp, cell.getAttribute("data-day"), cell.textContent);
       current.updatedAt = new Date().toISOString();
@@ -1325,7 +1359,7 @@ function bindMonorrielQuincenaUi(report) {
     cell.addEventListener("focusout", () => {
       const current = monoQActive();
       const sheet = current && current.sheets[monoQSheet];
-      const emp = sheet && sheet.employees[Number(cell.getAttribute("data-i"))];
+      const emp = sheet && monoQFindEmployee(sheet, cell);
       if (!emp) return;
       const next = String(cell.textContent || "").replace(/\s+/g, " ").trim();
       if (!next) {
@@ -1334,7 +1368,7 @@ function bindMonorrielQuincenaUi(report) {
       }
       if (monoQKey(next) === monoQKey(emp.fullName) && next === emp.fullName) return;
       const dup = sheet.employees.some(
-        (e, j) => j !== Number(cell.getAttribute("data-i")) && monoQKey(e.fullName) === monoQKey(next)
+        (e) => e !== emp && monoQKey(e.fullName) === monoQKey(next)
       );
       if (dup) {
         if (typeof toast === "function") toast("Ese nombre ya está en esta planilla.");
@@ -1357,9 +1391,10 @@ function bindMonorrielQuincenaUi(report) {
       ev.stopPropagation();
       const current = monoQActive();
       const sheet = current && current.sheets[monoQSheet];
-      const idx = Number(btn.getAttribute("data-i"));
-      const emp = sheet && sheet.employees[idx];
+      const emp = sheet && monoQFindEmployee(sheet, btn);
       if (!emp) return;
+      const idx = (sheet.employees || []).indexOf(emp);
+      if (idx < 0) return;
       const name = emp.fullName;
       const tr = btn.closest("tr");
       monoQPushUndo("quitar");

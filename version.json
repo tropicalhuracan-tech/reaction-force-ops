@@ -1,6 +1,6 @@
 {
-  "build": 253,
-  "label": "v253",
-  "minBuild": 253,
-  "note": "Importar Excel → Ramón Vargas y Monorriel → nómina"
+  "build": 254,
+  "label": "v254",
+  "minBuild": 254,
+  "note": "Reportes: fila fija (rowId), sin reordenar, local gana en sync"
 }
