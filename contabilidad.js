@@ -822,6 +822,8 @@ function payrollBackupReasonLabel(reason) {
   if (reason === "before_restore") return "Antes de restaurar";
   if (reason === "manual") return "Manual";
   if (reason === "auto_10m") return "Automático cada 10 min";
+  if (reason === "auto_2m") return "Automático cada 2 min";
+  if (reason === "before_print") return "Antes de imprimir";
   return "Al guardar";
 }
 
@@ -849,7 +851,12 @@ function snapshotPayrollBackup(payroll, reason = "save") {
   if (!Array.isArray(contabilidadData.payrollBackups)) contabilidadData.payrollBackups = [];
   let deleted = normalizePayrollBackupDeletedIds(contabilidadData.payrollBackupDeletedIds);
   const banned = new Set(deleted);
-  const explicit = reason === "save" || reason === "paid" || reason === "before_delete";
+  const explicit =
+    reason === "save" ||
+    reason === "paid" ||
+    reason === "before_delete" ||
+    reason === "before_print" ||
+    reason === "before_restore";
 
   // Usuario borró el respaldo de esta nómina: no recrear solo (sí al guardar/pagar)
   if (!explicit && (banned.has(suppressKey) || isPayrollBackupSuppressed(snap.id, deleted))) {
@@ -1117,15 +1124,24 @@ function contabilidadPinOpenPayrollDraft(mergedData, localData) {
 function applyRemoteContabilidadData(remote) {
   // Con nómina abierta (p. ej. Oficina + imprimir), no fusionar remoto encima del tecleo
   if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return;
-  // Conservar tecleo local de nómina antes de fusionar con la nube
-  try {
-    if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
-  } catch (_) {}
+  if (typeof isPayrollPrintLocked === "function" && isPayrollPrintLocked()) return;
   const remoteNorm = normalizeContabilidadData(remote || {});
   const local = normalizeContabilidadData(contabilidadData);
-  const pinnedPayrollSnapshot = selectedPayrollId
-    ? (local.payrolls || []).find((x) => x && x.id === selectedPayrollId)
+  const pinId = String(selectedPayrollId || "").trim();
+  const pinnedPayrollSnapshot = pinId
+    ? (local.payrolls || []).find((x) => x && x.id === pinId)
     : null;
+  const pinnedNamed =
+    pinnedPayrollSnapshot && typeof payrollNamedLineCount === "function"
+      ? payrollNamedLineCount(pinnedPayrollSnapshot)
+      : 0;
+  const sessionOpen = typeof isOpenPayrollTableVisible === "function" && isOpenPayrollTableVisible();
+  // No leer DOM vacío al fusionar si la tabla está abierta (p. ej. tras imprimir)
+  if (!sessionOpen) {
+    try {
+      if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
+    } catch (_) {}
+  }
 
   function mergeById(a, b) {
     const map = new Map();
@@ -1306,15 +1322,24 @@ function applyRemoteContabilidadData(remote) {
   try {
     recoverLavegaOctPayrollIfEmpty();
   } catch (_) {}
-  if (
-    pinnedPayrollSnapshot &&
-    typeof isPayrollBeingEdited === "function" &&
-    isPayrollBeingEdited()
-  ) {
-    const pin = JSON.parse(JSON.stringify(pinnedPayrollSnapshot));
-    const idx = (contabilidadData.payrolls || []).findIndex((x) => x && x.id === pin.id);
-    if (idx >= 0) contabilidadData.payrolls[idx] = pin;
-    else contabilidadData.payrolls = [pin, ...(contabilidadData.payrolls || [])];
+  if (pinnedPayrollSnapshot && pinId && (sessionOpen || pinnedNamed > 0)) {
+    const mergedPay = (contabilidadData.payrolls || []).find((x) => x && x.id === pinId);
+    const mergedNamed = mergedPay && typeof payrollNamedLineCount === "function" ? payrollNamedLineCount(mergedPay) : 0;
+    if (sessionOpen && pinnedNamed > 0 && mergedNamed < pinnedNamed) {
+      const pin = JSON.parse(JSON.stringify(pinnedPayrollSnapshot));
+      const idx = (contabilidadData.payrolls || []).findIndex((x) => x && x.id === pin.id);
+      if (idx >= 0) contabilidadData.payrolls[idx] = pin;
+      else contabilidadData.payrolls = [pin, ...(contabilidadData.payrolls || [])];
+    } else if (
+      typeof isPayrollBeingEdited === "function" &&
+      isPayrollBeingEdited() &&
+      pinnedNamed > 0
+    ) {
+      const pin = JSON.parse(JSON.stringify(pinnedPayrollSnapshot));
+      const idx = (contabilidadData.payrolls || []).findIndex((x) => x && x.id === pin.id);
+      if (idx >= 0) contabilidadData.payrolls[idx] = pin;
+      else contabilidadData.payrolls = [pin, ...(contabilidadData.payrolls || [])];
+    }
   }
   localStorage.setItem(CONTABILIDAD_KEY, JSON.stringify(contabilidadData));
 }
@@ -4441,8 +4466,10 @@ function resolveOpenPayrollForExport() {
     return null;
   }
   try {
+    snapshotPayrollBackup(p, "before_print");
     saveContabilidadData(true);
   } catch (_) {}
+  beginPayrollPrintLock();
   markPayrollEdited();
   return p;
 }
@@ -4897,11 +4924,33 @@ let payrollLiveTimer = null;
 let payrollSaveTimer = null;
 let payrollCloudPushTimer = null;
 let lastPayrollEditAt = 0;
+/** Tras imprimir/PDF: no bajar nube encima de la nómina abierta (~10 min). */
+let payrollPrintLockUntil = 0;
 
-/** True si hay teclado/foco en la tabla de nómina (otra PC no debe pisar la UI). */
-function isPayrollBeingEdited() {
+function beginPayrollPrintLock(ms) {
+  const dur = Number(ms) > 0 ? Number(ms) : 10 * 60 * 1000;
+  payrollPrintLockUntil = Date.now() + dur;
+  markPayrollEdited();
+}
+
+function isPayrollPrintLocked() {
+  return Date.now() < payrollPrintLockUntil;
+}
+
+function isOpenPayrollTableVisible() {
+  if (!selectedPayrollId) return false;
   const active = document.querySelector(".view.active");
-  if (!active || active.id !== "nominaView") return false;
+  if (!active || (active.id !== "nominaView" && active.id !== "contabilidadView")) return false;
+  const root = document.getElementById("contabPayrollDetail");
+  if (!root || root.hidden) return false;
+  return !!root.querySelector("tr[data-line-idx]");
+}
+
+/** True si hay teclado/foco en la tabla de nómina (la nube no debe pisar la UI). */
+function isPayrollBeingEdited() {
+  if (isPayrollPrintLocked()) return true;
+  const active = document.querySelector(".view.active");
+  if (!active || (active.id !== "nominaView" && active.id !== "contabilidadView")) return false;
   if (!selectedPayrollId) return false;
   const root = document.getElementById("contabPayrollDetail");
   if (!root || root.hidden) return false;
@@ -4932,20 +4981,20 @@ function markPayrollEdited() {
   if (typeof lastLocalEditAt !== "undefined") lastLocalEditAt = Date.now();
 }
 
-/** Cada 10 minutos, solo si alguien está editando la nómina. Si no hay trabajo, no guarda. */
+/** Cada 2 minutos mientras editan nómina (antes 10 min — no alcanzaba a imprimir). */
 function backupOpenPayrollIfWorking() {
   if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
   if (!lastPayrollEditAt) return;
-  const tenMin = 10 * 60 * 1000;
-  if (Date.now() - lastPayrollEditAt > tenMin) return;
-  if (Date.now() - (backupOpenPayrollIfWorking.lastAt || 0) < tenMin) return;
+  const gap = 2 * 60 * 1000;
+  if (Date.now() - lastPayrollEditAt > 15 * 60 * 1000) return;
+  if (Date.now() - (backupOpenPayrollIfWorking.lastAt || 0) < gap) return;
   const p = (contabilidadData.payrolls || []).find((x) => x && x.id === selectedPayrollId);
   if (!p) return;
   try {
     flushOpenPayrollDraft(false);
   } catch (_) {}
   const fresh = (contabilidadData.payrolls || []).find((x) => x && x.id === p.id) || p;
-  const entry = snapshotPayrollBackup(fresh, "auto_10m");
+  const entry = snapshotPayrollBackup(fresh, "auto_2m");
   if (!entry) return;
   backupOpenPayrollIfWorking.lastAt = Date.now();
   saveContabilidadData(true);

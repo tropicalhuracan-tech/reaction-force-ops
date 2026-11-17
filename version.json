@@ -1,7 +1,7 @@
 {
-  "build": 264,
-  "label": "v264",
-  "badgeNote": "Vargas visible todos; fix envío nómina",
+  "build": 265,
+  "label": "v265",
+  "badgeNote": "Nómina: no borrar al imprimir + respaldo",
   "minBuild": 240,
-  "note": "v264: Ramón Vargas todos; admin sync; nómina tras enviar"
+  "note": "v265: candado imprimir, respaldo 2m y antes de imprimir"
 }
