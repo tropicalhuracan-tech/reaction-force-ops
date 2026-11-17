@@ -14,7 +14,7 @@ const VARGAS_NAME_VARIANT_HINTS = [
 ];
 const VARGAS_SAFETY_KEY = "rfs-ops-vargas-payroll-safety";
 const VARGAS_MANUAL_BACKUP_KEY = "rfs-ops-vargas-manual-backups";
-const VARGAS_MANUAL_BACKUP_MAX = 12;
+const VARGAS_MANUAL_BACKUP_MAX = 20;
 const VARGAS_UNDO_KEY = "rfs-ops-vargas-undo-stack";
 const VARGAS_UNDO_MAX = 40;
 let vargasUndoStack = [];
@@ -829,14 +829,43 @@ function restoreVargasFromStoredBackup() {
   return { ok: true, at: backup.at, gained: Math.max(0, after - before) };
 }
 
-function guardarVargasRespaldo() {
-  pushVargasManualBackup("guardar");
+function restoreVargasFromSnapshotReplace(payload) {
+  if (!payload || !Array.isArray(payload.reports) || !payload.reports.length) {
+    return { ok: false, reason: "empty" };
+  }
+  ensureVargasSeedLoaded();
+  vargasData = normalizeVargasData(
+    {
+      reports: payload.reports,
+      globalRemovedNameKeys: payload.globalRemovedNameKeys || [],
+      globalRemovedLabels: payload.globalRemovedLabels || [],
+    },
+    { dedupeLoose: false }
+  );
+  if (payload.activeReportId) setActiveVargasReport(payload.activeReportId);
+  if (typeof markVargasLocalAuthority === "function") markVargasLocalAuthority();
   persistVargasSafetyNet(vargasData);
   saveVargasData(true, true);
   try {
     if (typeof flushCloudSave === "function") flushCloudSave();
   } catch (_) {}
+  renderVargasModule();
   return { ok: true };
+}
+
+async function guardarVargasRespaldo() {
+  pushVargasManualBackup("guardar");
+  persistVargasSafetyNet(vargasData);
+  saveVargasData(true, true);
+  let cloudNote = "";
+  if (window.RFSReportSnapshots && typeof window.RFSReportSnapshots.pushVargasCloudSnapshot === "function") {
+    const r = await window.RFSReportSnapshots.pushVargasCloudSnapshot("manual");
+    if (r && r.ok) cloudNote = " · copia en nube";
+  }
+  try {
+    if (typeof flushCloudSave === "function") flushCloudSave();
+  } catch (_) {}
+  return { ok: true, cloudNote };
 }
 
 /** Recupera marcas si un sync dejó el reporte más vacío que la copia de seguridad local. */
@@ -2919,6 +2948,9 @@ function reorganizeVargasToPayroll() {
 
 function renderVargasModule() {
   if (typeof canAccessVargas === "function" && !canAccessVargas()) return;
+  if (window.RFSReportSnapshots && typeof window.RFSReportSnapshots.ensureVargasTabWatch === "function") {
+    window.RFSReportSnapshots.ensureVargasTabWatch();
+  }
   const scrollPos = captureVargasScroll();
   ensureVargasSeedLoaded();
   vargasApplyAllBansToData(vargasData);
@@ -3053,7 +3085,8 @@ function renderVargasModule() {
       ${vargasMemoTools() ? vargasMemoTools().renderMemoPaletteHtml(vargasMemoColorPick) : ""}
       <div class="vargas-actions">
         <button type="button" class="primary" id="btnVargasGuardar">Guardar respaldo</button>
-        <button type="button" class="secondary" id="btnVargasRecuperar">Recuperar respaldo</button>
+        <button type="button" class="secondary" id="btnVargasRecuperar">Recuperar último</button>
+        <button type="button" class="secondary" id="btnVargasHistorial">Historial respaldos</button>
         <button type="button" class="secondary" id="btnVargasImportExcel" title="Sube .xlsx con Nombre, Puesto, Turno y columnas de días">Importar Excel</button>
         <button type="button" class="secondary danger-outline" id="btnVargasBlank" title="Borra filas de esta quincena; luego Importar Excel">Vaciar quincena (Excel nuevo)</button>
         <button type="button" class="secondary" id="btnVargasDedupe">Quitar duplicados</button>
@@ -3061,7 +3094,9 @@ function renderVargasModule() {
         <button type="button" class="secondary" id="btnVargasPrint">Imprimir / Compartir</button>
         <button type="button" class="primary" id="btnVargasNominaGeneral">Enviar a nómina general</button>
       </div>
+      ${window.RFSReportSnapshots && typeof window.RFSReportSnapshots.vargasTabWarningHtml === "function" ? window.RFSReportSnapshots.vargasTabWarningHtml() : ""}
       <p class="muted tight" style="margin-top:6px">Excel: encabezado <strong>Nombre · Puesto · Turno (D/N) · B/E</strong> y columnas <strong>16, 17, 18…</strong> (marcas 1, 1.5, 2). Combina con esta quincena.</p>
+      <p class="muted tight"><strong>Guardar respaldo</strong> guarda en esta PC y en la nube (últimas 10 por quincena). Auto cada ~5 min si escribes. <strong>Historial</strong> restaura una copia elegida.</p>
       <p class="muted tight" style="margin-top:10px">
         <strong>1</strong> = turno (1 día). <strong>1.5</strong> = 1 día + 6 h extras (no hace falta en Horas ext.).
         <strong>2</strong> en un día = +RD$${VARGAS_VOLAO_AMOUNT} volao.
@@ -3297,9 +3332,30 @@ function bindVargasUiHandlers() {
   });
   const btnGuardar = document.getElementById("btnVargasGuardar");
   if (btnGuardar) {
-    btnGuardar.addEventListener("click", () => {
-      guardarVargasRespaldo();
-      if (typeof toast === "function") toast("Respaldo guardado (local + nube).");
+    btnGuardar.addEventListener("click", async () => {
+      btnGuardar.disabled = true;
+      const r = await guardarVargasRespaldo();
+      btnGuardar.disabled = false;
+      if (typeof toast === "function") toast(`Respaldo guardado (PC${r.cloudNote || ""}).`);
+    });
+  }
+  const btnHistorial = document.getElementById("btnVargasHistorial");
+  if (btnHistorial) {
+    btnHistorial.addEventListener("click", () => {
+      const rep = getActiveVargasReport();
+      if (!window.RFSReportSnapshots || typeof window.RFSReportSnapshots.openSnapshotHistoryModal !== "function") {
+        if (typeof toast === "function") toast("Historial no disponible (actualiza la app).");
+        return;
+      }
+      window.RFSReportSnapshots.openSnapshotHistoryModal({
+        kind: "vargas",
+        reportId: rep && rep.id,
+        title: `Historial · ${rep ? vargasQuincenaTitle(rep) : "Ramón Vargas"}`,
+        onRestore: (payload) => {
+          restoreVargasFromSnapshotReplace(payload);
+          if (typeof toast === "function") toast("Planilla restaurada desde historial.");
+        },
+      });
     });
   }
   const btnRecuperar = document.getElementById("btnVargasRecuperar");

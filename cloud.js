@@ -7,6 +7,8 @@
   const MEDIA_COLLECTION = cfg.mediaCollection || "rfs_media";
   const PAYROLLS_COLLECTION = cfg.payrollsCollection || "rfs_payrolls";
   const PAYROLL_BACKUPS_COLLECTION = cfg.payrollBackupsCollection || "rfs_payroll_backups";
+  const REPORT_SNAPSHOTS_COLLECTION = cfg.reportSnapshotsCollection || "rfs_report_snapshots";
+  const REPORT_SNAPSHOT_MAX_PER_QUINCENA = 10;
   const storageBucket =
     cfg.storageBucket || (projectId ? `${projectId}.firebasestorage.app` : "");
   const SCHEMA_VERSION = "2";
@@ -247,6 +249,115 @@
 
   function payrollBackupPath(id) {
     return `${PAYROLL_BACKUPS_COLLECTION}/${safeId(id)}`;
+  }
+
+  function reportSnapshotPath(docId) {
+    return `${REPORT_SNAPSHOTS_COLLECTION}/${safeId(docId)}`;
+  }
+
+  function reportSnapshotIndexDocPath(kind) {
+    return kind === "monoq" ? partPath("monorriel") : partPath("vargas");
+  }
+
+  function reportSnapshotIndexField(kind) {
+    return kind === "monoq" ? "monoqSnapshotsIndexJson" : "vargasSnapshotsIndexJson";
+  }
+
+  /** Nivel A: historial en nube (últimos N por quincena) al guardar respaldo. */
+  async function saveReportSnapshot(entry) {
+    if (!projectId || !apiKey) return { ok: false, reason: "no-cloud" };
+    const kind = entry && entry.kind === "monoq" ? "monoq" : "vargas";
+    const reportId = String((entry && entry.reportId) || "").trim();
+    if (!reportId) return { ok: false, reason: "no-report" };
+    const createdAt = new Date().toISOString();
+    const id = `${kind}_${safeId(reportId)}_${Date.now()}`;
+    const docBody = {
+      kind,
+      reportId,
+      createdAt,
+      createdBy: String((entry && entry.createdBy) || "").slice(0, 48),
+      reason: String((entry && entry.reason) || "manual").slice(0, 24),
+      label: String((entry && entry.label) || "").slice(0, 120),
+      markScore: Math.max(0, Math.floor(Number((entry && entry.markScore) || 0))),
+      payload: entry && entry.payload && typeof entry.payload === "object" ? entry.payload : {},
+    };
+    await patchDoc(
+      reportSnapshotPath(id),
+      {
+        snapshotJson: { stringValue: JSON.stringify(docBody) },
+        kind: { stringValue: kind },
+        reportId: { stringValue: reportId },
+        createdAt: { stringValue: createdAt },
+        createdBy: { stringValue: docBody.createdBy },
+        markScore: { integerValue: String(docBody.markScore) },
+      },
+      ["snapshotJson", "kind", "reportId", "createdAt", "createdBy", "markScore"]
+    );
+
+    const indexPath = reportSnapshotIndexDocPath(kind);
+    const indexKey = reportSnapshotIndexField(kind);
+    let index = [];
+    try {
+      const idxDoc = await getDoc(indexPath);
+      index = idxDoc && idxDoc.fields ? parseArrayField(idxDoc.fields, indexKey) : [];
+    } catch (_) {}
+    index.unshift({
+      id,
+      createdAt,
+      createdBy: docBody.createdBy,
+      reportId,
+      markScore: docBody.markScore,
+      label: docBody.label,
+      reason: docBody.reason,
+    });
+    const byReport = new Map();
+    const toDelete = [];
+    index.forEach((row) => {
+      if (!row || !row.id) return;
+      const rid = String(row.reportId || "");
+      const list = byReport.get(rid) || [];
+      list.push(row);
+      byReport.set(rid, list);
+    });
+    const newIndex = [];
+    byReport.forEach((list) => {
+      list.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      list.forEach((row, i) => {
+        if (i < REPORT_SNAPSHOT_MAX_PER_QUINCENA) newIndex.push(row);
+        else toDelete.push(row.id);
+      });
+    });
+    newIndex.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    await patchDoc(
+      indexPath,
+      {
+        [indexKey]: { stringValue: JSON.stringify(newIndex.slice(0, 200)) },
+        updatedAt: { stringValue: createdAt },
+      },
+      ["updatedAt", indexKey]
+    );
+    await Promise.all(
+      toDelete.map((snapId) => deleteDocByPath(reportSnapshotPath(snapId)).catch(() => false))
+    );
+    return { ok: true, id, createdAt };
+  }
+
+  async function listReportSnapshots(kind, reportId, limit = 10) {
+    const indexKey = reportSnapshotIndexField(kind === "monoq" ? "monoq" : "vargas");
+    const idxDoc = await getDoc(reportSnapshotIndexDocPath(kind === "monoq" ? "monoq" : "vargas"));
+    let index = idxDoc && idxDoc.fields ? parseArrayField(idxDoc.fields, indexKey) : [];
+    const rid = String(reportId || "").trim();
+    if (rid) index = index.filter((r) => String(r.reportId) === rid);
+    return index.slice(0, Math.max(1, Math.min(limit, 20)));
+  }
+
+  async function fetchReportSnapshot(snapshotId) {
+    const id = String(snapshotId || "").trim();
+    if (!id) return null;
+    const doc = await getDoc(reportSnapshotPath(id));
+    if (!doc || !doc.fields) return null;
+    const body = parseObjectField(doc.fields, "snapshotJson");
+    return body && body.payload ? body : null;
   }
 
   function payrollIndexPath() {
@@ -2455,6 +2566,9 @@
     mergeMonorrielPreferUnion,
     loadSeparatedPayrollBundle,
     persistSeparatedPayrolls,
+    saveReportSnapshot,
+    listReportSnapshots,
+    fetchReportSnapshot,
     SCHEMA_VERSION,
   };
 })();

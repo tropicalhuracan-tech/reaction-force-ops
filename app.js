@@ -53,7 +53,7 @@ function canSyncMonorrielQuincenaData() {
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
 const APP_BUILD = 254;
-const APP_VERSION_LABEL = "v256";
+const APP_VERSION_LABEL = "v257";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2403,6 +2403,7 @@ function shouldSkipSensitiveRemoteMergeBeforeSave() {
 function markSensitiveReportEdit() {
   lastLocalEditAt = Date.now();
   if (typeof markPayrollEdited === "function") markPayrollEdited();
+  if (typeof scheduleReportAutoSnapshots === "function") scheduleReportAutoSnapshots();
 }
 if (typeof window !== "undefined") {
   window.markSensitiveReportEdit = markSensitiveReportEdit;
@@ -14548,7 +14549,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v256")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v257")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }
