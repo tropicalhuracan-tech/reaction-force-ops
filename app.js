@@ -59,8 +59,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 264;
-const APP_VERSION_LABEL = "v264";
+const APP_BUILD = 265;
+const APP_VERSION_LABEL = "v265";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
@@ -2397,6 +2397,7 @@ function saveAllEmployees() {
 function shouldSkipSensitiveRemoteMergeBeforeSave() {
   const now = Date.now();
   if (now - lastLocalEditAt < LOCAL_EDIT_GRACE_MS) return true;
+  if (typeof isPayrollPrintLocked === "function" && isPayrollPrintLocked()) return true;
   if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return true;
   const active = document.activeElement;
   if (active && active.closest) {
@@ -2586,6 +2587,9 @@ async function livePullFromCloud(reason, opts) {
     if (typeof isMonoReportBeingEdited === "function" && isMonoReportBeingEdited()) {
       return { pulled: false, skipped: "mono-editing" };
     }
+    if (typeof isPayrollPrintLocked === "function" && isPayrollPrintLocked()) {
+      return { pulled: false, skipped: "payroll-print" };
+    }
     if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) {
       return { pulled: false, skipped: "payroll-editing" };
     }
@@ -2658,11 +2662,15 @@ function startLiveCloudSync() {
       flushCloudSave();
       return;
     }
-    livePullFromCloud("focus", { force: true }).catch(() => {});
+    if (typeof isPayrollPrintLocked === "function" && isPayrollPrintLocked()) return;
+    if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return;
+    livePullFromCloud("focus", { force: false }).catch(() => {});
   });
   window.addEventListener("focus", () => {
     if (document.visibilityState !== "visible") return;
-    livePullFromCloud("focus", { force: true }).catch(() => {});
+    if (typeof isPayrollPrintLocked === "function" && isPayrollPrintLocked()) return;
+    if (typeof isPayrollBeingEdited === "function" && isPayrollBeingEdited()) return;
+    livePullFromCloud("focus", { force: false }).catch(() => {});
   });
   window.addEventListener("online", () => {
     flushCloudSave();
