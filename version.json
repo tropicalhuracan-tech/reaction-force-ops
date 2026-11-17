@@ -1,6 +1,6 @@
 {
-  "build": 257,
-  "label": "v257",
-  "minBuild": 257,
-  "note": "Historial respaldos nube (10/quincena), auto 5m, aviso doble pestaña"
+  "build": 258,
+  "label": "v258",
+  "minBuild": 248,
+  "note": "Fix candado versión: entrar con caché v248+; min nube desde version.json"
 }

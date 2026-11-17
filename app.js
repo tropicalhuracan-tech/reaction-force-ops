@@ -52,8 +52,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 254;
-const APP_VERSION_LABEL = "v257";
+const APP_BUILD = 258;
+const APP_VERSION_LABEL = "v258";
 const LEGACY_POST_KEYS = [
   "rfs-ops-posts-v6",
   "rfs-ops-posts-v5",
@@ -2852,7 +2852,12 @@ function emptyContabilidadDataSafe() {
 }
 
 async function saveCloudBundle(options) {
-  const opts = Object.assign({ clientBuild: APP_BUILD }, options || {});
+  let cloudMinBuild = 0;
+  try {
+    const pub = await fetchPublishedVersionInfo();
+    cloudMinBuild = pub && (Number(pub.minBuild) || Number(pub.build)) ? Number(pub.minBuild) || 0 : 0;
+  } catch (_) {}
+  const opts = Object.assign({ clientBuild: APP_BUILD, minAppBuild: cloudMinBuild || APP_BUILD }, options || {});
   return window.RFSCloudApi.saveCloud(
     posts,
     reports,
@@ -5040,26 +5045,13 @@ async function checkAppVersionGate(opts = {}) {
   const published = await fetchPublishedVersionInfo();
   if (published && published.build) {
     publishedAppBuild = published.build;
-    required = Math.max(required, published.minBuild || published.build);
-    source = published.label || `v${published.build}`;
-  }
-
-  try {
-    if (window.RFSCloudApi && typeof window.RFSCloudApi.peekCloudUpdatedAt === "function") {
-      const peek = await window.RFSCloudApi.peekCloudUpdatedAt();
-      if (peek && !peek.empty) {
-        const cloudMin = Number(peek.minAppBuild) || 0;
-        const cloudBuild = Number(peek.appBuild) || 0;
-        if (cloudMin > required) {
-          required = cloudMin;
-          source = `nube build ${cloudMin}`;
-        } else if (cloudBuild > required) {
-          required = cloudBuild;
-          source = `nube build ${cloudBuild}`;
-        }
-      }
+    // Solo minBuild obliga (no la última build publicada — evita bloquear todas las PC en despliegue).
+    const minFromFile = Number(published.minBuild) || 0;
+    if (minFromFile > 0) {
+      required = minFromFile;
+      source = published.label ? `${published.label} (mín. ${minFromFile})` : `build mín. ${minFromFile}`;
     }
-  } catch (_) {}
+  }
 
   if (required > 0 && APP_BUILD < required) {
     appVersionBlocked = true;
@@ -5069,10 +5061,9 @@ async function checkAppVersionGate(opts = {}) {
   }
 
   if (published && published.build && APP_BUILD < published.build) {
-    appVersionBlocked = true;
-    appVersionBlockReason = `Tu App es ${APP_VERSION_LABEL}. Publicada: ${published.label || "v" + published.build}.`;
-    showAppVersionGate(appVersionBlockReason);
-    return false;
+    // Aviso suave: puede entrar; se recomienda actualizar (Ctrl+F5 / Actualizar ahora).
+    appVersionBlocked = false;
+    appVersionBlockReason = "";
   }
 
   appVersionBlocked = false;
@@ -14549,7 +14540,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.caches) {
       caches.keys().then((keys) => {
         keys
-          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v257")
+          .filter((k) => k.startsWith("rfs-ops-") && k !== "rfs-ops-v258")
           .forEach((k) => caches.delete(k));
       }).catch(() => {});
     }

@@ -2319,7 +2319,11 @@
       updatedAt: { stringValue: updatedAt },
       app: { stringValue: "Reaction Force Security Ops" },
       appBuild: { integerValue: String(publishBuild || 0) },
-      minAppBuild: { integerValue: String(publishBuild || 0) },
+      minAppBuild: {
+        integerValue: String(
+          Math.max(0, Number(opts.minAppBuild) > 0 ? Number(opts.minAppBuild) : publishBuild || 0)
+        ),
+      },
       // Liberar campos legacy pesados del documento main
       postsJson: { stringValue: "[]" },
       employeesJson: { stringValue: "[]" },
