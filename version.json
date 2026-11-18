@@ -1,7 +1,7 @@
 {
-  "build": 266,
-  "label": "v266",
-  "badgeNote": "Modo nómina solo PC AOC",
+  "build": 267,
+  "label": "v267",
+  "badgeNote": "Feriado RD$800 Reaction/Banco/Efectivo",
   "minBuild": 240,
-  "note": "v266: cierre local, subir nómina al terminar"
+  "note": "v267: botón feriado + 800 auto nov 01-15"
 }
