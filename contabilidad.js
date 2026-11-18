@@ -1,6 +1,8 @@
 /* ==== MÓDULO CONTABILIDAD (DGII / NÓMINA OFICINA) ==== */
 const CONTABILIDAD_KEY = "rfs-ops-contabilidad";
 const ITBIS_RATE = 0.18;
+/** Monto feriado quincena (nov 01–15 etc.) en Reaction / Banco / Efectivo. */
+const PAYROLL_FERIADO_DEFAULT = 800;
 
 let contabilidadData = emptyContabilidadData();
 let contabTab = "gastos";
@@ -647,6 +649,8 @@ function normalizePayrollLine(l = {}, opts = {}) {
     /** Usuario fijó horas extras a mano (incluso 0). */
     horasExtrasManual: !!l.horasExtrasManual,
     feriado: Math.max(0, Number(l.feriado) || 0),
+    /** Usuario fijó feriado a mano (incluso 0 = sin feriado). */
+    feriadoManual: !!l.feriadoManual,
     almuerzo: Math.max(0, Number(l.almuerzo) || 0),
     rifa: Math.max(0, Number(l.rifa) || 0),
     adelantos: Math.max(0, Number(l.adelantos) || 0),
@@ -3474,7 +3478,14 @@ function readPayrollLinesFromDom(payrollId) {
             ? prev.horasExtras
             : g("horasExtras"),
         horasExtrasManual: isManual ? true : !!prev.horasExtrasManual,
-        feriado: showFer ? g("feriado") : 0,
+        feriado: showFer
+          ? readNum("feriado", prev.feriado)
+          : Math.max(0, Number(prev.feriado) || 0),
+        feriadoManual: isManual
+          ? true
+          : showFer && g("feriado") !== "" && g("feriado") != null
+            ? true
+            : !!prev.feriadoManual,
         almuerzo: isOffice
           ? 0
           : isLavega
@@ -3993,8 +4004,33 @@ const PAYROLL_PRINT_COLS_BASE = [
   ["redondeo", "Redondeo", "ro"],
 ];
 
+function payrollSupportsFeriadoColumn(p) {
+  if (!p || payrollIsOffice(p)) return false;
+  const g = String(p.group || "").trim();
+  return (
+    g === "reaction" ||
+    g === "banco" ||
+    g === "efectivo" ||
+    g === "general" ||
+    g === "lavega" ||
+    g === "monorriel" ||
+    g === "lotedom"
+  );
+}
+
+function defaultPayrollFeriadoAmount(p) {
+  if (!payrollSupportsFeriadoColumn(p)) return 0;
+  const period = String((p && p.period) || "").slice(0, 7);
+  const half = p && (p.half === 2 || p.half === "2") ? 2 : 1;
+  const g = String((p && p.group) || "").trim();
+  const reactionFamily = g === "reaction" || g === "banco" || g === "efectivo" || g === "general";
+  if (reactionFamily && period === "2025-11" && half === 1) return PAYROLL_FERIADO_DEFAULT;
+  if (reactionFamily) return PAYROLL_FERIADO_DEFAULT;
+  return PAYROLL_FERIADO_DEFAULT;
+}
+
 function payrollShowsFeriado(p) {
-  if (payrollIsOffice(p)) return false;
+  if (!payrollSupportsFeriadoColumn(p)) return false;
   return !!(p && p.showFeriado);
 }
 
@@ -4560,27 +4596,47 @@ function payrollRequestTableRebuild() {
 }
 
 function togglePayrollFeriado() {
-  syncOpenPayrollFromDom(false);
   const p = ensureOpenPayrollDraft();
   if (!p) {
     toast("Abre o genera una nómina primero.");
     return;
   }
-  if (payrollIsOffice(p)) {
+  if (!payrollSupportsFeriadoColumn(p)) {
     toast("La nómina de oficina no usa feriado.");
     return;
   }
-  p.showFeriado = !p.showFeriado;
-  if (!p.showFeriado) {
-    p.lines = (p.lines || []).map((l) =>
-      computePayrollLineTotals({ ...l, feriado: 0 }, payrollComputeOpts(p))
-    );
+  if (p.showFeriado && typeof flushOpenPayrollDraft === "function") {
+    try {
+      flushOpenPayrollDraft(false);
+    } catch (_) {}
+    syncOpenPayrollFromDom(false);
   }
+  const turningOn = !p.showFeriado;
+  p.showFeriado = turningOn;
+  const opts = payrollComputeOpts(p);
+  const defAmt = defaultPayrollFeriadoAmount(p);
+  p.lines = (p.lines || []).map((l) => {
+    if (!String(l.fullName || "").trim()) return l;
+    if (!turningOn) {
+      return computePayrollLineTotals({ ...l, feriado: 0, feriadoManual: false }, opts);
+    }
+    let fer = Math.max(0, Number(l.feriado) || 0);
+    const manualCleared = l.feriadoManual && fer === 0;
+    if (!manualCleared && (fer === 0 || (!l.feriadoManual && defAmt > 0))) {
+      fer = defAmt;
+    }
+    return computePayrollLineTotals({ ...l, feriado: fer }, opts);
+  });
   p.updatedAt = new Date().toISOString();
+  markPayrollEdited();
   payrollRequestTableRebuild();
   saveContabilidadData(true);
   renderNominaTab();
-  toast(p.showFeriado ? "Columna Feriado habilitada." : "Columna Feriado oculta.");
+  toast(
+    p.showFeriado
+      ? `Columna Feriado ON · RD$ ${defAmt} en cada empleado (cámbielo a 0 en la fila si no aplica).`
+      : "Columna Feriado oculta y montos en 0."
+  );
 }
 
 function resolveOpenPayrollForExport() {
@@ -5441,6 +5497,7 @@ function applyPayrollLiveUpdate(ev) {
   const forceBase = field === "daysWorked" || field === "salaryMonthly";
   const editSfs = field === "sfs";
   const editHex = field === "horasExtras";
+  const editFeriado = field === "feriado";
   const editQuincena = field === "salaryQuincena";
   let workLines = lines.map((l, i) => {
     if (isManualPayrollLine(l)) {
@@ -5460,12 +5517,13 @@ function applyPayrollLiveUpdate(ev) {
       }
       return computePayrollLineTotals(next, opts);
     }
-    if (i === idx && (editSfs || editHex)) {
+    if (i === idx && (editSfs || editHex || editFeriado)) {
       return computePayrollLineTotals(
         {
           ...l,
           sfsManual: editSfs ? true : !!l.sfsManual,
           horasExtrasManual: editHex ? true : !!l.horasExtrasManual,
+          feriadoManual: editFeriado ? true : !!l.feriadoManual,
           sfs: Math.max(0, Number(l.sfs) || 0),
           horasExtras: Math.max(0, Number(l.horasExtras) || 0),
         },
@@ -6237,9 +6295,13 @@ function renderNominaTab() {
           ? `<button type="button" class="btn btn-sm" id="btnMonoLlenarDatos" style="width:auto;background:#ff7a00;color:#1a1000;font-weight:800;border:0;border-radius:10px;padding:10px 14px" title="Trae puesto, días, volaos de la marca 2 y horas extras. No toca los préstamos.">Enviar a nómina</button>`
           : ""
       }
-      <button type="button" class="btn secondary btn-sm" id="btnToggleFeriado" style="width:auto">${
-        p.showFeriado ? "Ocultar feriado" : "Habilitar feriado"
-      }</button>
+      ${
+        payrollSupportsFeriadoColumn(p)
+          ? `<button type="button" class="btn secondary btn-sm" id="btnToggleFeriado" style="width:auto">${
+              p.showFeriado ? "Ocultar feriado" : `Habilitar feriado (RD$ ${defaultPayrollFeriadoAmount(p)})`
+            }</button>`
+          : ""
+      }
     </div>`
     }
     <div class="nomina-table-wrap${isOfficeOpen ? " nomina-table-wrap-office" : ""}">
@@ -6511,6 +6573,7 @@ function bindContabilidadUi() {
     selectedPayrollId = found ? found.id : "";
     renderNominaTab();
   });
+  updatePayrollLocalOnlyUi();
   document.getElementById("contabPayrollHalf")?.addEventListener("change", () => {
     const period = getSelectedMonth();
     const half = getSelectedPayrollHalf();
