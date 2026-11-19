@@ -4595,6 +4595,56 @@ function payrollRequestTableRebuild() {
   renderNominaTab._forceDetailRebuild = true;
 }
 
+function reactionFamilyPayrolls(period, half) {
+  const per = String(period || "").slice(0, 7);
+  const h = half === 2 || half === "2" ? 2 : 1;
+  const out = { reaction: null, banco: null, efectivo: null };
+  (contabilidadData.payrolls || []).forEach((pay) => {
+    if (!pay) return;
+    if (String(pay.period || "").slice(0, 7) !== per) return;
+    const ph = pay.half === 2 || pay.half === "2" ? 2 : 1;
+    if (ph !== h) return;
+    const g = String(pay.group || "");
+    if (g === "reaction") out.reaction = pay;
+    if (g === "banco") out.banco = pay;
+    if (g === "efectivo") out.efectivo = pay;
+  });
+  if (typeof findPayrollByGroup === "function") {
+    if (!out.reaction) out.reaction = findPayrollByGroup(per, h, "reaction", "");
+    if (!out.banco) out.banco = findPayrollByGroup(per, h, "banco", "");
+    if (!out.efectivo) out.efectivo = findPayrollByGroup(per, h, "efectivo", "");
+  }
+  return out;
+}
+
+/** Misma columna feriado en General, Banco y Efectivo del mismo corte. */
+function syncReactionFamilyFeriadoColumn(source) {
+  const src = source || ensureOpenPayrollDraft();
+  if (!src || !payrollSupportsFeriadoColumn(src)) return;
+  const g = String(src.group || "");
+  if (g !== "reaction" && g !== "banco" && g !== "efectivo" && g !== "general") return;
+  const on = !!src.showFeriado;
+  const defAmt = defaultPayrollFeriadoAmount(src);
+  const fam = reactionFamilyPayrolls(src.period, src.half);
+  ["reaction", "banco", "efectivo"].forEach((key) => {
+    const p = fam[key];
+    if (!p || !payrollSupportsFeriadoColumn(p)) return;
+    p.showFeriado = on;
+    const opts = payrollComputeOpts(p);
+    p.lines = (p.lines || []).map((l) => {
+      if (!String(l.fullName || "").trim()) return l;
+      if (!on) {
+        return computePayrollLineTotals({ ...l, feriado: 0, feriadoManual: false }, opts);
+      }
+      let fer = Math.max(0, Number(l.feriado) || 0);
+      const manualCleared = l.feriadoManual && fer === 0;
+      if (!manualCleared && fer === 0 && defAmt > 0) fer = defAmt;
+      return computePayrollLineTotals({ ...l, feriado: fer }, opts);
+    });
+    p.updatedAt = new Date().toISOString();
+  });
+}
+
 function togglePayrollFeriado() {
   const p = ensureOpenPayrollDraft();
   if (!p) {
@@ -4628,14 +4678,16 @@ function togglePayrollFeriado() {
     return computePayrollLineTotals({ ...l, feriado: fer }, opts);
   });
   p.updatedAt = new Date().toISOString();
+  syncReactionFamilyFeriadoColumn(p);
   markPayrollEdited();
   payrollRequestTableRebuild();
   saveContabilidadData(true);
   renderNominaTab();
+  const fam = reactionFamilyPayrolls(p.period, p.half);
   toast(
     p.showFeriado
-      ? `Columna Feriado ON · RD$ ${defAmt} en cada empleado (cámbielo a 0 en la fila si no aplica).`
-      : "Columna Feriado oculta y montos en 0."
+      ? `Feriado ON · RD$ ${defAmt} en General + Banco + Efectivo del mismo corte.`
+      : "Feriado OFF en General, Banco y Efectivo."
   );
 }
 
@@ -5475,6 +5527,7 @@ function repartirNominaGeneralAction() {
     upsertGeneralLineOnPayroll(efectivo, line);
     removePayrollName(banco, line.fullName);
   });
+  if (p.showFeriado) syncReactionFamilyFeriadoColumn(p);
   p.updatedAt = new Date().toISOString();
   saveContabilidadData(true);
   toast(
@@ -5888,6 +5941,13 @@ function renderNominaTab() {
     return;
   }
   selectedPayrollId = p.id;
+  if ((payrollIsBanco(p) || payrollIsEfectivo(p)) && !p.showFeriado) {
+    const fam = reactionFamilyPayrolls(p.period, p.half);
+    if (fam.reaction && fam.reaction.showFeriado) {
+      syncReactionFamilyFeriadoColumn(fam.reaction);
+      p = contabilidadData.payrolls.find((x) => x && x.id === p.id) || p;
+    }
+  }
   const forceDetailRebuild = !!renderNominaTab._forceDetailRebuild;
   const domPayrollId = String(detail.dataset.payrollId || "");
   const hasDomRows = !!detail.querySelector("tr[data-line-idx]");
