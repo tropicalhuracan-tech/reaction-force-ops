@@ -4355,45 +4355,48 @@ function payrollShareCaption(p) {
   return `Nómina ${meta.short} - ${halfLabel(p.half || 1)} ${monthLabel(p.period)}`;
 }
 
-function buildPayrollPrintHtml(p) {
-  const cols = getPayrollPrintCols(p);
+/** Mismas líneas y montos que la tabla en pantalla (incl. La Vega / lo tecleado). */
+function payrollLinesForPrintExport(p) {
+  if (!p) return [];
   const isOffice = payrollIsOffice(p);
-  const isLavega = payrollUsesLvaParams(p);
-  const allLines = payrollLinesForTotals(p.lines || []).map((l) => {
-    // Migrar uniforme viejo 215 → 115 (salvo que ya lo hayan cambiado a otro valor)
+  let raw = (p.lines || []).slice();
+  const root = document.getElementById("contabPayrollDetail");
+  if (
+    root &&
+    String(root.dataset.payrollId || "") === String(p.id) &&
+    root.querySelector("tr[data-line-idx]") &&
+    typeof readPayrollLinesFromDom === "function"
+  ) {
+    try {
+      const domLines = readPayrollLinesFromDom(p.id);
+      if (domLines && domLines.length) raw = domLines;
+    } catch (_) {}
+  }
+  const keepFull = payrollKeepsFullVargasNames(p);
+  return payrollLinesForTotals(raw).map((l) => {
     let uniformes = Number(l.uniformes) || 0;
     if (!isOffice && uniformes === 215) uniformes = LVA_PAYROLL_UNIFORMES;
     if (isOffice) uniformes = 0;
-    const keepFull = payrollKeepsFullVargasNames(p);
-    const named = {
+    const line = {
       ...l,
       fullName: keepFull
         ? payrollCleanEmployeeName(l.fullName) || l.fullName
         : payrollShortEmployeeName(l.fullName) || payrollCleanEmployeeName(l.fullName) || l.fullName,
       uniformes,
-      rifa: isManualPayrollLine(l)
-        ? Math.max(0, Number(l.rifa) || 0)
-        : isOffice
-          ? Number(l.rifa) || OFFICE_PAYROLL_RIFA
-          : Number(l.rifa) || LVA_PAYROLL_RIFA,
-      volaos: isOffice ? 0 : l.volaos,
-      almuerzo: isOffice ? 0 : l.almuerzo,
-      feriado: isOffice ? 0 : l.feriado,
-      horasExtras: isOffice && !l.horasExtrasManual && !isManualPayrollLine(l) ? 0 : l.horasExtras,
-      horasExtrasManual: !!l.horasExtrasManual || isManualPayrollLine(l),
-      daysWorked: isOffice ? "" : l.daysWorked,
-      salaryQuincena: isOffice && !isManualPayrollLine(l) ? 0 : l.salaryQuincena,
-      sfs:
-        isOffice && !l.sfsManual && !isManualPayrollLine(l) ? OFFICE_PAYROLL_SFS : l.sfs,
-      sfsManual: !!l.sfsManual || isManualPayrollLine(l),
     };
-    const printOpts = payrollComputeOpts(p);
-    const computed = computePayrollLineTotals(named, printOpts);
+    let computed = computePayrollLineTotalsForPayroll(p, line);
     if (!payrollShowsFeriado(p) && Number(computed.feriado)) {
-      return computePayrollLineTotals({ ...computed, feriado: 0 }, printOpts);
+      computed = computePayrollLineTotalsForPayroll(p, { ...computed, feriado: 0, feriadoManual: true });
     }
     return computed;
   });
+}
+
+function buildPayrollPrintHtml(p) {
+  const cols = getPayrollPrintCols(p);
+  const isOffice = payrollIsOffice(p);
+  const isLavega = payrollUsesLvaParams(p);
+  const allLines = payrollLinesForPrintExport(p);
   const totals = {};
   cols.forEach(([key, , kind]) => {
     if (key === "unifRifa") {
@@ -4701,7 +4704,10 @@ function resolveOpenPayrollForExport() {
     if (typeof flushOpenPayrollDraft === "function") flushOpenPayrollDraft(false);
     syncOpenPayrollFromDom(false);
   } catch (_) {}
-  const p = ensureOpenPayrollDraft();
+  let p = ensureOpenPayrollDraft();
+  if (p && p.id) {
+    p = contabilidadData.payrolls.find((x) => x && x.id === p.id) || p;
+  }
   if (!p || !payrollLinesForTotals(p.lines || []).length) {
     toast("Abre o genera una nómina con empleados antes de imprimir o compartir.");
     return null;
