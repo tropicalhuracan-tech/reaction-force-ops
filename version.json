@@ -1,7 +1,7 @@
 {
-  "build": 268,
-  "label": "v268",
-  "badgeNote": "Feriado también Banco/Efectivo",
+  "build": 269,
+  "label": "v269",
+  "badgeNote": "Imprimir = mismos montos que pantalla",
   "minBuild": 240,
-  "note": "v268: columna feriado sync General→Banco/Efectivo"
+  "note": "v269: impresión La Vega/nómina lee misma tabla"
 }
