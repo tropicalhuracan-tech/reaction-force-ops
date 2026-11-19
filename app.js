@@ -59,8 +59,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 267;
-const APP_VERSION_LABEL = "v267";
+const APP_BUILD = 268;
+const APP_VERSION_LABEL = "v268";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";

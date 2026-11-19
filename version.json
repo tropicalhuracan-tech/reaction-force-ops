@@ -1,7 +1,7 @@
 {
-  "build": 267,
-  "label": "v267",
-  "badgeNote": "Feriado RD$800 Reaction/Banco/Efectivo",
+  "build": 268,
+  "label": "v268",
+  "badgeNote": "Feriado también Banco/Efectivo",
   "minBuild": 240,
-  "note": "v267: botón feriado + 800 auto nov 01-15"
+  "note": "v268: columna feriado sync General→Banco/Efectivo"
 }
