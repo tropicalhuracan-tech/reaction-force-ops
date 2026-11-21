@@ -1,4 +1,11 @@
-const STORAGE_KEY = "rfs-monorriel-presupuesto-v3";
+/** Clave distinta a la app principal Monorriel / nómina (mismo dominio = mismo localStorage). */
+const STORAGE_KEY = "rfs-presupuesto-diario-monorriel-v1";
+const LEGACY_STORAGE_KEYS = [
+  "rfs-presupuesto-diario-monorriel-v1",
+  "rfs-monorriel-presupuesto-v3",
+  "rfs-monorriel-presupuesto-v2",
+  "rfs-monorriel-presupuesto-v1",
+];
 const FERIADO_PAY = 800;
 /** Keys "dia:puestos:0" while the roster name field is open */
 const nameEditKeys = new Set();
@@ -391,9 +398,11 @@ function migrateShift(s, shift) {
 
 function loadState() {
   try {
-    let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) raw = localStorage.getItem("rfs-monorriel-presupuesto-v2");
-    if (!raw) raw = localStorage.getItem("rfs-monorriel-presupuesto-v1");
+    let raw = null;
+    for (const key of LEGACY_STORAGE_KEYS) {
+      raw = localStorage.getItem(key);
+      if (raw) break;
+    }
     if (!raw) return emptyState();
     const s = JSON.parse(raw);
     const base = emptyState();
@@ -900,7 +909,7 @@ function buildPresupuestoPrintHtml() {
   return `
     <div class="brand">
       <h1>Reaction Force Security</h1>
-      <div>Monorriel — Control presupuesto</div>
+      <div>RFS — Presupuesto diario Monorriel</div>
     </div>
     <p class="meta"><strong>Fecha trabajo:</strong> ${escapeHtml(fecha)} · <strong>Quincena:</strong> ${escapeHtml(
     qLabel
@@ -912,7 +921,7 @@ function buildPresupuestoPrintHtml() {
       <p><strong>Total pagado adelantado</strong>: ${money(advTotal)}</p>
       <p class="small">Feriado RD$ ${FERIADO_PAY} por puesto marcado. Día 31 no cuenta al mes.</p>
     </div>
-    <p class="small foot">Generado ${new Date().toLocaleString("es-DO")} · App presupuesto Monorriel (local)</p>`;
+    <p class="small foot">Generado ${new Date().toLocaleString("es-DO")} · RFS Presupuesto diario (local)</p>`;
 }
 
 function openPrintWindow(title, bodyHtml, options = {}) {
@@ -924,7 +933,7 @@ function openPrintWindow(title, bodyHtml, options = {}) {
   }
   const shareText = String(share.text || title || "");
   const shareSubject = String(share.subject || title || "");
-  const fileName = String(share.fileName || "monorriel-presupuesto.pdf");
+  const fileName = String(share.fileName || "rfs-presupuesto-diario-monorriel.pdf");
   const extraCss = options && options.extraCss ? String(options.extraCss) : "";
   win.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtml(title)}</title>
   <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;max-width:920px;margin:0 auto;font-size:11px;line-height:1.35}
@@ -1052,13 +1061,13 @@ function printAndSharePresupuesto() {
   const diaQ = computeShiftQuincena("dia");
   const nocheQ = computeShiftQuincena("noche");
   const pend = diaQ.pendiente + diaQ.feriado + nocheQ.pendiente + nocheQ.feriado;
-  const title = `Monorriel presupuesto — ${fecha} · Q ${qLabel}`;
-  const text = `Monorriel presupuesto ${fecha} · Quincena ${qLabel}\nPendiente: ${money(pend)}\nAdelantado: ${money(diaQ.adelantado + nocheQ.adelantado)}\nReaction Force Security`;
+  const title = `RFS Presupuesto diario — ${fecha} · Q ${qLabel}`;
+  const text = `RFS Presupuesto diario Monorriel ${fecha} · Quincena ${qLabel}\nPendiente: ${money(pend)}\nAdelantado: ${money(diaQ.adelantado + nocheQ.adelantado)}\nReaction Force Security`;
   openPrintWindow(title, buildPresupuestoPrintHtml(), {
     share: {
       subject: title,
       text,
-      fileName: `monorriel-presupuesto-${fecha}-q${state.quincena}.pdf`,
+      fileName: `rfs-presupuesto-diario-monorriel-${fecha}-q${state.quincena}.pdf`,
     },
     extraCss: `
       .brand{border-bottom:3px solid #d41414;padding-bottom:8px;margin-bottom:12px}
@@ -1157,7 +1166,7 @@ function bindUi() {
 
   document.getElementById("btnSave").addEventListener("click", () => {
     saveState();
-    alert("Guardado en este navegador.");
+    alert("Presupuesto diario guardado (almacenamiento aparte de la app Monorriel nómina).");
   });
 
   document.getElementById("btnPrintShare").addEventListener("click", () => printAndSharePresupuesto());
@@ -1167,7 +1176,7 @@ function bindUi() {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     const d = state.date || new Date().toISOString().slice(0, 10);
-    a.download = `monorriel-presupuesto-${d}.json`;
+    a.download = `rfs-presupuesto-diario-monorriel-${d}.json`;
     a.href = URL.createObjectURL(blob);
     a.click();
     URL.revokeObjectURL(a.href);

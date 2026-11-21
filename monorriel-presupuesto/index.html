@@ -3,20 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Monorriel — Presupuesto diario (aparte)</title>
+    <title>RFS Presupuesto diario — Monorriel</title>
+    <meta name="application-name" content="RFS Presupuesto diario" />
+    <meta name="description" content="Control de presupuesto diario Monorriel (aparte de la nómina)" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="top">
       <div>
-        <h1>Control presupuesto Monorriel</h1>
-        <p class="sub">Fuera de la app principal · Día / Noche · quincena 1–15 y 16–30 (el 31 no cuenta al mes)</p>
+        <h1>Presupuesto diario Monorriel</h1>
+        <p class="sub">App aparte de la nómina · Día / Noche · quincena 1–15 y 16–30 (el 31 no cuenta al mes)</p>
       </div>
       <div class="top-actions">
         <label class="date-lbl">Fecha
           <input type="date" id="workDate" />
         </label>
-        <button type="button" id="btnSave" class="btn primary">Guardar en esta PC</button>
+        <button type="button" id="btnSave" class="btn primary">Guardar presupuesto en esta PC</button>
         <button type="button" id="btnPrintShare" class="btn primary">Imprimir / Compartir</button>
         <button type="button" id="btnExport" class="btn secondary">Descargar respaldo</button>
         <button type="button" id="btnImport" class="btn secondary">Cargar respaldo</button>
@@ -59,7 +61,7 @@
       <div id="quincenaTotals" class="quincena-out"></div>
     </section>
 
-    <footer class="foot muted">Reaction Force · Datos en esta PC (localStorage). Para dos equipos: solo edita en uno a la vez; al cambiar de PC usa Descargar / Cargar respaldo. No sincroniza con la app de nómina.</footer>
+    <footer class="foot muted">Reaction Force · <strong>RFS Presupuesto diario</strong> guarda con clave propia (no pisa la app Monorriel/nómina). Dos PCs: Descargar / Cargar respaldo JSON.</footer>
     <script src="app.js"></script>
   </body>
 </html>
