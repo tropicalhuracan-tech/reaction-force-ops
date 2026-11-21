@@ -65,6 +65,67 @@ function setEmployeeName(shift, kind, idx, value) {
   state[shift][kind][idx].employee = String(value || "").trim();
 }
 
+function ensureEmployeeMeta(parsed) {
+  const employeeLast = { dia: emptyRoster(), noche: emptyRoster() };
+  const employeeHistory = {
+    dia: emptyRosterHistorySlots("dia"),
+    noche: emptyRosterHistorySlots("noche"),
+  };
+  if (parsed?.employeeLast) {
+    employeeLast.dia.puestos = ensureRosterNames(parsed.employeeLast.dia?.puestos, RATES.dia.puestos);
+    employeeLast.dia.motos = ensureRosterNames(parsed.employeeLast.dia?.motos, RATES.dia.motos);
+    employeeLast.noche.puestos = ensureRosterNames(parsed.employeeLast.noche?.puestos, RATES.noche.puestos);
+    employeeLast.noche.motos = ensureRosterNames(parsed.employeeLast.noche?.motos, RATES.noche.motos);
+  }
+  if (parsed?.employeeHistory) {
+    employeeHistory.dia = ensureRosterHistorySlots(parsed.employeeHistory.dia, "dia");
+    employeeHistory.noche = ensureRosterHistorySlots(parsed.employeeHistory.noche, "noche");
+  }
+  return { employeeLast, employeeHistory };
+}
+
+function employeeHistoryOptions(shift, kind, idx) {
+  const hist = state.employeeHistory?.[shift]?.[kind]?.[idx];
+  const last = state.employeeLast?.[shift]?.[kind]?.[idx];
+  const cur = employeeName(shift, kind, idx);
+  const uniq = [];
+  [cur, last, ...(hist || [])].forEach((n) => {
+    const t = String(n || "").trim();
+    if (t && !uniq.includes(t)) uniq.push(t);
+  });
+  return uniq;
+}
+
+function employeeInputPlaceholder(shift, kind, idx) {
+  const last = state.employeeLast?.[shift]?.[kind]?.[idx];
+  const puesto = rosterName(shift, kind, idx);
+  if (last) return `Empleado (último aquí: ${last})`;
+  return puesto ? `Quién cubrió ${puesto}` : "Nombre del empleado";
+}
+
+function commitEmployeeName(shift, kind, idx, rawValue) {
+  const prev = employeeName(shift, kind, idx);
+  const next = String(rawValue ?? "").trim();
+  if (prev && prev !== next) {
+    if (!state.employeeLast) state.employeeLast = { dia: emptyRoster(), noche: emptyRoster() };
+    if (!state.employeeHistory) {
+      state.employeeHistory = {
+        dia: emptyRosterHistorySlots("dia"),
+        noche: emptyRosterHistorySlots("noche"),
+      };
+    }
+    state.employeeLast[shift][kind][idx] = prev;
+    const list = state.employeeHistory[shift][kind][idx];
+    [prev, next].filter(Boolean).forEach((n) => {
+      const i = list.indexOf(n);
+      if (i >= 0) list.splice(i, 1);
+      list.unshift(n);
+    });
+    while (list.length > 8) list.pop();
+  }
+  setEmployeeName(shift, kind, idx, next);
+}
+
 function emptyRosterHistorySlots(shift) {
   const r = RATES[shift];
   return {
@@ -250,6 +311,9 @@ function loadState() {
     const meta = ensureRosterMeta(merged);
     merged.rosterLast = meta.rosterLast;
     merged.rosterHistory = meta.rosterHistory;
+    const empMeta = ensureEmployeeMeta(merged);
+    merged.employeeLast = empMeta.employeeLast;
+    merged.employeeHistory = empMeta.employeeHistory;
     return merged;
   } catch (_) {
     return emptyState();
@@ -387,18 +451,17 @@ function renderEmployeeBlock(shift, kind, idx) {
   const ename = employeeName(shift, kind, idx);
   const key = employeeEditKey(shift, kind, idx);
   const editing = employeeEditKeys.has(key) || !ename;
-  const puesto = rosterName(shift, kind, idx);
-  const placeholder = puesto
-    ? `Empleado en ${puesto} (hoy)`
-    : kind === "motos"
-      ? "Nombre del motorizado (hoy)"
-      : "Nombre del empleado (hoy)";
+  const listId = `emp-dl-${shift}-${kind}-${idx}`;
+  const options = employeeHistoryOptions(shift, kind, idx)
+    .map((n) => `<option value="${escapeAttr(n)}"></option>`)
+    .join("");
   if (editing) {
     return `<div class="employee-row editing">
       <span class="employee-label">Empleado</span>
-      <input type="text" class="employee-input" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" value="${escapeAttr(
+      <input type="text" class="employee-input" list="${listId}" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" value="${escapeAttr(
       ename
-    )}" placeholder="${escapeAttr(placeholder)}" />
+    )}" placeholder="${escapeAttr(employeeInputPlaceholder(shift, kind, idx))}" />
+      <datalist id="${listId}">${options}</datalist>
       <button type="button" class="btn-icon btn-emp-done" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Guardar empleado">✓</button>
     </div>`;
   }
@@ -410,7 +473,7 @@ function renderEmployeeBlock(shift, kind, idx) {
 }
 
 function finishEmployeeEdit(shift, kind, idx, inputEl) {
-  setEmployeeName(shift, kind, idx, inputEl ? inputEl.value : employeeName(shift, kind, idx));
+  commitEmployeeName(shift, kind, idx, inputEl ? inputEl.value : employeeName(shift, kind, idx));
   employeeEditKeys.delete(employeeEditKey(shift, kind, idx));
   saveState();
   renderShift(shift);
@@ -498,7 +561,7 @@ function renderShift(shift) {
     <h2>${title}</h2>
     <div class="toolbar">
       <button type="button" class="btn secondary btn-feriado" data-shift="${shift}">${feriadoLabel}</button>
-      <span class="muted toolbar-hint">Arriba: <strong>puesto fijo</strong> (guardado en esta PC). Debajo: <strong>empleado del día</strong>. El presupuesto cuenta solo filas con empleado. Doble clic en un día = pagado adelantado.</span>
+      <span class="muted toolbar-hint">Arriba: <strong>puesto fijo</strong> (✎). Debajo: <strong>empleado</strong> de este reporte (✎, sugiere el último). Presupuesto y días solo con empleado. Doble clic = pagado adelantado.</span>
     </div>
     <div class="budget-bar">
       <div><span>Presupuesto del día (lista)</span><strong>${money(maxShift)}</strong></div>
@@ -523,7 +586,7 @@ function renderShift(shift) {
             : ""
         }
       </div>
-      ${renderEmployeeBlock(shift, "puestos", i)}
+      ${rosterName(shift, "puestos", i) ? renderEmployeeBlock(shift, "puestos", i) : ""}
       ${renderDayGrid(shift, "puestos", i, slot)}
     </div>`;
   });
@@ -543,7 +606,7 @@ function renderShift(shift) {
             : ""
         }
       </div>
-      ${renderEmployeeBlock(shift, "motos", i)}
+      ${rosterName(shift, "motos", i) ? renderEmployeeBlock(shift, "motos", i) : ""}
       ${renderDayGrid(shift, "motos", i, slot)}
     </div>`;
   });
@@ -612,7 +675,6 @@ function slotQuincenaLine(shift, kind, idx) {
   const puesto = rosterName(shift, kind, idx);
   const emp = employeeName(shift, kind, idx);
   if (!emp) return "";
-  const name = puesto ? `${puesto} — ${emp}` : emp;
   const slot = state[shift][kind][idx];
   const rate = slotRate(shift, kind);
   const workDays = shiftWorkDays(shift);
@@ -632,7 +694,8 @@ function slotQuincenaLine(shift, kind, idx) {
   const paidTxt = paidList.length ? paidList.join(", ") : "—";
   return `<tr>
     <td class="c">${idx + 1}</td>
-    <td>${escapeHtml(name)}</td>
+    <td>${escapeHtml(puesto || "—")}</td>
+    <td>${escapeHtml(emp)}</td>
     <td class="c">${feriadoOn ? "Sí" : "—"}</td>
     <td class="c">${paidTxt}</td>
     <td class="n">${money(pendiente)}</td>
@@ -651,7 +714,7 @@ function buildShiftPrintBlock(shift, title) {
   state[shift].motos.forEach((_, i) => {
     rows += slotQuincenaLine(shift, "motos", i);
   });
-  if (!rows) rows = `<tr><td colspan="6" class="c muted">Sin filas con empleado asignado</td></tr>`;
+  if (!rows) rows = `<tr><td colspan="7" class="c muted">Sin filas con empleado asignado</td></tr>`;
   return `
     <h2>${escapeHtml(title)}</h2>
     <p class="meta">Gasto hoy (plantilla llena): <strong>${money(used)}</strong> · Quincena pendiente: <strong>${money(
@@ -659,11 +722,11 @@ function buildShiftPrintBlock(shift, title) {
   )}</strong> · Adelantado: <strong>${money(q.adelantado)}</strong></p>
     <table class="pt">
       <thead><tr>
-        <th>#</th><th>Puesto · empleado</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
+        <th>#</th><th>Puesto</th><th>Empleado</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
       </tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr>
-        <td colspan="4" class="r"><strong>Subtotal ${escapeHtml(title)}</strong></td>
+        <td colspan="5" class="r"><strong>Subtotal ${escapeHtml(title)}</strong></td>
         <td class="n"><strong>${money(q.pendiente + q.feriado)}</strong></td>
         <td class="n adv"><strong>${money(q.adelantado)}</strong></td>
       </tr></tfoot>
@@ -970,6 +1033,9 @@ function bindUi() {
         const meta = ensureRosterMeta(state);
         state.rosterLast = meta.rosterLast;
         state.rosterHistory = meta.rosterHistory;
+        const empMeta = ensureEmployeeMeta(state);
+        state.employeeLast = empMeta.employeeLast;
+        state.employeeHistory = empMeta.employeeHistory;
         saveState();
         document.getElementById("workDate").value = state.date;
         document.getElementById("daysDiaQ").value = state.daysDiaQ;
