@@ -228,6 +228,49 @@ select {
   justify-content: space-between;
   margin-bottom: 6px;
 }
+.roster-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.roster-row .slot-num {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #9aa3af;
+  min-width: 5.5rem;
+}
+.roster-name {
+  font-size: 1rem;
+  color: #fbbf24;
+  font-weight: 800;
+}
+.roster-input {
+  flex: 1;
+  min-width: 140px;
+}
+.btn-icon {
+  border: 1px solid #4a5568;
+  background: #1c2430;
+  color: #fbbf24;
+  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.btn-icon:hover {
+  border-color: #f59e0b;
+  background: #2a3544;
+}
+.btn-done {
+  color: #4ade80;
+  border-color: #22c55e66;
+}
 .feriado-chk {
   font-size: 0.8rem;
   display: flex;

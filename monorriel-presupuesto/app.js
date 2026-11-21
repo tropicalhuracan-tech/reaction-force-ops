@@ -1,5 +1,7 @@
 const STORAGE_KEY = "rfs-monorriel-presupuesto-v2";
 const FERIADO_PAY = 800;
+/** Keys "dia:puestos:0" while the roster name field is open */
+const nameEditKeys = new Set();
 
 const RATES = {
   dia: { puestos: 23, puestoPay: 1000, motos: 3, motoPay: 1153 },
@@ -12,7 +14,61 @@ function money(n) {
 }
 
 function emptySlot() {
-  return { name: "", paidDays: {}, feriado: false };
+  return { paidDays: {}, feriado: false };
+}
+
+function emptyRosterShift(shift) {
+  const r = RATES[shift];
+  return {
+    puestos: Array.from({ length: r.puestos }, () => ""),
+    motos: Array.from({ length: r.motos }, () => ""),
+  };
+}
+
+function emptyRoster() {
+  return { dia: emptyRosterShift("dia"), noche: emptyRosterShift("noche") };
+}
+
+function ensureRosterNames(arr, len) {
+  const out = (Array.isArray(arr) ? arr : []).slice(0, len).map((s) => String(s || "").trim());
+  while (out.length < len) out.push("");
+  return out;
+}
+
+function rosterEditKey(shift, kind, idx) {
+  return `${shift}:${kind}:${idx}`;
+}
+
+function rosterName(shift, kind, idx) {
+  if (!state.roster?.[shift]?.[kind]) return "";
+  return String(state.roster[shift][kind][idx] || "").trim();
+}
+
+function setRosterName(shift, kind, idx, value) {
+  state.roster[shift][kind][idx] = String(value || "").trim();
+}
+
+function migrateRoster(parsed) {
+  const base = emptyRoster();
+  if (parsed?.roster) {
+    base.dia.puestos = ensureRosterNames(parsed.roster.dia?.puestos, RATES.dia.puestos);
+    base.dia.motos = ensureRosterNames(parsed.roster.dia?.motos, RATES.dia.motos);
+    base.noche.puestos = ensureRosterNames(parsed.roster.noche?.puestos, RATES.noche.puestos);
+    base.noche.motos = ensureRosterNames(parsed.roster.noche?.motos, RATES.noche.motos);
+  }
+  for (const shift of ["dia", "noche"]) {
+    const slots = parsed?.[shift];
+    if (!slots) continue;
+    (slots.puestos || []).forEach((slot, i) => {
+      const n = slot && typeof slot === "object" ? slot.name : slot;
+      if (!base[shift].puestos[i] && n) base[shift].puestos[i] = String(n).trim();
+    });
+    (slots.motos || []).forEach((slot, i) => {
+      const n = slot && typeof slot === "object" ? slot.name : slot;
+      if (!base[shift].motos[i] && n) base[shift].motos[i] = String(n).trim();
+    });
+  }
+  return base;
 }
 
 function shiftMaxBudget(shift) {
@@ -23,12 +79,11 @@ function shiftMaxBudget(shift) {
 function normalizeSlot(raw) {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     return {
-      name: String(raw.name || "").trim(),
       paidDays: raw.paidDays && typeof raw.paidDays === "object" ? { ...raw.paidDays } : {},
       feriado: !!raw.feriado,
     };
   }
-  return { name: String(raw || "").trim(), paidDays: {}, feriado: false };
+  return { paidDays: {}, feriado: false };
 }
 
 function ensureSlots(arr, len) {
@@ -49,6 +104,7 @@ function emptyShiftState(shift) {
 function emptyState() {
   return {
     date: new Date().toISOString().slice(0, 10),
+    roster: emptyRoster(),
     dia: emptyShiftState("dia"),
     noche: emptyShiftState("noche"),
     daysDiaQ: 15,
@@ -77,12 +133,14 @@ function loadState() {
     if (!raw) return emptyState();
     const s = JSON.parse(raw);
     const base = emptyState();
-    return {
+    const merged = {
       ...base,
       ...s,
       dia: migrateShift(s.dia, "dia"),
       noche: migrateShift(s.noche, "noche"),
     };
+    merged.roster = migrateRoster(merged);
+    return merged;
   } catch (_) {
     return emptyState();
   }
@@ -108,11 +166,11 @@ function usedBudgetToday(shift) {
   const r = RATES[shift];
   const slots = state[shift];
   let u = 0;
-  slots.puestos.forEach((s) => {
-    if (s.name) u += r.puestoPay;
+  slots.puestos.forEach((_, i) => {
+    if (rosterName(shift, "puestos", i)) u += r.puestoPay;
   });
-  slots.motos.forEach((s) => {
-    if (s.name) u += r.motoPay;
+  slots.motos.forEach((_, i) => {
+    if (rosterName(shift, "motos", i)) u += r.motoPay;
   });
   return u;
 }
@@ -133,8 +191,8 @@ function computeShiftQuincena(shift) {
 
   function walk(list, kind) {
     const rate = slotRate(shift, kind);
-    list.forEach((slot) => {
-      if (!slot.name) return;
+    list.forEach((slot, idx) => {
+      if (!rosterName(shift, kind, idx)) return;
       days.forEach((dayNum) => {
         if (slot.paidDays[String(dayNum)]) adelantado += rate;
         else pendiente += rate;
@@ -162,7 +220,7 @@ function renderRates() {
 }
 
 function renderDayGrid(shift, kind, idx, slot) {
-  if (!slot.name) return "";
+  if (!rosterName(shift, kind, idx)) return "";
   const days = quincenaDayNumbers();
   const work = shiftWorkDays(shift);
   const cells = days
@@ -175,6 +233,75 @@ function renderDayGrid(shift, kind, idx, slot) {
     })
     .join("");
   return `<div class="day-grid" aria-label="Días quincena">${cells}</div>`;
+}
+
+function escapeText(s) {
+  return escapeAttr(s);
+}
+
+function renderNameBlock(shift, kind, idx, label) {
+  const name = rosterName(shift, kind, idx);
+  const key = rosterEditKey(shift, kind, idx);
+  const editing = nameEditKeys.has(key) || !name;
+  if (editing) {
+    return `<div class="roster-row editing">
+      <span class="slot-num">${label}</span>
+      <input type="text" class="roster-input" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" value="${escapeAttr(
+      name
+    )}" placeholder="Nombre fijo (se guarda para siempre)" autofocus />
+      ${
+        name
+          ? `<button type="button" class="btn-icon btn-done" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Listo">✓</button>`
+          : ""
+      }
+    </div>`;
+  }
+  return `<div class="roster-row">
+    <span class="slot-num">${label}</span>
+    <strong class="roster-name">${escapeText(name)}</strong>
+    <button type="button" class="btn-icon btn-edit" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Editar nombre" aria-label="Editar nombre">✎</button>
+  </div>`;
+}
+
+function finishRosterEdit(shift, kind, idx, inputEl) {
+  setRosterName(shift, kind, idx, inputEl ? inputEl.value : rosterName(shift, kind, idx));
+  nameEditKeys.delete(rosterEditKey(shift, kind, idx));
+  saveState();
+  renderShift(shift);
+  renderProjection();
+}
+
+function bindRosterUi(panel, shift) {
+  panel.querySelectorAll(".btn-edit").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      nameEditKeys.add(rosterEditKey(btn.dataset.shift, btn.dataset.kind, Number(btn.dataset.idx)));
+      renderShift(shift);
+    });
+  });
+  panel.querySelectorAll(".btn-done").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const inp = panel.querySelector(
+        `.roster-input[data-shift="${btn.dataset.shift}"][data-kind="${btn.dataset.kind}"][data-idx="${btn.dataset.idx}"]`
+      );
+      finishRosterEdit(btn.dataset.shift, btn.dataset.kind, Number(btn.dataset.idx), inp);
+    });
+  });
+  panel.querySelectorAll(".roster-input").forEach((inp) => {
+    const commit = () => finishRosterEdit(inp.dataset.shift, inp.dataset.kind, Number(inp.dataset.idx), inp);
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commit();
+      }
+      if (e.key === "Escape") {
+        nameEditKeys.delete(rosterEditKey(inp.dataset.shift, inp.dataset.kind, Number(inp.dataset.idx)));
+        renderShift(shift);
+      }
+    });
+    inp.addEventListener("blur", () => {
+      setTimeout(() => commit(), 120);
+    });
+  });
 }
 
 function renderShift(shift) {
@@ -192,7 +319,7 @@ function renderShift(shift) {
     <h2>${title}</h2>
     <div class="toolbar">
       <button type="button" class="btn secondary btn-feriado" data-shift="${shift}">${feriadoLabel}</button>
-      <span class="muted toolbar-hint">Marque feriado en cada fila con nombre. Doble clic en un día = pagado adelantado (rojo).</span>
+      <span class="muted toolbar-hint">Nombres de puesto se guardan en esta PC (lápiz para cambiar). Doble clic en un día = pagado adelantado (rojo).</span>
     </div>
     <div class="budget-bar">
       <div><span>Presupuesto del día (lista)</span><strong>${money(maxShift)}</strong></div>
@@ -205,20 +332,18 @@ function renderShift(shift) {
     <div class="slot-grid wide">
   `;
   slots.puestos.forEach((slot, i) => {
+    const pname = rosterName(shift, "puestos", i);
     html += `<div class="slot slot-wide">
       <div class="slot-head">
-        <label>Puesto ${i + 1}</label>
+        ${renderNameBlock(shift, "puestos", i, `Puesto ${i + 1}`)}
         ${
-          slot.name && slots.feriadoQuincena
+          pname && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="puestos" data-idx="${i}" data-f="feriado"${
                 slot.feriado ? " checked" : ""
               } /> Feriado</label>`
             : ""
         }
       </div>
-      <input type="text" data-shift="${shift}" data-kind="puestos" data-idx="${i}" data-f="name" value="${escapeAttr(
-      slot.name
-    )}" placeholder="Nombre del empleado" />
       ${renderDayGrid(shift, "puestos", i, slot)}
     </div>`;
   });
@@ -226,37 +351,25 @@ function renderShift(shift) {
     <h3 class="section-title">Motorizados (${r.motos} × ${money(r.motoPay)})</h3>
     <div class="slot-grid wide">`;
   slots.motos.forEach((slot, i) => {
+    const mname = rosterName(shift, "motos", i);
     html += `<div class="slot slot-wide moto">
       <div class="slot-head">
-        <label>Motorizado ${i + 1}</label>
+        ${renderNameBlock(shift, "motos", i, `Motorizado ${i + 1}`)}
         ${
-          slot.name && slots.feriadoQuincena
+          mname && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="motos" data-idx="${i}" data-f="feriado"${
                 slot.feriado ? " checked" : ""
               } /> Feriado</label>`
             : ""
         }
       </div>
-      <input type="text" data-shift="${shift}" data-kind="motos" data-idx="${i}" data-f="name" value="${escapeAttr(
-      slot.name
-    )}" placeholder="Nombre" />
       ${renderDayGrid(shift, "motos", i, slot)}
     </div>`;
   });
   html += "</div>";
   panel.innerHTML = html;
 
-  panel.querySelectorAll("input[data-f='name']").forEach((inp) => {
-    inp.addEventListener("input", () => {
-      const sh = inp.dataset.shift;
-      const kind = inp.dataset.kind;
-      const idx = Number(inp.dataset.idx);
-      state[sh][kind][idx].name = inp.value;
-      saveState();
-      renderShift(sh);
-      renderProjection();
-    });
-  });
+  bindRosterUi(panel, shift);
 
   panel.querySelectorAll("input[data-f='feriado']").forEach((inp) => {
     inp.addEventListener("change", () => {
@@ -410,6 +523,7 @@ function bindUi() {
           dia: migrateShift(parsed.dia, "dia"),
           noche: migrateShift(parsed.noche, "noche"),
         };
+        state.roster = migrateRoster(state);
         saveState();
         document.getElementById("workDate").value = state.date;
         document.getElementById("daysDiaQ").value = state.daysDiaQ;
@@ -428,7 +542,7 @@ function bindUi() {
 
   document.getElementById("btnClear").addEventListener("click", () => {
     const active = document.querySelector(".tab.active").dataset.tab;
-    if (!confirm(`¿Vaciar nombres y marcas del turno ${active}?`)) return;
+    if (!confirm(`¿Quitar feriado y días pagados del turno ${active}? (Los nombres de puesto no se borran.)`)) return;
     state[active] = emptyShiftState(active);
     saveState();
     renderShift(active);
