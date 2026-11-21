@@ -1,4 +1,4 @@
-const STORAGE_KEY = "rfs-monorriel-presupuesto-v2";
+const STORAGE_KEY = "rfs-monorriel-presupuesto-v3";
 const FERIADO_PAY = 800;
 /** Keys "dia:puestos:0" while the roster name field is open */
 const nameEditKeys = new Set();
@@ -16,7 +16,7 @@ function money(n) {
 }
 
 function emptySlot() {
-  return { employee: "", employeeDays: {}, paidDays: {}, feriado: false };
+  return { employee: "", paidDays: {}, feriado: false };
 }
 
 function emptyRosterShift(shift) {
@@ -91,54 +91,72 @@ function quincenaDaysUpToWorkDate(st = state) {
   return nums.filter((d) => d >= start && d <= last);
 }
 
-function reportingDaysForShift(shift, st = state) {
-  const eligible = quincenaDaysUpToWorkDate(st);
-  const workDays = Math.min(15, Math.max(0, Number(shift === "dia" ? st.daysDiaQ : st.daysNocheQ) || 0));
-  return eligible.slice(0, workDays);
+function snapshotShiftsFrom(st) {
+  return {
+    dia: migrateShift(st.dia, "dia"),
+    noche: migrateShift(st.noche, "noche"),
+  };
 }
 
-function getEmployeeForSlotDay(shift, kind, idx, dayNum) {
-  const slot = state[shift]?.[kind]?.[idx];
-  if (!slot) return "";
-  const map = slot.employeeDays && typeof slot.employeeDays === "object" ? slot.employeeDays : {};
-  return String(map[String(dayNum)] ?? "").trim();
+function saveReportForDate(iso, st = state) {
+  if (!iso) return;
+  if (!st.reports) st.reports = {};
+  st.reports[iso] = snapshotShiftsFrom(st);
 }
 
-function migrateSlotEmployeeDays(slot, dayNum) {
-  if (!slot || typeof slot !== "object") return;
-  if (!slot.employeeDays || typeof slot.employeeDays !== "object") slot.employeeDays = {};
-  const legacy = String(slot.employee ?? slot.name ?? "").trim();
-  const hasDay = Object.keys(slot.employeeDays).some((k) => String(slot.employeeDays[k] || "").trim());
-  if (legacy && !hasDay) slot.employeeDays[String(dayNum)] = legacy;
-  slot.employee = getEmployeeForSlotDayFromSlot(slot, dayNum);
+function loadReportForDate(iso, st = state) {
+  const rep = st.reports?.[iso];
+  st.dia = rep?.dia ? migrateShift(rep.dia, "dia") : emptyShiftState("dia");
+  st.noche = rep?.noche ? migrateShift(rep.noche, "noche") : emptyShiftState("noche");
 }
 
-function getEmployeeForSlotDayFromSlot(slot, dayNum) {
-  if (!slot) return "";
-  const map = slot.employeeDays && typeof slot.employeeDays === "object" ? slot.employeeDays : {};
-  return String(map[String(dayNum)] ?? "").trim();
+function getReportSnapshot(iso) {
+  if (iso === state.date) return snapshotShiftsFrom(state);
+  const rep = state.reports?.[iso];
+  if (!rep) return { dia: emptyShiftState("dia"), noche: emptyShiftState("noche") };
+  return {
+    dia: migrateShift(rep.dia, "dia"),
+    noche: migrateShift(rep.noche, "noche"),
+  };
 }
 
-function migrateAllSlotEmployeeDays(st = state) {
-  const dom = workDateParts(st).dom;
-  for (const shift of ["dia", "noche"]) {
-    ["puestos", "motos"].forEach((kind) => {
-      (st[shift]?.[kind] || []).forEach((slot) => migrateSlotEmployeeDays(slot, dom));
-    });
-  }
+function reportDatesInQuincena(st = state) {
+  const { start, end } = quincenaBounds(st);
+  const dates = new Set(Object.keys(st.reports || {}));
+  if (st.date) dates.add(st.date);
+  return [...dates]
+    .filter((iso) => {
+      const dom = Number(String(iso).split("-")[2]);
+      return dom >= start && dom <= end;
+    })
+    .sort();
+}
+
+function switchWorkDate(nextIso) {
+  const prev = state.date;
+  if (prev && prev !== nextIso) saveReportForDate(prev);
+  state.date = nextIso;
+  syncQuincenaFromWorkDate();
+  loadReportForDate(nextIso);
+}
+
+function normalizeReports(raw, merged) {
+  const out = raw && typeof raw === "object" ? { ...raw } : {};
+  const iso = merged.date || new Date().toISOString().slice(0, 10);
+  if (!out[iso]) out[iso] = { dia: merged.dia, noche: merged.noche };
+  return out;
 }
 
 function employeeName(shift, kind, idx) {
-  return getEmployeeForSlotDay(shift, kind, idx, workDayNumber());
+  const slot = state[shift]?.[kind]?.[idx];
+  if (!slot) return "";
+  return String(slot.employee ?? "").trim();
 }
 
 function setEmployeeName(shift, kind, idx, value) {
   const slot = state[shift]?.[kind]?.[idx];
   if (!slot) return;
-  if (!slot.employeeDays || typeof slot.employeeDays !== "object") slot.employeeDays = {};
-  const key = String(workDayNumber());
-  slot.employeeDays[key] = String(value || "").trim();
-  slot.employee = slot.employeeDays[key];
+  slot.employee = String(value || "").trim();
 }
 
 function ensureEmployeeMeta(parsed) {
@@ -318,21 +336,14 @@ function shiftMaxBudget(shift) {
 
 function normalizeSlot(raw) {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    const employeeDays =
-      raw.employeeDays && typeof raw.employeeDays === "object"
-        ? Object.fromEntries(
-            Object.entries(raw.employeeDays).map(([k, v]) => [String(k), String(v ?? "").trim()])
-          )
-        : {};
     return {
       employee: String(raw.employee ?? "").trim(),
-      employeeDays,
       paidDays: raw.paidDays && typeof raw.paidDays === "object" ? { ...raw.paidDays } : {},
       feriado: !!raw.feriado,
     };
   }
   if (typeof raw === "string") {
-    return { employee: String(raw || "").trim(), employeeDays: {}, paidDays: {}, feriado: false };
+    return { employee: String(raw || "").trim(), paidDays: {}, feriado: false };
   }
   return emptySlot();
 }
@@ -353,11 +364,15 @@ function emptyShiftState(shift) {
 }
 
 function emptyState() {
+  const date = new Date().toISOString().slice(0, 10);
+  const dia = emptyShiftState("dia");
+  const noche = emptyShiftState("noche");
   return {
-    date: new Date().toISOString().slice(0, 10),
+    date,
     roster: emptyRoster(),
-    dia: emptyShiftState("dia"),
-    noche: emptyShiftState("noche"),
+    reports: { [date]: { dia, noche } },
+    dia,
+    noche,
     daysDiaQ: 15,
     daysNocheQ: 15,
     quincena: 1,
@@ -377,10 +392,8 @@ function migrateShift(s, shift) {
 function loadState() {
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      const v1 = localStorage.getItem("rfs-monorriel-presupuesto-v1");
-      if (v1) raw = v1;
-    }
+    if (!raw) raw = localStorage.getItem("rfs-monorriel-presupuesto-v2");
+    if (!raw) raw = localStorage.getItem("rfs-monorriel-presupuesto-v1");
     if (!raw) return emptyState();
     const s = JSON.parse(raw);
     const base = emptyState();
@@ -397,8 +410,9 @@ function loadState() {
     const empMeta = ensureEmployeeMeta(merged);
     merged.employeeLast = empMeta.employeeLast;
     merged.employeeHistory = empMeta.employeeHistory;
+    merged.reports = normalizeReports(s.reports, merged);
     syncQuincenaFromWorkDate(merged);
-    migrateAllSlotEmployeeDays(merged);
+    loadReportForDate(merged.date, merged);
     return merged;
   } catch (_) {
     return emptyState();
@@ -407,9 +421,9 @@ function loadState() {
 
 let state = loadState();
 syncQuincenaFromWorkDate();
-migrateAllSlotEmployeeDays();
 
 function saveState() {
+  saveReportForDate(state.date);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
@@ -441,33 +455,36 @@ function slotRate(shift, kind) {
   return kind === "motos" ? r.motoPay : r.puestoPay;
 }
 
-/** Ganado = apariciones del empleado en días de la quincena (hasta fecha) × tarifa del turno. */
+/** Ganado en quincena = un reporte guardado con empleado en este puesto × tarifa. */
 function computeSlotQuincenaTotals(shift, kind, idx) {
-  const slot = state[shift][kind][idx];
   const rate = slotRate(shift, kind);
-  const days = reportingDaysForShift(shift);
   let adelantado = 0;
   let pendiente = 0;
   let daysPaid = 0;
   let daysPending = 0;
   let appearances = 0;
   const paidList = [];
-  days.forEach((dayNum) => {
-    const emp = getEmployeeForSlotDay(shift, kind, idx, dayNum);
+  let feriadoOn = false;
+  reportDatesInQuincena().forEach((iso) => {
+    const snap = getReportSnapshot(iso);
+    const slot = snap[shift]?.[kind]?.[idx];
+    if (!slot) return;
+    const emp = String(slot.employee || "").trim();
     if (!emp) return;
     appearances += 1;
-    const key = String(dayNum);
-    if (slot.paidDays[key]) {
+    const dom = Number(iso.split("-")[2]);
+    const key = String(dom);
+    if (slot.paidDays?.[key]) {
       adelantado += rate;
       daysPaid += 1;
-      paidList.push(dayNum);
+      paidList.push(dom);
     } else {
       pendiente += rate;
       daysPending += 1;
     }
+    if (snap[shift].feriadoQuincena && slot.feriado) feriadoOn = true;
   });
   if (!appearances) return null;
-  const feriadoOn = !!state[shift].feriadoQuincena && slot.feriado;
   const feriado = feriadoOn ? FERIADO_PAY : 0;
   pendiente += feriado;
   return {
@@ -489,9 +506,9 @@ function renderEmployeeEarningsSummary(shift, kind, idx) {
   if (!t || !t.dayCount) {
     return `<span class="employee-earnings muted">Sin días en el reporte</span>`;
   }
-  const title = `${t.appearances} día(s) con nombre en la quincena (hasta ${state.date || "hoy"}) · ${t.daysPaid} pagado · ${
-    t.daysPending
-  } pendiente${t.feriadoOn ? ` · feriado ${money(t.feriado)}` : ""}`;
+  const title = `${t.appearances} reporte(s) con empleado en la quincena · ${t.daysPaid} pagado · ${t.daysPending} pendiente${
+    t.feriadoOn ? ` · feriado ${money(t.feriado)}` : ""
+  }`;
   return `<span class="employee-earnings" title="${escapeAttr(title)}">
     <span class="earn-total">Ganado ${money(t.total)}</span>
     <span class="earn-sep">·</span>
@@ -539,22 +556,13 @@ function renderRates() {
 }
 
 function renderDayGrid(shift, kind, idx, slot) {
-  const today = workDayNumber();
-  const days = reportingDaysForShift(shift);
-  const cells = days
-    .map((dayNum) => {
-      const paid = !!slot.paidDays[String(dayNum)];
-      const hasEmp = !!getEmployeeForSlotDay(shift, kind, idx, dayNum);
-      const isToday = dayNum === today;
-      return `<button type="button" class="day-cell${paid ? " day-paid" : ""}${isToday ? " day-today" : ""}${
-        hasEmp ? " day-has-emp" : ""
-      }" title="${
-        paid ? "Pagado adelantado — doble clic quita" : "Doble clic = pagado adelantado"
-      }${isToday ? " · día de trabajo" : ""}" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" data-day="${dayNum}">${dayNum}</button>`;
-    })
-    .join("");
-  if (!cells) return "";
-  return `<div class="day-grid" aria-label="Días quincena hasta fecha trabajo">${cells}</div>`;
+  if (!employeeName(shift, kind, idx)) return "";
+  const dayNum = workDayNumber();
+  const paid = !!slot.paidDays[String(dayNum)];
+  const cell = `<button type="button" class="day-cell day-today${paid ? " day-paid" : ""}" title="${
+    paid ? "Pagado adelantado — doble clic quita" : "Doble clic = pagado adelantado (este reporte)"
+  }" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" data-day="${dayNum}">${dayNum}</button>`;
+  return `<div class="day-grid" aria-label="Día de este reporte"><span class="day-grid-lbl muted">Este reporte · día</span>${cell}</div>`;
 }
 
 function escapeText(s) {
@@ -707,11 +715,12 @@ function renderShift(shift) {
   const title = shift === "dia" ? "Turno de día" : "Turno de noche";
   const feriadoLabel = slots.feriadoQuincena ? "Quitar feriado quincena" : `Feriado quincena (RD$ ${FERIADO_PAY} por empleado marcado)`;
 
+  const repDate = state.date || new Date().toISOString().slice(0, 10);
   let html = `
-    <h2>${title}</h2>
+    <h2>${title} <span class="report-date-badge">Reporte ${escapeHtml(repDate)}</span></h2>
     <div class="toolbar">
       <button type="button" class="btn secondary btn-feriado" data-shift="${shift}">${feriadoLabel}</button>
-      <span class="muted toolbar-hint">Fecha arriba = <strong>día que registra</strong>. Empleado se guarda por día de calendario. <strong>Ganado</strong> = veces que aparece × tarifa. Doble clic = pagado adelantado.</span>
+      <span class="muted toolbar-hint">Cada <strong>fecha</strong> es un reporte aparte. Cambiar fecha guarda y abre otro día. <strong>Ganado</strong> (al lado del ✎) suma todos los reportes de la quincena.</span>
     </div>
     <div class="budget-bar">
       <div><span>Presupuesto del día (lista)</span><strong>${money(maxShift)}</strong></div>
@@ -825,26 +834,28 @@ function escapeHtml(s) {
 
 function slotQuincenaLine(shift, kind, idx) {
   const puesto = rosterName(shift, kind, idx);
-  const t = computeSlotQuincenaTotals(shift, kind, idx);
-  if (!t) return "";
-  const appearances = [];
-  reportingDaysForShift(shift).forEach((d) => {
-    const n = getEmployeeForSlotDay(shift, kind, idx, d);
-    if (n) appearances.push(n);
-  });
-  const emp = appearances.length ? appearances[appearances.length - 1] : employeeName(shift, kind, idx);
-  if (!emp && !t.appearances) return "";
-  if (!t) return "";
-  const paidTxt = t.paidList.length ? t.paidList.join(", ") : "—";
+  const emp = employeeName(shift, kind, idx);
+  if (!emp) return "";
+  const slot = state[shift][kind][idx];
+  const rate = slotRate(shift, kind);
+  const dom = workDayNumber();
+  const paid = !!slot.paidDays[String(dom)];
+  const feriadoOn = !!state[shift].feriadoQuincena && slot.feriado;
+  const feriado = feriadoOn ? FERIADO_PAY : 0;
+  const adelantado = paid ? rate : 0;
+  let pendiente = paid ? 0 : rate;
+  pendiente += feriado;
+  const total = adelantado + pendiente;
+  const paidTxt = paid ? String(dom) : "—";
   return `<tr>
     <td class="c">${idx + 1}</td>
     <td>${escapeHtml(puesto || "—")}</td>
     <td>${escapeHtml(emp)}</td>
-    <td class="c">${t.feriadoOn ? "Sí" : "—"}</td>
+    <td class="c">${feriadoOn ? "Sí" : "—"}</td>
     <td class="c">${paidTxt}</td>
-    <td class="n">${money(t.total)}</td>
-    <td class="n adv">${money(t.adelantado)}</td>
-    <td class="n">${money(t.pendiente)}</td>
+    <td class="n">${money(total)}</td>
+    <td class="n adv">${money(adelantado)}</td>
+    <td class="n">${money(pendiente)}</td>
   </tr>`;
 }
 
@@ -1110,9 +1121,7 @@ function bindUi() {
   document.getElementById("quincenaSel").value = String(state.quincena || 1);
 
   document.getElementById("workDate").addEventListener("change", (e) => {
-    state.date = e.target.value;
-    syncQuincenaFromWorkDate();
-    migrateAllSlotEmployeeDays();
+    switchWorkDate(e.target.value);
     document.getElementById("daysDiaQ").value = state.daysDiaQ;
     document.getElementById("daysNocheQ").value = state.daysNocheQ;
     document.getElementById("quincenaSel").value = String(state.quincena || 1);
@@ -1190,8 +1199,9 @@ function bindUi() {
         const empMeta = ensureEmployeeMeta(state);
         state.employeeLast = empMeta.employeeLast;
         state.employeeHistory = empMeta.employeeHistory;
+        state.reports = normalizeReports(parsed.reports, state);
         syncQuincenaFromWorkDate();
-        migrateAllSlotEmployeeDays();
+        loadReportForDate(state.date);
         saveState();
         document.getElementById("workDate").value = state.date;
         document.getElementById("daysDiaQ").value = state.daysDiaQ;
@@ -1210,7 +1220,7 @@ function bindUi() {
 
   document.getElementById("btnClear").addEventListener("click", () => {
     const active = document.querySelector(".tab.active").dataset.tab;
-    if (!confirm(`¿Quitar feriado, empleados y días pagados del turno ${active}? (Los puestos fijos no se borran.)`)) return;
+    if (!confirm(`¿Vaciar el reporte del ${state.date} (turno ${active})? Los puestos fijos no se borran.`)) return;
     state[active] = emptyShiftState(active);
     saveState();
     renderShift(active);
@@ -1220,7 +1230,7 @@ function bindUi() {
 
 function init() {
   syncQuincenaFromWorkDate();
-  migrateAllSlotEmployeeDays();
+  loadReportForDate(state.date);
   saveState();
   renderRates();
   renderShift("dia");

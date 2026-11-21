@@ -362,6 +362,21 @@ select {
   color: #cbd5e1;
   cursor: pointer;
 }
+.report-date-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fbbf24;
+  background: #1c2430;
+  border: 1px solid #4a5568;
+  border-radius: 8px;
+  padding: 4px 10px;
+  vertical-align: middle;
+}
+.day-grid-lbl {
+  font-size: 0.7rem;
+  width: 100%;
+  margin-bottom: 4px;
+}
 .day-cell.day-today {
   outline: 2px solid #fbbf24;
   outline-offset: 1px;
