@@ -362,6 +362,13 @@ select {
   color: #cbd5e1;
   cursor: pointer;
 }
+.day-cell.day-today {
+  outline: 2px solid #fbbf24;
+  outline-offset: 1px;
+}
+.day-cell.day-has-emp:not(.day-paid) {
+  background: #1e3a2f;
+}
 .day-cell.day-paid {
   background: #b91c1c;
   border-color: #fca5a5;

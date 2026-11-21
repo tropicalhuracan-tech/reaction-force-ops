@@ -16,7 +16,7 @@ function money(n) {
 }
 
 function emptySlot() {
-  return { employee: "", paidDays: {}, feriado: false };
+  return { employee: "", employeeDays: {}, paidDays: {}, feriado: false };
 }
 
 function emptyRosterShift(shift) {
@@ -54,15 +54,91 @@ function employeeEditKey(shift, kind, idx) {
   return `${shift}:${kind}:${idx}`;
 }
 
-function employeeName(shift, kind, idx) {
+function workDateParts(st = state) {
+  const raw = st.date || new Date().toISOString().slice(0, 10);
+  const dom = Number(String(raw).split("-")[2]) || new Date().getDate();
+  return { iso: raw, dom };
+}
+
+function workDayNumber() {
+  return workDateParts().dom;
+}
+
+function quincenaBounds(st = state) {
+  const q2 = st.quincena === 2;
+  return { start: q2 ? 16 : 1, end: q2 ? 30 : 15 };
+}
+
+/** Ajusta quincena y «días contados» según la fecha de trabajo (hasta hoy en la quincena). */
+function syncQuincenaFromWorkDate(st = state) {
+  const { dom } = workDateParts(st);
+  if (dom >= 16) st.quincena = 2;
+  else if (dom >= 1 && dom <= 15) st.quincena = 1;
+  const { start, end } = quincenaBounds(st);
+  const last = Math.min(end, Math.max(start, dom));
+  const elapsed = Math.min(15, Math.max(1, last - start + 1));
+  st.daysDiaQ = elapsed;
+  st.daysNocheQ = elapsed;
+}
+
+function quincenaDaysUpToWorkDate(st = state) {
+  const { dom } = workDateParts(st);
+  const { start, end } = quincenaBounds(st);
+  const last = Math.min(end, dom);
+  if (last < start) return [];
+  const startQ = st.quincena === 2 ? 16 : 1;
+  const nums = Array.from({ length: 15 }, (_, i) => startQ + i);
+  return nums.filter((d) => d >= start && d <= last);
+}
+
+function reportingDaysForShift(shift, st = state) {
+  const eligible = quincenaDaysUpToWorkDate(st);
+  const workDays = Math.min(15, Math.max(0, Number(shift === "dia" ? st.daysDiaQ : st.daysNocheQ) || 0));
+  return eligible.slice(0, workDays);
+}
+
+function getEmployeeForSlotDay(shift, kind, idx, dayNum) {
   const slot = state[shift]?.[kind]?.[idx];
   if (!slot) return "";
-  return String(slot.employee ?? slot.name ?? "").trim();
+  const map = slot.employeeDays && typeof slot.employeeDays === "object" ? slot.employeeDays : {};
+  return String(map[String(dayNum)] ?? "").trim();
+}
+
+function migrateSlotEmployeeDays(slot, dayNum) {
+  if (!slot || typeof slot !== "object") return;
+  if (!slot.employeeDays || typeof slot.employeeDays !== "object") slot.employeeDays = {};
+  const legacy = String(slot.employee ?? slot.name ?? "").trim();
+  const hasDay = Object.keys(slot.employeeDays).some((k) => String(slot.employeeDays[k] || "").trim());
+  if (legacy && !hasDay) slot.employeeDays[String(dayNum)] = legacy;
+  slot.employee = getEmployeeForSlotDayFromSlot(slot, dayNum);
+}
+
+function getEmployeeForSlotDayFromSlot(slot, dayNum) {
+  if (!slot) return "";
+  const map = slot.employeeDays && typeof slot.employeeDays === "object" ? slot.employeeDays : {};
+  return String(map[String(dayNum)] ?? "").trim();
+}
+
+function migrateAllSlotEmployeeDays(st = state) {
+  const dom = workDateParts(st).dom;
+  for (const shift of ["dia", "noche"]) {
+    ["puestos", "motos"].forEach((kind) => {
+      (st[shift]?.[kind] || []).forEach((slot) => migrateSlotEmployeeDays(slot, dom));
+    });
+  }
+}
+
+function employeeName(shift, kind, idx) {
+  return getEmployeeForSlotDay(shift, kind, idx, workDayNumber());
 }
 
 function setEmployeeName(shift, kind, idx, value) {
-  if (!state[shift]?.[kind]?.[idx]) return;
-  state[shift][kind][idx].employee = String(value || "").trim();
+  const slot = state[shift]?.[kind]?.[idx];
+  if (!slot) return;
+  if (!slot.employeeDays || typeof slot.employeeDays !== "object") slot.employeeDays = {};
+  const key = String(workDayNumber());
+  slot.employeeDays[key] = String(value || "").trim();
+  slot.employee = slot.employeeDays[key];
 }
 
 function ensureEmployeeMeta(parsed) {
@@ -242,14 +318,21 @@ function shiftMaxBudget(shift) {
 
 function normalizeSlot(raw) {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const employeeDays =
+      raw.employeeDays && typeof raw.employeeDays === "object"
+        ? Object.fromEntries(
+            Object.entries(raw.employeeDays).map(([k, v]) => [String(k), String(v ?? "").trim()])
+          )
+        : {};
     return {
       employee: String(raw.employee ?? "").trim(),
+      employeeDays,
       paidDays: raw.paidDays && typeof raw.paidDays === "object" ? { ...raw.paidDays } : {},
       feriado: !!raw.feriado,
     };
   }
   if (typeof raw === "string") {
-    return { employee: String(raw || "").trim(), paidDays: {}, feriado: false };
+    return { employee: String(raw || "").trim(), employeeDays: {}, paidDays: {}, feriado: false };
   }
   return emptySlot();
 }
@@ -314,6 +397,8 @@ function loadState() {
     const empMeta = ensureEmployeeMeta(merged);
     merged.employeeLast = empMeta.employeeLast;
     merged.employeeHistory = empMeta.employeeHistory;
+    syncQuincenaFromWorkDate(merged);
+    migrateAllSlotEmployeeDays(merged);
     return merged;
   } catch (_) {
     return emptyState();
@@ -321,6 +406,8 @@ function loadState() {
 }
 
 let state = loadState();
+syncQuincenaFromWorkDate();
+migrateAllSlotEmployeeDays();
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -354,19 +441,21 @@ function slotRate(shift, kind) {
   return kind === "motos" ? r.motoPay : r.puestoPay;
 }
 
-/** Totales del empleado en esta quincena según días del reporte y días rojos (adelantado). */
+/** Ganado = apariciones del empleado en días de la quincena (hasta fecha) × tarifa del turno. */
 function computeSlotQuincenaTotals(shift, kind, idx) {
-  if (!employeeName(shift, kind, idx)) return null;
   const slot = state[shift][kind][idx];
   const rate = slotRate(shift, kind);
-  const workDays = shiftWorkDays(shift);
-  const days = quincenaDayNumbers().slice(0, workDays);
+  const days = reportingDaysForShift(shift);
   let adelantado = 0;
   let pendiente = 0;
   let daysPaid = 0;
   let daysPending = 0;
+  let appearances = 0;
   const paidList = [];
   days.forEach((dayNum) => {
+    const emp = getEmployeeForSlotDay(shift, kind, idx, dayNum);
+    if (!emp) return;
+    appearances += 1;
     const key = String(dayNum);
     if (slot.paidDays[key]) {
       adelantado += rate;
@@ -377,6 +466,7 @@ function computeSlotQuincenaTotals(shift, kind, idx) {
       daysPending += 1;
     }
   });
+  if (!appearances) return null;
   const feriadoOn = !!state[shift].feriadoQuincena && slot.feriado;
   const feriado = feriadoOn ? FERIADO_PAY : 0;
   pendiente += feriado;
@@ -388,7 +478,8 @@ function computeSlotQuincenaTotals(shift, kind, idx) {
     feriadoOn,
     daysPaid,
     daysPending,
-    dayCount: days.length,
+    dayCount: appearances,
+    appearances,
     paidList,
   };
 }
@@ -398,9 +489,9 @@ function renderEmployeeEarningsSummary(shift, kind, idx) {
   if (!t || !t.dayCount) {
     return `<span class="employee-earnings muted">Sin días en el reporte</span>`;
   }
-  const title = `Quincena: ${t.dayCount} día(s) · ${t.daysPaid} pagado adelantado · ${t.daysPending} pendiente${
-    t.feriadoOn ? ` · feriado ${money(t.feriado)}` : ""
-  }`;
+  const title = `${t.appearances} día(s) con nombre en la quincena (hasta ${state.date || "hoy"}) · ${t.daysPaid} pagado · ${
+    t.daysPending
+  } pendiente${t.feriadoOn ? ` · feriado ${money(t.feriado)}` : ""}`;
   return `<span class="employee-earnings" title="${escapeAttr(title)}">
     <span class="earn-total">Ganado ${money(t.total)}</span>
     <span class="earn-sep">·</span>
@@ -448,19 +539,22 @@ function renderRates() {
 }
 
 function renderDayGrid(shift, kind, idx, slot) {
-  if (!employeeName(shift, kind, idx)) return "";
-  const days = quincenaDayNumbers();
-  const work = shiftWorkDays(shift);
+  const today = workDayNumber();
+  const days = reportingDaysForShift(shift);
   const cells = days
-    .slice(0, work)
     .map((dayNum) => {
       const paid = !!slot.paidDays[String(dayNum)];
-      return `<button type="button" class="day-cell${paid ? " day-paid" : ""}" title="${
+      const hasEmp = !!getEmployeeForSlotDay(shift, kind, idx, dayNum);
+      const isToday = dayNum === today;
+      return `<button type="button" class="day-cell${paid ? " day-paid" : ""}${isToday ? " day-today" : ""}${
+        hasEmp ? " day-has-emp" : ""
+      }" title="${
         paid ? "Pagado adelantado — doble clic quita" : "Doble clic = pagado adelantado"
-      }" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" data-day="${dayNum}">${dayNum}</button>`;
+      }${isToday ? " · día de trabajo" : ""}" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" data-day="${dayNum}">${dayNum}</button>`;
     })
     .join("");
-  return `<div class="day-grid" aria-label="Días quincena">${cells}</div>`;
+  if (!cells) return "";
+  return `<div class="day-grid" aria-label="Días quincena hasta fecha trabajo">${cells}</div>`;
 }
 
 function escapeText(s) {
@@ -517,11 +611,12 @@ function renderEmployeeBlock(shift, kind, idx) {
     )}" placeholder="${escapeAttr(employeeInputPlaceholder(shift, kind, idx))}" />
       <datalist id="${listId}">${options}</datalist>
       <button type="button" class="btn-icon btn-emp-done" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Guardar empleado">✓</button>
+      ${renderEmployeeEarningsSummary(shift, kind, idx)}
     </div>`;
   }
   return `<div class="employee-row">
     <span class="employee-label">Empleado</span>
-    <strong class="employee-name">${escapeText(ename)}</strong>
+    <strong class="employee-name">${escapeText(ename) || "—"}</strong>
     <button type="button" class="btn-icon btn-emp-edit" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Cambiar empleado" aria-label="Editar empleado">✎</button>
     ${renderEmployeeEarningsSummary(shift, kind, idx)}
   </div>`;
@@ -616,7 +711,7 @@ function renderShift(shift) {
     <h2>${title}</h2>
     <div class="toolbar">
       <button type="button" class="btn secondary btn-feriado" data-shift="${shift}">${feriadoLabel}</button>
-      <span class="muted toolbar-hint">Arriba: <strong>puesto fijo</strong> (✎). Debajo: <strong>empleado</strong> de este reporte (✎, sugiere el último). Presupuesto y días solo con empleado. Doble clic = pagado adelantado.</span>
+      <span class="muted toolbar-hint">Fecha arriba = <strong>día que registra</strong>. Empleado se guarda por día de calendario. <strong>Ganado</strong> = veces que aparece × tarifa. Doble clic = pagado adelantado.</span>
     </div>
     <div class="budget-bar">
       <div><span>Presupuesto del día (lista)</span><strong>${money(maxShift)}</strong></div>
@@ -630,11 +725,12 @@ function renderShift(shift) {
   `;
   slots.puestos.forEach((slot, i) => {
     const ename = employeeName(shift, "puestos", i);
+    const slotQ = computeSlotQuincenaTotals(shift, "puestos", i);
     html += `<div class="slot slot-wide">
       <div class="slot-head">
         ${renderNameBlock(shift, "puestos", i)}
         ${
-          ename && slots.feriadoQuincena
+          slotQ && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="puestos" data-idx="${i}" data-f="feriado"${
                 slot.feriado ? " checked" : ""
               } /> Feriado</label>`
@@ -642,7 +738,7 @@ function renderShift(shift) {
         }
       </div>
       ${rosterName(shift, "puestos", i) ? renderEmployeeBlock(shift, "puestos", i) : ""}
-      ${renderDayGrid(shift, "puestos", i, slot)}
+      ${rosterName(shift, "puestos", i) ? renderDayGrid(shift, "puestos", i, slot) : ""}
     </div>`;
   });
   html += `</div>
@@ -650,11 +746,12 @@ function renderShift(shift) {
     <div class="slot-grid wide">`;
   slots.motos.forEach((slot, i) => {
     const ename = employeeName(shift, "motos", i);
+    const slotQ = computeSlotQuincenaTotals(shift, "motos", i);
     html += `<div class="slot slot-wide moto">
       <div class="slot-head">
         ${renderNameBlock(shift, "motos", i)}
         ${
-          ename && slots.feriadoQuincena
+          slotQ && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="motos" data-idx="${i}" data-f="feriado"${
                 slot.feriado ? " checked" : ""
               } /> Feriado</label>`
@@ -662,7 +759,7 @@ function renderShift(shift) {
         }
       </div>
       ${rosterName(shift, "motos", i) ? renderEmployeeBlock(shift, "motos", i) : ""}
-      ${renderDayGrid(shift, "motos", i, slot)}
+      ${rosterName(shift, "motos", i) ? renderDayGrid(shift, "motos", i, slot) : ""}
     </div>`;
   });
   html += "</div>";
@@ -728,9 +825,15 @@ function escapeHtml(s) {
 
 function slotQuincenaLine(shift, kind, idx) {
   const puesto = rosterName(shift, kind, idx);
-  const emp = employeeName(shift, kind, idx);
-  if (!emp) return "";
   const t = computeSlotQuincenaTotals(shift, kind, idx);
+  if (!t) return "";
+  const appearances = [];
+  reportingDaysForShift(shift).forEach((d) => {
+    const n = getEmployeeForSlotDay(shift, kind, idx, d);
+    if (n) appearances.push(n);
+  });
+  const emp = appearances.length ? appearances[appearances.length - 1] : employeeName(shift, kind, idx);
+  if (!emp && !t.appearances) return "";
   if (!t) return "";
   const paidTxt = t.paidList.length ? t.paidList.join(", ") : "—";
   return `<tr>
@@ -1008,7 +1111,15 @@ function bindUi() {
 
   document.getElementById("workDate").addEventListener("change", (e) => {
     state.date = e.target.value;
+    syncQuincenaFromWorkDate();
+    migrateAllSlotEmployeeDays();
+    document.getElementById("daysDiaQ").value = state.daysDiaQ;
+    document.getElementById("daysNocheQ").value = state.daysNocheQ;
+    document.getElementById("quincenaSel").value = String(state.quincena || 1);
     saveState();
+    renderShift("dia");
+    renderShift("noche");
+    renderProjection();
   });
 
   document.querySelectorAll(".tab").forEach((btn) => {
@@ -1079,6 +1190,8 @@ function bindUi() {
         const empMeta = ensureEmployeeMeta(state);
         state.employeeLast = empMeta.employeeLast;
         state.employeeHistory = empMeta.employeeHistory;
+        syncQuincenaFromWorkDate();
+        migrateAllSlotEmployeeDays();
         saveState();
         document.getElementById("workDate").value = state.date;
         document.getElementById("daysDiaQ").value = state.daysDiaQ;
@@ -1106,11 +1219,17 @@ function bindUi() {
 }
 
 function init() {
+  syncQuincenaFromWorkDate();
+  migrateAllSlotEmployeeDays();
+  saveState();
   renderRates();
   renderShift("dia");
   renderShift("noche");
   renderProjection();
   bindUi();
+  document.getElementById("daysDiaQ").value = state.daysDiaQ;
+  document.getElementById("daysNocheQ").value = state.daysNocheQ;
+  document.getElementById("quincenaSel").value = String(state.quincena || 1);
 }
 
 init();
