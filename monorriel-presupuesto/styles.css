@@ -33,6 +33,12 @@ h1 {
   gap: 10px;
   align-items: flex-end;
 }
+.install-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 13px;
+  color: #9aa3af;
+}
 .date-lbl {
   display: flex;
   flex-direction: column;

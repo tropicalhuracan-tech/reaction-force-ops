@@ -2,10 +2,17 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#151b23" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>RFS Presupuesto diario — Monorriel</title>
     <meta name="application-name" content="RFS Presupuesto diario" />
     <meta name="description" content="Control de presupuesto diario Monorriel (aparte de la nómina)" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -24,7 +31,9 @@
         <button type="button" id="btnImport" class="btn secondary">Cargar respaldo</button>
         <input type="file" id="importFile" accept="application/json,.json" hidden />
         <button type="button" id="btnClear" class="btn ghost">Vaciar turno</button>
+        <button type="button" id="btnInstallApp" class="btn secondary" hidden>Instalar en esta PC</button>
       </div>
+      <p class="install-hint">En el celular: menú del navegador → <strong>Instalar app</strong> / Añadir a inicio.</p>
     </header>
 
     <section class="card summary" id="ratesCard">

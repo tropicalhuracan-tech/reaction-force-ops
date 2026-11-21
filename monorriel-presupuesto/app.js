@@ -1237,6 +1237,49 @@ function bindUi() {
   });
 }
 
+let deferredInstallPrompt = null;
+
+function setupInstallPrompt() {
+  const btn = document.getElementById("btnInstallApp");
+  if (!btn) return;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    btn.hidden = false;
+  });
+  btn.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) {
+      alert("Usa el menú de Chrome o Edge → Instalar aplicación.");
+      return;
+    }
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    btn.hidden = true;
+  });
+  window.addEventListener("appinstalled", () => {
+    btn.hidden = true;
+  });
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker
+    .register("sw.js", { scope: "./" })
+    .then((reg) => {
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) {
+            nw.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+    })
+    .catch(() => {});
+}
+
 function init() {
   syncQuincenaFromWorkDate();
   loadReportForDate(state.date);
@@ -1246,6 +1289,8 @@ function init() {
   renderShift("noche");
   renderProjection();
   bindUi();
+  setupInstallPrompt();
+  registerServiceWorker();
   document.getElementById("daysDiaQ").value = state.daysDiaQ;
   document.getElementById("daysNocheQ").value = state.daysNocheQ;
   document.getElementById("quincenaSel").value = String(state.quincena || 1);
