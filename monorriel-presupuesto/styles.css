@@ -236,11 +236,14 @@ select {
   flex: 1;
   min-width: 200px;
 }
-.roster-row .slot-num {
-  font-size: 0.72rem;
+.roster-row .slot-idx {
+  font-size: 0.7rem;
   font-weight: 700;
-  color: #9aa3af;
-  min-width: 5.5rem;
+  color: #6b7280;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #1c2430;
+  border: 1px solid #3d4a5c;
 }
 .roster-name {
   font-size: 1rem;

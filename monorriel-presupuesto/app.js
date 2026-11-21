@@ -48,6 +48,92 @@ function setRosterName(shift, kind, idx, value) {
   state.roster[shift][kind][idx] = String(value || "").trim();
 }
 
+function emptyRosterHistorySlots(shift) {
+  const r = RATES[shift];
+  return {
+    puestos: Array.from({ length: r.puestos }, () => []),
+    motos: Array.from({ length: r.motos }, () => []),
+  };
+}
+
+function ensureRosterHistorySlots(raw, shift) {
+  const r = RATES[shift];
+  const base = emptyRosterHistorySlots(shift);
+  if (!raw) return base;
+  ["puestos", "motos"].forEach((kind) => {
+    const len = kind === "puestos" ? r.puestos : r.motos;
+    const src = raw[kind];
+    if (!Array.isArray(src)) return;
+    for (let i = 0; i < len; i++) {
+      base[kind][i] = (Array.isArray(src[i]) ? src[i] : [])
+        .map((s) => String(s || "").trim())
+        .filter(Boolean)
+        .slice(0, 8);
+    }
+  });
+  return base;
+}
+
+function ensureRosterMeta(parsed) {
+  const rosterLast = { dia: emptyRoster(), noche: emptyRoster() };
+  const rosterHistory = {
+    dia: emptyRosterHistorySlots("dia"),
+    noche: emptyRosterHistorySlots("noche"),
+  };
+  if (parsed?.rosterLast) {
+    rosterLast.dia.puestos = ensureRosterNames(parsed.rosterLast.dia?.puestos, RATES.dia.puestos);
+    rosterLast.dia.motos = ensureRosterNames(parsed.rosterLast.dia?.motos, RATES.dia.motos);
+    rosterLast.noche.puestos = ensureRosterNames(parsed.rosterLast.noche?.puestos, RATES.noche.puestos);
+    rosterLast.noche.motos = ensureRosterNames(parsed.rosterLast.noche?.motos, RATES.noche.motos);
+  }
+  if (parsed?.rosterHistory) {
+    rosterHistory.dia = ensureRosterHistorySlots(parsed.rosterHistory.dia, "dia");
+    rosterHistory.noche = ensureRosterHistorySlots(parsed.rosterHistory.noche, "noche");
+  }
+  return { rosterLast, rosterHistory };
+}
+
+function rosterHistoryOptions(shift, kind, idx) {
+  const hist = state.rosterHistory?.[shift]?.[kind]?.[idx];
+  const last = state.rosterLast?.[shift]?.[kind]?.[idx];
+  const cur = rosterName(shift, kind, idx);
+  const uniq = [];
+  [cur, last, ...(hist || [])].forEach((n) => {
+    const t = String(n || "").trim();
+    if (t && !uniq.includes(t)) uniq.push(t);
+  });
+  return uniq;
+}
+
+function rosterInputPlaceholder(shift, kind, idx) {
+  const last = state.rosterLast?.[shift]?.[kind]?.[idx];
+  if (last) return `Nombre del puesto (último aquí: ${last})`;
+  return "Nombre del puesto (ej. garita, motor 2)";
+}
+
+function commitRosterName(shift, kind, idx, rawValue) {
+  const prev = rosterName(shift, kind, idx);
+  const next = String(rawValue ?? "").trim();
+  if (prev && prev !== next) {
+    if (!state.rosterLast) state.rosterLast = { dia: emptyRoster(), noche: emptyRoster() };
+    if (!state.rosterHistory) {
+      state.rosterHistory = {
+        dia: emptyRosterHistorySlots("dia"),
+        noche: emptyRosterHistorySlots("noche"),
+      };
+    }
+    state.rosterLast[shift][kind][idx] = prev;
+    const list = state.rosterHistory[shift][kind][idx];
+    [prev, next].filter(Boolean).forEach((n) => {
+      const i = list.indexOf(n);
+      if (i >= 0) list.splice(i, 1);
+      list.unshift(n);
+    });
+    while (list.length > 8) list.pop();
+  }
+  setRosterName(shift, kind, idx, next);
+}
+
 function migrateRoster(parsed) {
   const base = emptyRoster();
   if (parsed?.roster) {
@@ -140,6 +226,9 @@ function loadState() {
       noche: migrateShift(s.noche, "noche"),
     };
     merged.roster = migrateRoster(merged);
+    const meta = ensureRosterMeta(merged);
+    merged.rosterLast = meta.rosterLast;
+    merged.rosterHistory = meta.rosterHistory;
     return merged;
   } catch (_) {
     return emptyState();
@@ -213,7 +302,7 @@ function renderRates() {
     <div class="stat"><span>Turno día (23×1,000 + 3×1,153)</span><div class="val">${money(diaMax)}</div><span class="hint">por día al límite</span></div>
     <div class="stat"><span>Turno noche (24×1,040 + 3×1,153)</span><div class="val">${money(nocheMax)}</div><span class="hint">por día al límite</span></div>
     <div class="stat"><span>Día + noche mismo día</span><div class="val">${money(both)}</div><span class="hint">tope si operan ambos</span></div>
-    <div class="stat"><span>Feriado quincena (por empleado)</span><div class="val">${money(FERIADO_PAY)}</div><span class="hint">si marca feriado en la fila</span></div>
+    <div class="stat"><span>Feriado quincena (por puesto)</span><div class="val">${money(FERIADO_PAY)}</div><span class="hint">si marca feriado en la fila</span></div>
     <div class="stat"><span>Quincena 15 días (tope)</span><div class="val">${money(diaMax * 15)} / ${money(nocheMax * 15)}</div></div>
     <div class="stat"><span>Mes 30 días (sin 31)</span><div class="val">${money(both * 30)}</div></div>
   `;
@@ -239,32 +328,34 @@ function escapeText(s) {
   return escapeAttr(s);
 }
 
-function renderNameBlock(shift, kind, idx, label) {
+function renderNameBlock(shift, kind, idx) {
   const name = rosterName(shift, kind, idx);
   const key = rosterEditKey(shift, kind, idx);
   const editing = nameEditKeys.has(key) || !name;
+  const listId = `roster-dl-${shift}-${kind}-${idx}`;
+  const options = rosterHistoryOptions(shift, kind, idx)
+    .map((n) => `<option value="${escapeAttr(n)}"></option>`)
+    .join("");
+  const idxBadge = `<span class="slot-idx" title="Número de casilla">#${idx + 1}</span>`;
   if (editing) {
     return `<div class="roster-row editing">
-      <span class="slot-num">${label}</span>
-      <input type="text" class="roster-input" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" value="${escapeAttr(
+      ${idxBadge}
+      <input type="text" class="roster-input" list="${listId}" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" value="${escapeAttr(
       name
-    )}" placeholder="Nombre fijo (se guarda para siempre)" autofocus />
-      ${
-        name
-          ? `<button type="button" class="btn-icon btn-done" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Listo">✓</button>`
-          : ""
-      }
+    )}" placeholder="${escapeAttr(rosterInputPlaceholder(shift, kind, idx))}" autofocus />
+      <datalist id="${listId}">${options}</datalist>
+      <button type="button" class="btn-icon btn-done" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Guardar nombre del puesto">✓</button>
     </div>`;
   }
   return `<div class="roster-row">
-    <span class="slot-num">${label}</span>
     <strong class="roster-name">${escapeText(name)}</strong>
-    <button type="button" class="btn-icon btn-edit" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Editar nombre" aria-label="Editar nombre">✎</button>
+    ${idxBadge}
+    <button type="button" class="btn-icon btn-edit" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Cambiar nombre del puesto" aria-label="Editar puesto">✎</button>
   </div>`;
 }
 
 function finishRosterEdit(shift, kind, idx, inputEl) {
-  setRosterName(shift, kind, idx, inputEl ? inputEl.value : rosterName(shift, kind, idx));
+  commitRosterName(shift, kind, idx, inputEl ? inputEl.value : rosterName(shift, kind, idx));
   nameEditKeys.delete(rosterEditKey(shift, kind, idx));
   saveState();
   renderShift(shift);
@@ -313,17 +404,17 @@ function renderShift(shift) {
   const left = maxShift - used;
   const q = computeShiftQuincena(shift);
   const title = shift === "dia" ? "Turno de día" : "Turno de noche";
-  const feriadoLabel = slots.feriadoQuincena ? "Quitar feriado quincena" : `Feriado quincena (RD$ ${FERIADO_PAY} por empleado marcado)`;
+  const feriadoLabel = slots.feriadoQuincena ? "Quitar feriado quincena" : `Feriado quincena (RD$ ${FERIADO_PAY} por puesto marcado)`;
 
   let html = `
     <h2>${title}</h2>
     <div class="toolbar">
       <button type="button" class="btn secondary btn-feriado" data-shift="${shift}">${feriadoLabel}</button>
-      <span class="muted toolbar-hint">Nombres de puesto se guardan en esta PC (lápiz para cambiar). Doble clic en un día = pagado adelantado (rojo).</span>
+      <span class="muted toolbar-hint">Nombre del <strong>puesto</strong> (no por día): se guarda en esta PC. ✎ para cambiar; al escribir sugiere el último de esa casilla. Doble clic en un día = pagado adelantado.</span>
     </div>
     <div class="budget-bar">
       <div><span>Presupuesto del día (lista)</span><strong>${money(maxShift)}</strong></div>
-      <div><span>Gasto hoy (nombres)</span><strong>${money(used)}</strong></div>
+      <div><span>Gasto hoy (puestos con nombre)</span><strong>${money(used)}</strong></div>
       <div><span>Disponible hoy</span><strong class="${left < 0 ? "over" : "ok"}">${money(left)}</strong></div>
       <div><span>Quincena pendiente</span><strong>${money(q.pendiente + q.feriado)}</strong></div>
       <div><span>Pagado adelantado</span><strong class="paid-adv">${money(q.adelantado)}</strong></div>
@@ -335,7 +426,7 @@ function renderShift(shift) {
     const pname = rosterName(shift, "puestos", i);
     html += `<div class="slot slot-wide">
       <div class="slot-head">
-        ${renderNameBlock(shift, "puestos", i, `Puesto ${i + 1}`)}
+        ${renderNameBlock(shift, "puestos", i)}
         ${
           pname && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="puestos" data-idx="${i}" data-f="feriado"${
@@ -354,7 +445,7 @@ function renderShift(shift) {
     const mname = rosterName(shift, "motos", i);
     html += `<div class="slot slot-wide moto">
       <div class="slot-head">
-        ${renderNameBlock(shift, "motos", i, `Motorizado ${i + 1}`)}
+        ${renderNameBlock(shift, "motos", i)}
         ${
           mname && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="motos" data-idx="${i}" data-f="feriado"${
@@ -426,7 +517,7 @@ function escapeHtml(s) {
   return escapeAttr(s);
 }
 
-function slotQuincenaLine(shift, kind, idx, label) {
+function slotQuincenaLine(shift, kind, idx) {
   const name = rosterName(shift, kind, idx);
   if (!name) return "";
   const slot = state[shift][kind][idx];
@@ -447,7 +538,7 @@ function slotQuincenaLine(shift, kind, idx, label) {
   pendiente += feriado;
   const paidTxt = paidList.length ? paidList.join(", ") : "—";
   return `<tr>
-    <td>${escapeHtml(label)}</td>
+    <td class="c">${idx + 1}</td>
     <td>${escapeHtml(name)}</td>
     <td class="c">${feriadoOn ? "Sí" : "—"}</td>
     <td class="c">${paidTxt}</td>
@@ -462,12 +553,12 @@ function buildShiftPrintBlock(shift, title) {
   const used = usedBudgetToday(shift);
   let rows = "";
   state[shift].puestos.forEach((_, i) => {
-    rows += slotQuincenaLine(shift, "puestos", i, `Puesto ${i + 1}`);
+    rows += slotQuincenaLine(shift, "puestos", i);
   });
   state[shift].motos.forEach((_, i) => {
-    rows += slotQuincenaLine(shift, "motos", i, `Motorizado ${i + 1}`);
+    rows += slotQuincenaLine(shift, "motos", i);
   });
-  if (!rows) rows = `<tr><td colspan="6" class="c muted">Sin empleados asignados en plantilla</td></tr>`;
+  if (!rows) rows = `<tr><td colspan="6" class="c muted">Sin puestos con nombre en plantilla</td></tr>`;
   return `
     <h2>${escapeHtml(title)}</h2>
     <p class="meta">Gasto hoy (plantilla llena): <strong>${money(used)}</strong> · Quincena pendiente: <strong>${money(
@@ -475,7 +566,7 @@ function buildShiftPrintBlock(shift, title) {
   )}</strong> · Adelantado: <strong>${money(q.adelantado)}</strong></p>
     <table class="pt">
       <thead><tr>
-        <th>Puesto</th><th>Empleado</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
+        <th>#</th><th>Nombre del puesto</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
       </tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr>
@@ -506,7 +597,7 @@ function buildPresupuestoPrintHtml() {
     <div class="totals">
       <p><strong>Total pendiente de pago</strong> (quincena): ${money(pendTotal)}</p>
       <p><strong>Total pagado adelantado</strong>: ${money(advTotal)}</p>
-      <p class="small">Feriado RD$ ${FERIADO_PAY} por empleado marcado. Día 31 no cuenta al mes.</p>
+      <p class="small">Feriado RD$ ${FERIADO_PAY} por puesto marcado. Día 31 no cuenta al mes.</p>
     </div>
     <p class="small foot">Generado ${new Date().toLocaleString("es-DO")} · App presupuesto Monorriel (local)</p>`;
 }
@@ -783,6 +874,9 @@ function bindUi() {
           noche: migrateShift(parsed.noche, "noche"),
         };
         state.roster = migrateRoster(state);
+        const meta = ensureRosterMeta(state);
+        state.rosterLast = meta.rosterLast;
+        state.rosterHistory = meta.rosterHistory;
         saveState();
         document.getElementById("workDate").value = state.date;
         document.getElementById("daysDiaQ").value = state.daysDiaQ;
