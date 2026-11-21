@@ -5,6 +5,9 @@ App operativa de Reaction Force Security (mapa, turnos, reportes, finanzas y adm
 ## Enlace
 https://tropicalhuracan-tech.github.io/reaction-force-ops/
 
+### Monorriel presupuesto (aparte)
+https://tropicalhuracan-tech.github.io/reaction-force-ops/monorriel-presupuesto/ — ver `monorriel-presupuesto/INSTALAR.md`.
+
 ## Instalar en PC
 Abre el enlace en Chrome/Edge → Instalar aplicación.
 
