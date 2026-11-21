@@ -354,6 +354,62 @@ function slotRate(shift, kind) {
   return kind === "motos" ? r.motoPay : r.puestoPay;
 }
 
+/** Totales del empleado en esta quincena según días del reporte y días rojos (adelantado). */
+function computeSlotQuincenaTotals(shift, kind, idx) {
+  if (!employeeName(shift, kind, idx)) return null;
+  const slot = state[shift][kind][idx];
+  const rate = slotRate(shift, kind);
+  const workDays = shiftWorkDays(shift);
+  const days = quincenaDayNumbers().slice(0, workDays);
+  let adelantado = 0;
+  let pendiente = 0;
+  let daysPaid = 0;
+  let daysPending = 0;
+  const paidList = [];
+  days.forEach((dayNum) => {
+    const key = String(dayNum);
+    if (slot.paidDays[key]) {
+      adelantado += rate;
+      daysPaid += 1;
+      paidList.push(dayNum);
+    } else {
+      pendiente += rate;
+      daysPending += 1;
+    }
+  });
+  const feriadoOn = !!state[shift].feriadoQuincena && slot.feriado;
+  const feriado = feriadoOn ? FERIADO_PAY : 0;
+  pendiente += feriado;
+  return {
+    total: adelantado + pendiente,
+    adelantado,
+    pendiente,
+    feriado,
+    feriadoOn,
+    daysPaid,
+    daysPending,
+    dayCount: days.length,
+    paidList,
+  };
+}
+
+function renderEmployeeEarningsSummary(shift, kind, idx) {
+  const t = computeSlotQuincenaTotals(shift, kind, idx);
+  if (!t || !t.dayCount) {
+    return `<span class="employee-earnings muted">Sin días en el reporte</span>`;
+  }
+  const title = `Quincena: ${t.dayCount} día(s) · ${t.daysPaid} pagado adelantado · ${t.daysPending} pendiente${
+    t.feriadoOn ? ` · feriado ${money(t.feriado)}` : ""
+  }`;
+  return `<span class="employee-earnings" title="${escapeAttr(title)}">
+    <span class="earn-total">Ganado ${money(t.total)}</span>
+    <span class="earn-sep">·</span>
+    <span class="earn-paid">Pagado ${money(t.adelantado)}</span>
+    <span class="earn-sep">·</span>
+    <span class="earn-rest">Resta ${money(t.pendiente)}</span>
+  </span>`;
+}
+
 function computeShiftQuincena(shift) {
   const slots = state[shift];
   const workDays = shiftWorkDays(shift);
@@ -364,14 +420,12 @@ function computeShiftQuincena(shift) {
   const feriadoOn = !!slots.feriadoQuincena;
 
   function walk(list, kind) {
-    const rate = slotRate(shift, kind);
-    list.forEach((slot, idx) => {
-      if (!employeeName(shift, kind, idx)) return;
-      days.forEach((dayNum) => {
-        if (slot.paidDays[String(dayNum)]) adelantado += rate;
-        else pendiente += rate;
-      });
-      if (feriadoOn && slot.feriado) feriado += FERIADO_PAY;
+    list.forEach((_, idx) => {
+      const t = computeSlotQuincenaTotals(shift, kind, idx);
+      if (!t) return;
+      adelantado += t.adelantado;
+      pendiente += t.pendiente;
+      if (t.feriadoOn) feriado += t.feriado;
     });
   }
   walk(slots.puestos, "puestos");
@@ -469,6 +523,7 @@ function renderEmployeeBlock(shift, kind, idx) {
     <span class="employee-label">Empleado</span>
     <strong class="employee-name">${escapeText(ename)}</strong>
     <button type="button" class="btn-icon btn-emp-edit" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Cambiar empleado" aria-label="Editar empleado">✎</button>
+    ${renderEmployeeEarningsSummary(shift, kind, idx)}
   </div>`;
 }
 
@@ -675,31 +730,18 @@ function slotQuincenaLine(shift, kind, idx) {
   const puesto = rosterName(shift, kind, idx);
   const emp = employeeName(shift, kind, idx);
   if (!emp) return "";
-  const slot = state[shift][kind][idx];
-  const rate = slotRate(shift, kind);
-  const workDays = shiftWorkDays(shift);
-  const days = quincenaDayNumbers().slice(0, workDays);
-  let pendiente = 0;
-  let adelantado = 0;
-  const paidList = [];
-  days.forEach((d) => {
-    if (slot.paidDays[String(d)]) {
-      adelantado += rate;
-      paidList.push(d);
-    } else pendiente += rate;
-  });
-  const feriadoOn = !!state[shift].feriadoQuincena && slot.feriado;
-  const feriado = feriadoOn ? FERIADO_PAY : 0;
-  pendiente += feriado;
-  const paidTxt = paidList.length ? paidList.join(", ") : "—";
+  const t = computeSlotQuincenaTotals(shift, kind, idx);
+  if (!t) return "";
+  const paidTxt = t.paidList.length ? t.paidList.join(", ") : "—";
   return `<tr>
     <td class="c">${idx + 1}</td>
     <td>${escapeHtml(puesto || "—")}</td>
     <td>${escapeHtml(emp)}</td>
-    <td class="c">${feriadoOn ? "Sí" : "—"}</td>
+    <td class="c">${t.feriadoOn ? "Sí" : "—"}</td>
     <td class="c">${paidTxt}</td>
-    <td class="n">${money(pendiente)}</td>
-    <td class="n adv">${money(adelantado)}</td>
+    <td class="n">${money(t.total)}</td>
+    <td class="n adv">${money(t.adelantado)}</td>
+    <td class="n">${money(t.pendiente)}</td>
   </tr>`;
 }
 
@@ -714,7 +756,7 @@ function buildShiftPrintBlock(shift, title) {
   state[shift].motos.forEach((_, i) => {
     rows += slotQuincenaLine(shift, "motos", i);
   });
-  if (!rows) rows = `<tr><td colspan="7" class="c muted">Sin filas con empleado asignado</td></tr>`;
+  if (!rows) rows = `<tr><td colspan="8" class="c muted">Sin filas con empleado asignado</td></tr>`;
   return `
     <h2>${escapeHtml(title)}</h2>
     <p class="meta">Gasto hoy (plantilla llena): <strong>${money(used)}</strong> · Quincena pendiente: <strong>${money(
@@ -722,13 +764,14 @@ function buildShiftPrintBlock(shift, title) {
   )}</strong> · Adelantado: <strong>${money(q.adelantado)}</strong></p>
     <table class="pt">
       <thead><tr>
-        <th>#</th><th>Puesto</th><th>Empleado</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
+        <th>#</th><th>Puesto</th><th>Empleado</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Ganado</th><th>Pagado</th><th>Resta</th>
       </tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr>
         <td colspan="5" class="r"><strong>Subtotal ${escapeHtml(title)}</strong></td>
-        <td class="n"><strong>${money(q.pendiente + q.feriado)}</strong></td>
+        <td class="n"><strong>${money(q.total)}</strong></td>
         <td class="n adv"><strong>${money(q.adelantado)}</strong></td>
+        <td class="n"><strong>${money(q.pendiente + q.feriado)}</strong></td>
       </tr></tfoot>
     </table>`;
 }
@@ -911,8 +954,8 @@ function printAndSharePresupuesto() {
       table.pt{width:100%;border-collapse:collapse;margin-bottom:8px}
       table.pt th,table.pt td{border:1px solid #ccc;padding:4px 5px;text-align:left}
       table.pt th{background:#f3f4f6;font-size:10px}
-      table.pt td.c,table.pt th:nth-child(3),table.pt th:nth-child(4){text-align:center}
-      table.pt td.n,table.pt th:nth-child(5),table.pt th:nth-child(6){text-align:right;white-space:nowrap}
+      table.pt td.c,table.pt th:nth-child(3),table.pt th:nth-child(4),table.pt th:nth-child(5){text-align:center}
+      table.pt td.n,table.pt th:nth-child(6),table.pt th:nth-child(7),table.pt th:nth-child(8){text-align:right;white-space:nowrap}
       table.pt td.adv{color:#b91c1c}
       table.pt tfoot td.r{text-align:right}
       .totals{background:#fef3c7;border:1px solid #f59e0b;padding:10px;border-radius:6px;margin-top:12px}

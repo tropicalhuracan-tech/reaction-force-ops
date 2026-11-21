@@ -272,8 +272,43 @@ select {
   font-size: 0.95rem;
   color: #e8eaed;
   font-weight: 700;
-  flex: 1;
-  min-width: 120px;
+  flex: 0 1 auto;
+  min-width: 100px;
+  max-width: 42%;
+}
+.employee-earnings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: right;
+  max-width: 100%;
+}
+.employee-earnings .earn-sep {
+  color: #4b5563;
+  font-weight: 400;
+}
+.employee-earnings .earn-total {
+  color: #fbbf24;
+}
+.employee-earnings .earn-paid {
+  color: #f87171;
+}
+.employee-earnings .earn-rest {
+  color: #86efac;
+}
+@media (max-width: 520px) {
+  .employee-earnings {
+    flex-basis: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+    padding-top: 4px;
+    border-top: 1px solid #3d4a5c;
+  }
 }
 .employee-input {
   flex: 1;
