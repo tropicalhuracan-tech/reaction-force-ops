@@ -250,6 +250,35 @@ select {
   color: #fbbf24;
   font-weight: 800;
 }
+.employee-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  background: #1c2430;
+  border-radius: 8px;
+  border: 1px solid #3d4a5c;
+}
+.employee-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #9aa3af;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.employee-name {
+  font-size: 0.95rem;
+  color: #e8eaed;
+  font-weight: 700;
+  flex: 1;
+  min-width: 120px;
+}
+.employee-input {
+  flex: 1;
+  min-width: 140px;
+}
 .roster-input {
   flex: 1;
   min-width: 140px;

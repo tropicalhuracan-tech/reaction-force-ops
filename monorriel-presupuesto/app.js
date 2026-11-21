@@ -2,6 +2,8 @@ const STORAGE_KEY = "rfs-monorriel-presupuesto-v2";
 const FERIADO_PAY = 800;
 /** Keys "dia:puestos:0" while the roster name field is open */
 const nameEditKeys = new Set();
+/** Keys "dia:puestos:0" while the employee name field is open */
+const employeeEditKeys = new Set();
 
 const RATES = {
   dia: { puestos: 23, puestoPay: 1000, motos: 3, motoPay: 1153 },
@@ -14,7 +16,7 @@ function money(n) {
 }
 
 function emptySlot() {
-  return { paidDays: {}, feriado: false };
+  return { employee: "", paidDays: {}, feriado: false };
 }
 
 function emptyRosterShift(shift) {
@@ -46,6 +48,21 @@ function rosterName(shift, kind, idx) {
 
 function setRosterName(shift, kind, idx, value) {
   state.roster[shift][kind][idx] = String(value || "").trim();
+}
+
+function employeeEditKey(shift, kind, idx) {
+  return `${shift}:${kind}:${idx}`;
+}
+
+function employeeName(shift, kind, idx) {
+  const slot = state[shift]?.[kind]?.[idx];
+  if (!slot) return "";
+  return String(slot.employee ?? slot.name ?? "").trim();
+}
+
+function setEmployeeName(shift, kind, idx, value) {
+  if (!state[shift]?.[kind]?.[idx]) return;
+  state[shift][kind][idx].employee = String(value || "").trim();
 }
 
 function emptyRosterHistorySlots(shift) {
@@ -165,11 +182,15 @@ function shiftMaxBudget(shift) {
 function normalizeSlot(raw) {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     return {
+      employee: String(raw.employee ?? "").trim(),
       paidDays: raw.paidDays && typeof raw.paidDays === "object" ? { ...raw.paidDays } : {},
       feriado: !!raw.feriado,
     };
   }
-  return { paidDays: {}, feriado: false };
+  if (typeof raw === "string") {
+    return { employee: String(raw || "").trim(), paidDays: {}, feriado: false };
+  }
+  return emptySlot();
 }
 
 function ensureSlots(arr, len) {
@@ -256,10 +277,10 @@ function usedBudgetToday(shift) {
   const slots = state[shift];
   let u = 0;
   slots.puestos.forEach((_, i) => {
-    if (rosterName(shift, "puestos", i)) u += r.puestoPay;
+    if (employeeName(shift, "puestos", i)) u += r.puestoPay;
   });
   slots.motos.forEach((_, i) => {
-    if (rosterName(shift, "motos", i)) u += r.motoPay;
+    if (employeeName(shift, "motos", i)) u += r.motoPay;
   });
   return u;
 }
@@ -281,7 +302,7 @@ function computeShiftQuincena(shift) {
   function walk(list, kind) {
     const rate = slotRate(shift, kind);
     list.forEach((slot, idx) => {
-      if (!rosterName(shift, kind, idx)) return;
+      if (!employeeName(shift, kind, idx)) return;
       days.forEach((dayNum) => {
         if (slot.paidDays[String(dayNum)]) adelantado += rate;
         else pendiente += rate;
@@ -302,14 +323,14 @@ function renderRates() {
     <div class="stat"><span>Turno día (23×1,000 + 3×1,153)</span><div class="val">${money(diaMax)}</div><span class="hint">por día al límite</span></div>
     <div class="stat"><span>Turno noche (24×1,040 + 3×1,153)</span><div class="val">${money(nocheMax)}</div><span class="hint">por día al límite</span></div>
     <div class="stat"><span>Día + noche mismo día</span><div class="val">${money(both)}</div><span class="hint">tope si operan ambos</span></div>
-    <div class="stat"><span>Feriado quincena (por puesto)</span><div class="val">${money(FERIADO_PAY)}</div><span class="hint">si marca feriado en la fila</span></div>
+    <div class="stat"><span>Feriado quincena (por empleado)</span><div class="val">${money(FERIADO_PAY)}</div><span class="hint">si marca feriado en la fila</span></div>
     <div class="stat"><span>Quincena 15 días (tope)</span><div class="val">${money(diaMax * 15)} / ${money(nocheMax * 15)}</div></div>
     <div class="stat"><span>Mes 30 días (sin 31)</span><div class="val">${money(both * 30)}</div></div>
   `;
 }
 
 function renderDayGrid(shift, kind, idx, slot) {
-  if (!rosterName(shift, kind, idx)) return "";
+  if (!employeeName(shift, kind, idx)) return "";
   const days = quincenaDayNumbers();
   const work = shiftWorkDays(shift);
   const cells = days
@@ -362,6 +383,40 @@ function finishRosterEdit(shift, kind, idx, inputEl) {
   renderProjection();
 }
 
+function renderEmployeeBlock(shift, kind, idx) {
+  const ename = employeeName(shift, kind, idx);
+  const key = employeeEditKey(shift, kind, idx);
+  const editing = employeeEditKeys.has(key) || !ename;
+  const puesto = rosterName(shift, kind, idx);
+  const placeholder = puesto
+    ? `Empleado en ${puesto} (hoy)`
+    : kind === "motos"
+      ? "Nombre del motorizado (hoy)"
+      : "Nombre del empleado (hoy)";
+  if (editing) {
+    return `<div class="employee-row editing">
+      <span class="employee-label">Empleado</span>
+      <input type="text" class="employee-input" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" value="${escapeAttr(
+      ename
+    )}" placeholder="${escapeAttr(placeholder)}" />
+      <button type="button" class="btn-icon btn-emp-done" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Guardar empleado">✓</button>
+    </div>`;
+  }
+  return `<div class="employee-row">
+    <span class="employee-label">Empleado</span>
+    <strong class="employee-name">${escapeText(ename)}</strong>
+    <button type="button" class="btn-icon btn-emp-edit" data-shift="${shift}" data-kind="${kind}" data-idx="${idx}" title="Cambiar empleado" aria-label="Editar empleado">✎</button>
+  </div>`;
+}
+
+function finishEmployeeEdit(shift, kind, idx, inputEl) {
+  setEmployeeName(shift, kind, idx, inputEl ? inputEl.value : employeeName(shift, kind, idx));
+  employeeEditKeys.delete(employeeEditKey(shift, kind, idx));
+  saveState();
+  renderShift(shift);
+  renderProjection();
+}
+
 function bindRosterUi(panel, shift) {
   panel.querySelectorAll(".btn-edit").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -395,6 +450,39 @@ function bindRosterUi(panel, shift) {
   });
 }
 
+function bindEmployeeUi(panel, shift) {
+  panel.querySelectorAll(".btn-emp-edit").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      employeeEditKeys.add(employeeEditKey(btn.dataset.shift, btn.dataset.kind, Number(btn.dataset.idx)));
+      renderShift(shift);
+    });
+  });
+  panel.querySelectorAll(".btn-emp-done").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const inp = panel.querySelector(
+        `.employee-input[data-shift="${btn.dataset.shift}"][data-kind="${btn.dataset.kind}"][data-idx="${btn.dataset.idx}"]`
+      );
+      finishEmployeeEdit(btn.dataset.shift, btn.dataset.kind, Number(btn.dataset.idx), inp);
+    });
+  });
+  panel.querySelectorAll(".employee-input").forEach((inp) => {
+    const commit = () => finishEmployeeEdit(inp.dataset.shift, inp.dataset.kind, Number(inp.dataset.idx), inp);
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commit();
+      }
+      if (e.key === "Escape") {
+        employeeEditKeys.delete(employeeEditKey(inp.dataset.shift, inp.dataset.kind, Number(inp.dataset.idx)));
+        renderShift(shift);
+      }
+    });
+    inp.addEventListener("blur", () => {
+      setTimeout(() => commit(), 120);
+    });
+  });
+}
+
 function renderShift(shift) {
   const panel = document.getElementById(shift === "dia" ? "panelDia" : "panelNoche");
   const r = RATES[shift];
@@ -404,17 +492,17 @@ function renderShift(shift) {
   const left = maxShift - used;
   const q = computeShiftQuincena(shift);
   const title = shift === "dia" ? "Turno de día" : "Turno de noche";
-  const feriadoLabel = slots.feriadoQuincena ? "Quitar feriado quincena" : `Feriado quincena (RD$ ${FERIADO_PAY} por puesto marcado)`;
+  const feriadoLabel = slots.feriadoQuincena ? "Quitar feriado quincena" : `Feriado quincena (RD$ ${FERIADO_PAY} por empleado marcado)`;
 
   let html = `
     <h2>${title}</h2>
     <div class="toolbar">
       <button type="button" class="btn secondary btn-feriado" data-shift="${shift}">${feriadoLabel}</button>
-      <span class="muted toolbar-hint">Nombre del <strong>puesto</strong> (no por día): se guarda en esta PC. ✎ para cambiar; al escribir sugiere el último de esa casilla. Doble clic en un día = pagado adelantado.</span>
+      <span class="muted toolbar-hint">Arriba: <strong>puesto fijo</strong> (guardado en esta PC). Debajo: <strong>empleado del día</strong>. El presupuesto cuenta solo filas con empleado. Doble clic en un día = pagado adelantado.</span>
     </div>
     <div class="budget-bar">
       <div><span>Presupuesto del día (lista)</span><strong>${money(maxShift)}</strong></div>
-      <div><span>Gasto hoy (puestos con nombre)</span><strong>${money(used)}</strong></div>
+      <div><span>Gasto hoy (con empleado)</span><strong>${money(used)}</strong></div>
       <div><span>Disponible hoy</span><strong class="${left < 0 ? "over" : "ok"}">${money(left)}</strong></div>
       <div><span>Quincena pendiente</span><strong>${money(q.pendiente + q.feriado)}</strong></div>
       <div><span>Pagado adelantado</span><strong class="paid-adv">${money(q.adelantado)}</strong></div>
@@ -423,18 +511,19 @@ function renderShift(shift) {
     <div class="slot-grid wide">
   `;
   slots.puestos.forEach((slot, i) => {
-    const pname = rosterName(shift, "puestos", i);
+    const ename = employeeName(shift, "puestos", i);
     html += `<div class="slot slot-wide">
       <div class="slot-head">
         ${renderNameBlock(shift, "puestos", i)}
         ${
-          pname && slots.feriadoQuincena
+          ename && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="puestos" data-idx="${i}" data-f="feriado"${
                 slot.feriado ? " checked" : ""
               } /> Feriado</label>`
             : ""
         }
       </div>
+      ${renderEmployeeBlock(shift, "puestos", i)}
       ${renderDayGrid(shift, "puestos", i, slot)}
     </div>`;
   });
@@ -442,18 +531,19 @@ function renderShift(shift) {
     <h3 class="section-title">Motorizados (${r.motos} × ${money(r.motoPay)})</h3>
     <div class="slot-grid wide">`;
   slots.motos.forEach((slot, i) => {
-    const mname = rosterName(shift, "motos", i);
+    const ename = employeeName(shift, "motos", i);
     html += `<div class="slot slot-wide moto">
       <div class="slot-head">
         ${renderNameBlock(shift, "motos", i)}
         ${
-          mname && slots.feriadoQuincena
+          ename && slots.feriadoQuincena
             ? `<label class="feriado-chk"><input type="checkbox" data-shift="${shift}" data-kind="motos" data-idx="${i}" data-f="feriado"${
                 slot.feriado ? " checked" : ""
               } /> Feriado</label>`
             : ""
         }
       </div>
+      ${renderEmployeeBlock(shift, "motos", i)}
       ${renderDayGrid(shift, "motos", i, slot)}
     </div>`;
   });
@@ -461,6 +551,7 @@ function renderShift(shift) {
   panel.innerHTML = html;
 
   bindRosterUi(panel, shift);
+  bindEmployeeUi(panel, shift);
 
   panel.querySelectorAll("input[data-f='feriado']").forEach((inp) => {
     inp.addEventListener("change", () => {
@@ -518,8 +609,10 @@ function escapeHtml(s) {
 }
 
 function slotQuincenaLine(shift, kind, idx) {
-  const name = rosterName(shift, kind, idx);
-  if (!name) return "";
+  const puesto = rosterName(shift, kind, idx);
+  const emp = employeeName(shift, kind, idx);
+  if (!emp) return "";
+  const name = puesto ? `${puesto} — ${emp}` : emp;
   const slot = state[shift][kind][idx];
   const rate = slotRate(shift, kind);
   const workDays = shiftWorkDays(shift);
@@ -558,7 +651,7 @@ function buildShiftPrintBlock(shift, title) {
   state[shift].motos.forEach((_, i) => {
     rows += slotQuincenaLine(shift, "motos", i);
   });
-  if (!rows) rows = `<tr><td colspan="6" class="c muted">Sin puestos con nombre en plantilla</td></tr>`;
+  if (!rows) rows = `<tr><td colspan="6" class="c muted">Sin filas con empleado asignado</td></tr>`;
   return `
     <h2>${escapeHtml(title)}</h2>
     <p class="meta">Gasto hoy (plantilla llena): <strong>${money(used)}</strong> · Quincena pendiente: <strong>${money(
@@ -566,7 +659,7 @@ function buildShiftPrintBlock(shift, title) {
   )}</strong> · Adelantado: <strong>${money(q.adelantado)}</strong></p>
     <table class="pt">
       <thead><tr>
-        <th>#</th><th>Nombre del puesto</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
+        <th>#</th><th>Puesto · empleado</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
       </tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr>
@@ -895,7 +988,7 @@ function bindUi() {
 
   document.getElementById("btnClear").addEventListener("click", () => {
     const active = document.querySelector(".tab.active").dataset.tab;
-    if (!confirm(`¿Quitar feriado y días pagados del turno ${active}? (Los nombres de puesto no se borran.)`)) return;
+    if (!confirm(`¿Quitar feriado, empleados y días pagados del turno ${active}? (Los puestos fijos no se borran.)`)) return;
     state[active] = emptyShiftState(active);
     saveState();
     renderShift(active);
