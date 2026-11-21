@@ -422,6 +422,263 @@ function escapeAttr(s) {
     .replace(/</g, "&lt;");
 }
 
+function escapeHtml(s) {
+  return escapeAttr(s);
+}
+
+function slotQuincenaLine(shift, kind, idx, label) {
+  const name = rosterName(shift, kind, idx);
+  if (!name) return "";
+  const slot = state[shift][kind][idx];
+  const rate = slotRate(shift, kind);
+  const workDays = shiftWorkDays(shift);
+  const days = quincenaDayNumbers().slice(0, workDays);
+  let pendiente = 0;
+  let adelantado = 0;
+  const paidList = [];
+  days.forEach((d) => {
+    if (slot.paidDays[String(d)]) {
+      adelantado += rate;
+      paidList.push(d);
+    } else pendiente += rate;
+  });
+  const feriadoOn = !!state[shift].feriadoQuincena && slot.feriado;
+  const feriado = feriadoOn ? FERIADO_PAY : 0;
+  pendiente += feriado;
+  const paidTxt = paidList.length ? paidList.join(", ") : "—";
+  return `<tr>
+    <td>${escapeHtml(label)}</td>
+    <td>${escapeHtml(name)}</td>
+    <td class="c">${feriadoOn ? "Sí" : "—"}</td>
+    <td class="c">${paidTxt}</td>
+    <td class="n">${money(pendiente)}</td>
+    <td class="n adv">${money(adelantado)}</td>
+  </tr>`;
+}
+
+function buildShiftPrintBlock(shift, title) {
+  const r = RATES[shift];
+  const q = computeShiftQuincena(shift);
+  const used = usedBudgetToday(shift);
+  let rows = "";
+  state[shift].puestos.forEach((_, i) => {
+    rows += slotQuincenaLine(shift, "puestos", i, `Puesto ${i + 1}`);
+  });
+  state[shift].motos.forEach((_, i) => {
+    rows += slotQuincenaLine(shift, "motos", i, `Motorizado ${i + 1}`);
+  });
+  if (!rows) rows = `<tr><td colspan="6" class="c muted">Sin empleados asignados en plantilla</td></tr>`;
+  return `
+    <h2>${escapeHtml(title)}</h2>
+    <p class="meta">Gasto hoy (plantilla llena): <strong>${money(used)}</strong> · Quincena pendiente: <strong>${money(
+    q.pendiente + q.feriado
+  )}</strong> · Adelantado: <strong>${money(q.adelantado)}</strong></p>
+    <table class="pt">
+      <thead><tr>
+        <th>Puesto</th><th>Empleado</th><th>Feriado</th><th>Días adelant. (nº)</th><th>Pendiente</th><th>Adelantado</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr>
+        <td colspan="4" class="r"><strong>Subtotal ${escapeHtml(title)}</strong></td>
+        <td class="n"><strong>${money(q.pendiente + q.feriado)}</strong></td>
+        <td class="n adv"><strong>${money(q.adelantado)}</strong></td>
+      </tr></tfoot>
+    </table>`;
+}
+
+function buildPresupuestoPrintHtml() {
+  const diaQ = computeShiftQuincena("dia");
+  const nocheQ = computeShiftQuincena("noche");
+  const qLabel = state.quincena === 2 ? "16 – 30" : "01 – 15";
+  const fecha = state.date || new Date().toISOString().slice(0, 10);
+  const pendTotal = diaQ.pendiente + diaQ.feriado + nocheQ.pendiente + nocheQ.feriado;
+  const advTotal = diaQ.adelantado + nocheQ.adelantado;
+  return `
+    <div class="brand">
+      <h1>Reaction Force Security</h1>
+      <div>Monorriel — Control presupuesto</div>
+    </div>
+    <p class="meta"><strong>Fecha trabajo:</strong> ${escapeHtml(fecha)} · <strong>Quincena:</strong> ${escapeHtml(
+    qLabel
+  )} · Días contados: día ${shiftWorkDays("dia")}, noche ${shiftWorkDays("noche")}</p>
+    ${buildShiftPrintBlock("dia", "Turno día")}
+    ${buildShiftPrintBlock("noche", "Turno noche")}
+    <div class="totals">
+      <p><strong>Total pendiente de pago</strong> (quincena): ${money(pendTotal)}</p>
+      <p><strong>Total pagado adelantado</strong>: ${money(advTotal)}</p>
+      <p class="small">Feriado RD$ ${FERIADO_PAY} por empleado marcado. Día 31 no cuenta al mes.</p>
+    </div>
+    <p class="small foot">Generado ${new Date().toLocaleString("es-DO")} · App presupuesto Monorriel (local)</p>`;
+}
+
+function openPrintWindow(title, bodyHtml, options = {}) {
+  const share = (options && options.share) || {};
+  const win = window.open("", "_blank");
+  if (!win) {
+    alert("Permite ventanas emergentes para imprimir.");
+    return null;
+  }
+  const shareText = String(share.text || title || "");
+  const shareSubject = String(share.subject || title || "");
+  const fileName = String(share.fileName || "monorriel-presupuesto.pdf");
+  const extraCss = options && options.extraCss ? String(options.extraCss) : "";
+  win.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtml(title)}</title>
+  <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:22px;max-width:920px;margin:0 auto;font-size:11px;line-height:1.35}
+  .print-bar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#111;color:#fff;padding:12px;margin:-22px -22px 18px}
+  .print-bar button{padding:11px 14px;font-weight:800;border:0;border-radius:10px;cursor:pointer}
+  .btn-back{background:#fff;color:#111}.btn-print{background:#d41414;color:#fff}.btn-wa{background:#25d366;color:#053b1a}.btn-mail{background:#3b82f6;color:#fff}.btn-pdf{background:#f5f5f5;color:#111}
+  .status{font-size:12px;color:#fde68a;width:100%}
+  #rfsPrintRoot{background:#fff;color:#111}
+  @media print{.no-print{display:none!important}}
+  ${extraCss}</style></head><body>
+  <div class="print-bar no-print">
+    <button class="btn-back" id="btnPrintBack" type="button">← Volver</button>
+    <button class="btn-print" id="btnPrintNow" type="button">Imprimir</button>
+    <button class="btn-wa" id="btnPrintWhatsApp" type="button">WhatsApp PDF</button>
+    <button class="btn-mail" id="btnPrintEmail" type="button">Correo PDF</button>
+    <button class="btn-pdf" id="btnPrintPdf" type="button">Descargar PDF</button>
+    <div class="status" id="printShareStatus" hidden></div>
+  </div>
+  <div id="rfsPrintRoot">${bodyHtml}</div>
+  <script>
+    (function () {
+      var shareCfg = {
+        text: ${JSON.stringify(shareText)},
+        subject: ${JSON.stringify(shareSubject)},
+        fileName: ${JSON.stringify(fileName)}
+      };
+      function setStatus(msg) {
+        var el = document.getElementById("printShareStatus");
+        if (!el) return;
+        if (!msg) { el.hidden = true; el.textContent = ""; return; }
+        el.hidden = false;
+        el.textContent = msg;
+      }
+      function loadPdfLib() {
+        if (window.html2pdf) return Promise.resolve(window.html2pdf);
+        return new Promise(function (resolve, reject) {
+          var s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js";
+          s.onload = function () {
+            if (window.html2pdf) resolve(window.html2pdf);
+            else reject(new Error("html2pdf"));
+          };
+          s.onerror = function () { reject(new Error("cdn")); };
+          document.head.appendChild(s);
+        });
+      }
+      function makePdfBlob() {
+        var root = document.getElementById("rfsPrintRoot");
+        if (!root) return Promise.reject(new Error("root"));
+        return loadPdfLib().then(function (html2pdf) {
+          var opt = {
+            margin: [8, 8, 8, 8],
+            filename: shareCfg.fileName || "monorriel.pdf",
+            image: { type: "jpeg", quality: 0.92 },
+            html2canvas: { scale: 2, useCORS: true, logging: false },
+            jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+          };
+          return html2pdf().set(opt).from(root).outputPdf("blob");
+        });
+      }
+      function downloadBlob(blob, name) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = name || "monorriel.pdf";
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      }
+      function tryNativeShare(file) {
+        if (!navigator.share) return Promise.resolve(false);
+        var payload = { title: shareCfg.subject || shareCfg.text, text: shareCfg.text, files: [file] };
+        try {
+          if (navigator.canShare && !navigator.canShare(payload)) {
+            return navigator.share({ title: payload.title, text: payload.text }).then(function () { return true; });
+          }
+        } catch (e0) {}
+        return navigator.share(payload).then(function () { return true; }).catch(function (err) {
+          if (err && err.name === "AbortError") return true;
+          return false;
+        });
+      }
+      function sharePdf(mode) {
+        setStatus("Generando PDF…");
+        makePdfBlob().then(function (blob) {
+          var file = new File([blob], shareCfg.fileName || "monorriel.pdf", { type: "application/pdf" });
+          if (mode === "pdf") {
+            downloadBlob(blob, file.name);
+            setStatus("PDF descargado.");
+            return;
+          }
+          return tryNativeShare(file).then(function (ok) {
+            if (ok) {
+              setStatus(mode === "wa" ? "Elige WhatsApp en el menú." : "Elige Correo / Gmail en el menú.");
+              return;
+            }
+            downloadBlob(blob, file.name);
+            if (mode === "wa") {
+              window.open("https://wa.me/?text=" + encodeURIComponent(shareCfg.text || ""), "_blank");
+              setStatus("PDF descargado. Adjúntalo en WhatsApp.");
+            } else {
+              window.location.href = "mailto:?subject=" + encodeURIComponent(shareCfg.subject || "") +
+                "&body=" + encodeURIComponent(shareCfg.text || "");
+              setStatus("PDF descargado. Adjúntalo al correo.");
+            }
+          });
+        }).catch(function () {
+          setStatus("No se pudo crear el PDF. Revisa conexión.");
+        });
+      }
+      document.getElementById("btnPrintBack").onclick = function () { try { window.close(); } catch (e) {} };
+      document.getElementById("btnPrintNow").onclick = function () { window.print(); };
+      document.getElementById("btnPrintWhatsApp").onclick = function () { sharePdf("wa"); };
+      document.getElementById("btnPrintEmail").onclick = function () { sharePdf("mail"); };
+      document.getElementById("btnPrintPdf").onclick = function () { sharePdf("pdf"); };
+    })();
+  <\/script></body></html>`);
+  win.document.close();
+  return win;
+}
+
+function printAndSharePresupuesto() {
+  saveState();
+  const qLabel = state.quincena === 2 ? "16-30" : "01-15";
+  const fecha = state.date || new Date().toISOString().slice(0, 10);
+  const diaQ = computeShiftQuincena("dia");
+  const nocheQ = computeShiftQuincena("noche");
+  const pend = diaQ.pendiente + diaQ.feriado + nocheQ.pendiente + nocheQ.feriado;
+  const title = `Monorriel presupuesto — ${fecha} · Q ${qLabel}`;
+  const text = `Monorriel presupuesto ${fecha} · Quincena ${qLabel}\nPendiente: ${money(pend)}\nAdelantado: ${money(diaQ.adelantado + nocheQ.adelantado)}\nReaction Force Security`;
+  openPrintWindow(title, buildPresupuestoPrintHtml(), {
+    share: {
+      subject: title,
+      text,
+      fileName: `monorriel-presupuesto-${fecha}-q${state.quincena}.pdf`,
+    },
+    extraCss: `
+      .brand{border-bottom:3px solid #d41414;padding-bottom:8px;margin-bottom:12px}
+      .brand h1{margin:0;font-size:18px;color:#d41414}
+      .meta{color:#444;margin:0 0 10px}
+      h2{font-size:14px;margin:16px 0 6px;color:#111}
+      table.pt{width:100%;border-collapse:collapse;margin-bottom:8px}
+      table.pt th,table.pt td{border:1px solid #ccc;padding:4px 5px;text-align:left}
+      table.pt th{background:#f3f4f6;font-size:10px}
+      table.pt td.c,table.pt th:nth-child(3),table.pt th:nth-child(4){text-align:center}
+      table.pt td.n,table.pt th:nth-child(5),table.pt th:nth-child(6){text-align:right;white-space:nowrap}
+      table.pt td.adv{color:#b91c1c}
+      table.pt tfoot td.r{text-align:right}
+      .totals{background:#fef3c7;border:1px solid #f59e0b;padding:10px;border-radius:6px;margin-top:12px}
+      .small{font-size:10px;color:#555}
+      .foot{margin-top:14px}
+      @media print{
+        .brand,.totals{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        table.pt td.adv{color:#b91c1c!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      }
+    `,
+  });
+}
+
 function renderProjection() {
   const diaToday = usedBudgetToday("dia");
   const nocheToday = usedBudgetToday("noche");
@@ -492,6 +749,8 @@ function bindUi() {
     saveState();
     alert("Guardado en este navegador.");
   });
+
+  document.getElementById("btnPrintShare").addEventListener("click", () => printAndSharePresupuesto());
 
   document.getElementById("btnExport").addEventListener("click", () => {
     saveState();
