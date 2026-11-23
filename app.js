@@ -59,8 +59,8 @@ function canSyncMonorrielQuincenaData() {
 }
 const MAX_GUARDS = 20;
 /** Build de esta App (subir en cada deploy). Candado anti-versión-vieja. */
-const APP_BUILD = 269;
-const APP_VERSION_LABEL = "v269";
+const APP_BUILD = 270;
+const APP_VERSION_LABEL = "v270";
 /** Por debajo de esto sí se bloquea; 240+ entra (nómina no se paraliza por caché). */
 const APP_ENTRY_MIN_BUILD = 240;
 const VERSION_GATE_OVERRIDE_KEY = "rfs-version-gate-override";
@@ -5027,20 +5027,32 @@ function rescueOwnerLogin(user, passTrimmed) {
   return found;
 }
 
-function tryAppLogin() {
-  const user = document.getElementById("loginUsername").value.trim().toLowerCase();
-  const pass = document.getElementById("loginPassword").value.trim();
+function showLoginFailure(message) {
+  const msg = message || "Usuario o clave incorrectos.";
   const error = document.getElementById("loginError");
+  if (error) {
+    error.textContent = msg;
+    error.hidden = false;
+  }
+  if (typeof toast === "function") toast(msg);
+}
+
+function tryAppLogin() {
+  const userEl = document.getElementById("loginUsername");
+  const passEl = document.getElementById("loginPassword");
+  const user = userEl ? String(userEl.value || "").trim().toLowerCase() : "";
+  const pass = passEl ? String(passEl.value || "").trim() : "";
   let found = appUsers.find((u) => u.active && u.username === user && userPasswordMatches(u, pass));
   if (!found) found = rescueOwnerLogin(user, pass);
   if (!found) {
-    if (error) error.hidden = false;
-    toast("Usuario o clave incorrectos.");
+    showLoginFailure();
     return;
   }
   completeAppLogin(found, "password");
   maybeOfferBiometricEnrollment(found);
 }
+
+window.RFS_tryAppLogin = tryAppLogin;
 
 /** Candado de versión: App vieja no entra a secciones ni guarda en la nube. */
 let appVersionBlocked = false;
@@ -14257,7 +14269,27 @@ function setupInstallPrompt() {
   });
 }
 
-function bindUi() {
+let loginUiBound = false;
+
+function bindLoginUi() {
+  if (loginUiBound) return;
+  loginUiBound = true;
+  document.getElementById("btnAppLogin")?.addEventListener("click", tryAppLogin);
+  document.getElementById("btnBiometricLogin")?.addEventListener("click", () => {
+    tryBiometricLogin();
+  });
+  document.getElementById("btnBiometricDisable")?.addEventListener("click", disableBiometricOnThisDevice);
+  document.getElementById("loginPassword")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryAppLogin();
+  });
+  document.getElementById("loginUsername")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryAppLogin();
+  });
+}
+
+window.bindLoginUi = bindLoginUi;
+
+function bindUiCore() {
   document.getElementById("btnBrandHome")?.addEventListener("click", () => {
     if (!currentUser) {
       switchView("loginView");
@@ -14432,18 +14464,6 @@ function bindUi() {
   bindMessagesUi();
   bindRadioUi();
 
-  document.getElementById("btnAppLogin").addEventListener("click", tryAppLogin);
-  document.getElementById("btnBiometricLogin")?.addEventListener("click", () => {
-    tryBiometricLogin();
-  });
-  document.getElementById("btnBiometricDisable")?.addEventListener("click", disableBiometricOnThisDevice);
-
-  document.getElementById("loginPassword").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") tryAppLogin();
-  });
-  document.getElementById("loginUsername").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") tryAppLogin();
-  });
   document.getElementById("btnLogoutUser").addEventListener("click", logoutAppUser);
   document.getElementById("btnRefreshApp")?.addEventListener("click", refreshAppShell);
   document.getElementById("btnForceAppUpdate")?.addEventListener("click", () => {
@@ -14467,6 +14487,15 @@ function bindUi() {
     input.type = hide ? "password" : "text";
     btn.textContent = hide ? "Mostrar" : "Ocultar";
   });
+}
+
+function bindUi() {
+  bindLoginUi();
+  try {
+    bindUiCore();
+  } catch (err) {
+    console.error("bindUiCore", err);
+  }
 }
 
 async function mergeImportedPosts() {
@@ -14501,6 +14530,7 @@ async function mergeImportedPosts() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  bindLoginUi();
   refreshAppVersionBadge().catch(() => {});
   // IMPORTANTE: nunca borrar datos del usuario
   posts = loadPreservingUserData(POSTS_KEY, LEGACY_POST_KEYS).map(normalizePost);

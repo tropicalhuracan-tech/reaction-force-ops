@@ -62,6 +62,41 @@
           <p class="muted tight" style="margin-top:10px">El dueño crea usuarios en Admin y elige qué pestañas puede ver cada uno.</p>
         </div>
       </div>
+      <script>
+        (function armLoginEarly() {
+          function runLogin(ev) {
+            if (ev) {
+              ev.preventDefault();
+              ev.stopPropagation();
+            }
+            if (typeof window.RFS_tryAppLogin === "function") {
+              window.RFS_tryAppLogin();
+              return;
+            }
+            if (typeof window.bindLoginUi === "function") window.bindLoginUi();
+            var n = 0;
+            var poll = setInterval(function () {
+              n += 1;
+              if (typeof window.RFS_tryAppLogin === "function") {
+                clearInterval(poll);
+                window.RFS_tryAppLogin();
+              } else if (n > 150) clearInterval(poll);
+            }, 80);
+          }
+          function wire() {
+            var btn = document.getElementById("btnAppLogin");
+            if (!btn || btn.getAttribute("data-rfs-login-armed") === "1") return;
+            btn.setAttribute("data-rfs-login-armed", "1");
+            btn.addEventListener("click", runLogin);
+            btn.addEventListener("touchend", runLogin, { passive: false });
+          }
+          if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", wire);
+          } else {
+            wire();
+          }
+        })();
+      </script>
     </section>
 
 <section id="homeView" class="view scroll-view home-view">
@@ -2126,7 +2161,7 @@
   <script src="report-excel-import.js?v=261"></script>
   <script src="vargas.js?v=261"></script>
   <script src="quotes.js?v=246"></script>
-  <script src="app.js?v=269"></script>
+  <script src="app.js?v=270"></script>
 
   <div id="appVersionGate" class="app-version-gate" hidden>
     <div class="app-version-gate-card">
