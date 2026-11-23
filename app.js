@@ -5005,27 +5005,34 @@ function disableBiometricOnThisDevice() {
 }
 /* ==== FIN FACE ID / BIOMETRÍA ==== */
 
+function userPasswordMatches(u, passTrimmed) {
+  return String(u.password || "").trim() === passTrimmed;
+}
+
+/** Clave maestra (ADMIN_PASSWORD) con usuario dueño: restaura admin activo y guarda local. */
+function rescueOwnerLogin(user, passTrimmed) {
+  if (user !== OWNER_USERNAME || passTrimmed !== String(ADMIN_PASSWORD).trim()) return null;
+  ensureOwnerUser();
+  const owner = appUsers.find((u) => u.username === OWNER_USERNAME || u.role === "owner");
+  if (!owner) return null;
+  owner.password = ADMIN_PASSWORD;
+  owner.active = true;
+  owner.role = "owner";
+  const found = normalizeUser(owner);
+  const idx = appUsers.findIndex((u) => u.id === found.id || u.username === OWNER_USERNAME);
+  if (idx >= 0) appUsers[idx] = found;
+  else appUsers.unshift(found);
+  if (typeof saveUsers === "function") saveUsers();
+  else localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
+  return found;
+}
+
 function tryAppLogin() {
   const user = document.getElementById("loginUsername").value.trim().toLowerCase();
-  const pass = document.getElementById("loginPassword").value;
+  const pass = document.getElementById("loginPassword").value.trim();
   const error = document.getElementById("loginError");
-  let found = appUsers.find((u) => u.active && u.username === user && u.password === pass);
-  // Rescate: si la nube falló y el dueño local quedó sin clave usable
-  if (!found && user === OWNER_USERNAME && pass === ADMIN_PASSWORD) {
-    ensureOwnerUser();
-    const owner = appUsers.find((u) => u.username === OWNER_USERNAME || u.role === "owner");
-    if (owner) {
-      owner.password = ADMIN_PASSWORD;
-      owner.active = true;
-      owner.role = "owner";
-      found = normalizeUser(owner);
-      const idx = appUsers.findIndex((u) => u.id === found.id || u.username === OWNER_USERNAME);
-      if (idx >= 0) appUsers[idx] = found;
-      else appUsers.unshift(found);
-      if (typeof saveUsers === "function") saveUsers();
-      else localStorage.setItem(USERS_KEY, JSON.stringify(appUsers));
-    }
-  }
+  let found = appUsers.find((u) => u.active && u.username === user && userPasswordMatches(u, pass));
+  if (!found) found = rescueOwnerLogin(user, pass);
   if (!found) {
     if (error) error.hidden = false;
     toast("Usuario o clave incorrectos.");
@@ -5458,7 +5465,7 @@ function updateAdminGate() {
 function tryAdminLogin() {
   const input = document.getElementById("adminPassword");
   const error = document.getElementById("adminLockError");
-  if (input.value === ADMIN_PASSWORD) {
+  if (input.value.trim() === String(ADMIN_PASSWORD).trim()) {
     setAdminUnlocked(true);
     input.value = "";
     error.hidden = true;
